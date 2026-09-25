@@ -11,12 +11,11 @@ import { OptionContract, OptionType } from './types/options';
 import { POPULAR_TICKERS } from './data/marketTickers';
 import { 
   Download, 
-  HelpCircle, 
-  ArrowUpDown, 
-  BarChart3, 
-  Sparkles, 
-  ShieldCheck, 
-  Clock 
+  Table2,
+  Zap,
+  BarChart3,
+  SlidersHorizontal,
+  Newspaper
 } from 'lucide-react';
 
 export default function App() {
@@ -42,6 +41,7 @@ export default function App() {
     dataSourceNote,
     syncLiveExchange,
     setManualSpotPrice,
+    setManualContractLtp,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,
@@ -170,7 +170,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-2.5 sm:px-6 py-3 sm:py-6 space-y-3.5 sm:space-y-6 pb-24 md:pb-8">
         {/* CE vs PE Recommendation Signal Card (Always prominent) */}
         <section aria-label="Trade Signal">
           <SignalCard
@@ -180,6 +180,7 @@ export default function App() {
             chain={chain}
             onSelectContractForSimulation={handleSelectContract}
             onSetManualSpotPrice={setManualSpotPrice}
+            onSetManualContractLtp={setManualContractLtp}
             onSyncLiveExchange={syncLiveExchange}
             isSyncing={isSyncing}
           />
@@ -229,6 +230,7 @@ export default function App() {
               recommendedType={signal.recommendedType}
               maxPainStrike={metrics.maxPainStrike}
               onSelectContract={handleSelectContract}
+              onSetManualContractLtp={setManualContractLtp}
             />
           </div>
         )}
@@ -345,23 +347,71 @@ export default function App() {
         onClose={() => setIsModalOpen(false)}
       />
 
-      {/* Institutional Terminal Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-950 py-4 px-4 sm:px-6 mt-auto">
-        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400 font-semibold">OptiPulse Terminal</span>
-            <span aria-hidden="true">·</span>
-            <span>Real-time Black-Scholes Greeks Engine</span>
-            <span aria-hidden="true">·</span>
-            <span>NSE / CBOE Format</span>
-          </div>
+      {/* Mobile Bottom Navigation Bar (Fixed for mobile trading experience) */}
+      <nav 
+        aria-label="Mobile Navigation"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 px-1.5 py-1 flex items-center justify-around shadow-2xl safe-area-bottom"
+      >
+        <button
+          onClick={() => setActiveView('chain')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'chain' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Table2 className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Chain</span>
+        </button>
 
-          <div className="flex items-center gap-4">
-            <span>Trading options carries risk of capital loss. Educational analytics terminal.</span>
-            <span className="font-mono text-slate-400">v2.4.0</span>
-          </div>
-        </div>
-      </footer>
+        <button
+          onClick={() => setActiveView('signals')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'signals' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Zap className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Signal</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('oi_map')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'oi_map' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <BarChart3 className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">OI Walls</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('strategy')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'strategy' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <SlidersHorizontal className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Payoff</span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('news')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'news' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Newspaper className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">News</span>
+        </button>
+      </nav>
     </div>
   );
 }

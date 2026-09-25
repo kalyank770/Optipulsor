@@ -211,8 +211,8 @@ export function generateTradeSignal(
     moneyness = contract.moneyness;
   }
 
-  // Real contract premium (LTP) directly from the recommended contract
-  const premium = contract?.ltp ?? (ticker.category === 'Index' ? 93.15 : 5.00);
+  // Real contract premium (LTP) directly from the recommended contract in the live chain
+  const premium = contract?.ltp ?? 50.00;
 
   // Exchange standard tick size (0.05 for Indian F&O, 0.01 for US)
   const tick = ticker.currency === '₹' ? 0.05 : 0.01;

@@ -4,12 +4,10 @@ import {
   TickerConfig 
 } from '../types/options';
 import { 
-  Filter, 
   SlidersHorizontal, 
   RotateCcw, 
   Search, 
   Calendar, 
-  Zap, 
   ChevronDown, 
   ChevronUp 
 } from 'lucide-react';
@@ -58,44 +56,43 @@ export const FilterBar: React.FC<FilterBarProps> = ({
     filters.searchQuery !== '';
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-3.5 mb-4">
-      {/* Primary Row: Expiry Date, Strike Range Presets, Moneyness, Search & Toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Expiry Selector */}
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="text-xs text-slate-400 font-medium">Expiry:</span>
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800 overflow-x-auto max-w-[280px] sm:max-w-md md:max-w-xl lg:max-w-2xl no-scrollbar">
-            {ticker.expiryDates.map((exp, idx) => {
-              const active = idx === expiryIndex;
-              return (
-                <button
-                  key={exp}
-                  onClick={() => onSelectExpiry(idx)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded whitespace-nowrap transition-colors cursor-pointer ${
-                    active
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  {exp}
-                </button>
-              );
-            })}
-          </div>
+    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 sm:p-3.5 mb-3 sm:mb-4">
+      {/* 1. Expiry Date Horizontal Scroll Carousel (Clean on both mobile & desktop) */}
+      <div className="flex items-center gap-2 pb-2.5 border-b border-slate-800/80">
+        <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
+        <span className="text-xs text-slate-400 font-semibold shrink-0">Expiry:</span>
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5">
+          {ticker.expiryDates.map((exp, idx) => {
+            const active = idx === expiryIndex;
+            return (
+              <button
+                key={exp}
+                onClick={() => onSelectExpiry(idx)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap transition-colors cursor-pointer min-h-[32px] shrink-0 ${
+                  active
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 font-bold shadow-sm'
+                    : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                {exp}
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Strike Range Preset */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-medium">Strikes:</span>
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800">
+      {/* 2. Secondary Row: Strike Range, Moneyness, Search & Filter Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Strike Range Selector */}
+          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800">
             {(['ATM_5', 'ATM_10', 'ATM_15', 'ALL'] as const).map(range => (
               <button
                 key={range}
                 onClick={() => setFilters(prev => ({ ...prev, strikeRange: range }))}
-                className={`px-2 py-1 text-xs font-mono rounded whitespace-nowrap transition-colors cursor-pointer ${
+                className={`px-2 py-1 text-xs font-mono rounded whitespace-nowrap transition-colors cursor-pointer min-h-[28px] ${
                   filters.strikeRange === range
-                    ? 'bg-slate-800 text-white font-semibold'
+                    ? 'bg-slate-800 text-white font-bold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -105,19 +102,16 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Moneyness Quick Filter */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-medium">Moneyness:</span>
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800">
+          {/* Moneyness Quick Filter */}
+          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800">
             {(['ALL', 'ITM', 'ATM', 'OTM'] as const).map(m => (
               <button
                 key={m}
                 onClick={() => setFilters(prev => ({ ...prev, moneynessFilter: m }))}
-                className={`px-2 py-1 text-xs font-medium rounded whitespace-nowrap transition-colors cursor-pointer ${
+                className={`px-2 py-1 text-xs font-semibold rounded whitespace-nowrap transition-colors cursor-pointer min-h-[28px] ${
                   filters.moneynessFilter === m
-                    ? 'bg-slate-800 text-white font-semibold'
+                    ? 'bg-slate-800 text-white font-bold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -127,37 +121,37 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </div>
         </div>
 
-        {/* Search Input & Volatility Expand button */}
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="relative">
+        {/* Search & Expand Tray */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="relative flex-1 sm:flex-initial">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search strike..."
               value={filters.searchQuery}
               onChange={e => setFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
-              className="bg-slate-950 border border-slate-800 text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:border-emerald-500/60 font-mono w-32 sm:w-40"
+              className="bg-slate-950 border border-slate-800 text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:border-emerald-500/60 font-mono w-full sm:w-36 min-h-[32px]"
             />
           </div>
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold border transition-colors cursor-pointer min-h-[32px] ${
               isExpanded || hasActiveCustomFilters
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                ? 'bg-slate-800 text-emerald-400 border-emerald-500/40'
+                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
             }`}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Volatility Filters</span>
-            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline">Greeks/IV</span>
+            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
 
           {hasActiveCustomFilters && (
             <button
               onClick={resetFilters}
               title="Reset all filters"
-              className="p-1.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -165,124 +159,69 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
       </div>
 
-      {/* Expanded Volatility & Precision Tuning Panel */}
+      {/* 3. Collapsible Advanced Tray: IV and Delta ranges */}
       {isExpanded && (
-        <div className="mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          {/* IV Range Slider */}
-          <div className="bg-slate-950/70 p-3 rounded border border-slate-800">
-            <div className="flex items-center justify-between text-slate-300 mb-2">
-              <span className="font-semibold flex items-center gap-1">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                Implied Volatility (IV) Range
-              </span>
-              <span className="font-mono text-emerald-400 font-bold">
-                {filters.minIV}% - {filters.maxIV}%
-              </span>
+        <div className="mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+          <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+            <div className="flex justify-between text-slate-400 font-semibold mb-1">
+              <span>Implied Volatility (IV):</span>
+              <span className="text-white font-mono">{filters.minIV}% - {filters.maxIV}%</span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-slate-500 block mb-1">Min IV (%)</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="50"
-                  step="1"
-                  value={filters.minIV}
-                  onChange={e => setFilters(prev => ({ ...prev, minIV: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-slate-500 block mb-1">Max IV (%)</label>
-                <input
-                  type="range"
-                  min="20"
-                  max="120"
-                  step="2"
-                  value={filters.maxIV}
-                  onChange={e => setFilters(prev => ({ ...prev, maxIV: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Delta Range Filter */}
-          <div className="bg-slate-950/70 p-3 rounded border border-slate-800">
-            <div className="flex items-center justify-between text-slate-300 mb-2">
-              <span className="font-semibold">Delta Threshold (Directional Edge)</span>
-              <span className="font-mono text-emerald-400 font-bold">
-                Δ {filters.minDelta.toFixed(2)} - {filters.maxDelta.toFixed(2)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-slate-500 block mb-1">Min Delta</label>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.50"
-                  step="0.05"
-                  value={filters.minDelta}
-                  onChange={e => setFilters(prev => ({ ...prev, minDelta: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-slate-500 block mb-1">Max Delta</label>
-                <input
-                  type="range"
-                  min="0.50"
-                  max="0.95"
-                  step="0.05"
-                  value={filters.maxDelta}
-                  onChange={e => setFilters(prev => ({ ...prev, maxDelta: Number(e.target.value) }))}
-                  className="w-full accent-emerald-500 cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Min Open Interest Liquidity Cutoff */}
-          <div className="bg-slate-950/70 p-3 rounded border border-slate-800">
-            <div className="flex items-center justify-between text-slate-300 mb-2">
-              <span className="font-semibold">Liquidity Filter (Min OI)</span>
-              <span className="font-mono text-emerald-400 font-bold">
-                {filters.minOpenInterest > 0 ? `≥ ${filters.minOpenInterest.toLocaleString()} contracts` : 'Off (Show All)'}
-              </span>
-            </div>
-            <div>
-              <label className="text-[11px] text-slate-500 block mb-1">
-                Discard illiquid tail strikes with low contract interest
-              </label>
+            <div className="flex items-center gap-2">
               <input
                 type="range"
                 min="0"
-                max={ticker.category === 'Index' ? 50000 : 10000}
-                step={ticker.category === 'Index' ? 2500 : 500}
-                value={filters.minOpenInterest}
-                onChange={e => setFilters(prev => ({ ...prev, minOpenInterest: Number(e.target.value) }))}
-                className="w-full accent-emerald-500 cursor-pointer"
+                max="50"
+                value={filters.minIV}
+                onChange={e => setFilters(prev => ({ ...prev, minIV: Number(e.target.value) }))}
+                className="w-full accent-emerald-500"
+              />
+              <input
+                type="range"
+                min="50"
+                max="100"
+                value={filters.maxIV}
+                onChange={e => setFilters(prev => ({ ...prev, maxIV: Number(e.target.value) }))}
+                className="w-full accent-emerald-500"
               />
             </div>
           </div>
+
+          <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+            <div className="flex justify-between text-slate-400 font-semibold mb-1">
+              <span>Delta Range (|Δ|):</span>
+              <span className="text-white font-mono">{filters.minDelta.toFixed(2)} - {filters.maxDelta.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.05"
+                value={filters.minDelta}
+                onChange={e => setFilters(prev => ({ ...prev, minDelta: Number(e.target.value) }))}
+                className="w-full accent-emerald-500"
+              />
+              <input
+                type="range"
+                min="0.5"
+                max="1"
+                step="0.05"
+                value={filters.maxDelta}
+                onChange={e => setFilters(prev => ({ ...prev, maxDelta: Number(e.target.value) }))}
+                className="w-full accent-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex items-center justify-between font-mono">
+            <span className="text-slate-400">Strikes Filtered:</span>
+            <span className="text-emerald-400 font-bold text-sm">
+              {filteredCount} / {totalCount}
+            </span>
+          </div>
         </div>
       )}
-
-      {/* Row count metadata */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-800/50">
-        <div className="flex items-center gap-2">
-          <span>Showing <strong className="text-white font-mono">{filteredCount}</strong> of <strong className="text-slate-300 font-mono">{totalCount}</strong> strikes</span>
-          <span className="text-slate-600">·</span>
-          <span>ATM Strike: <strong className="text-white font-mono">{ticker.currency}{ticker.atmStrike.toLocaleString()}</strong></span>
-          <span className="text-slate-600">·</span>
-          <span>Tick Step: <strong className="text-slate-300 font-mono">{ticker.strikeStep}</strong></span>
-        </div>
-
-        <div className="text-slate-500">
-          Click any Call or Put row to launch the Strategy & Payoff Simulator
-        </div>
-      </div>
     </div>
   );
 };

@@ -7,12 +7,14 @@ import {
   MarketMetrics, 
   TradeSignal,
   NewsItem,
-  BuildupType
+  BuildupType,
+  OptionType
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { calculateBlackScholes } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
+import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -80,24 +82,38 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const rawCeLtp = Number(ceBS.price.toFixed(2));
     const rawPeLtp = Number(peBS.price.toFixed(2));
     
-    // Dynamic Black-Scholes LTP rounded to 0.05 tick
-    const ceLtp = Number((Math.round(rawCeLtp * 20) / 20).toFixed(2));
-    const peLtp = Number((Math.round(rawPeLtp * 20) / 20).toFixed(2));
+    // Check official NSE India option chain lookup for authentic market quotes
+    const isNifty50 = isIndian && ticker.symbol === 'NIFTY 50';
+    const nseQuote = isNifty50 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
 
-    // Tight market spread (0.20 for Nifty, matching Kite terminal)
+    // Real exchange LTP from official NSE India book, or dynamic Black-Scholes
+    const ceLtp = nseQuote ? nseQuote.ceLtp : Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
+    const peLtp = nseQuote ? nseQuote.peLtp : Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
+
+    // Tight market spread
     const spread = isIndian ? 0.20 : 0.02;
     const halfSpread = spread / 2;
 
-    const ceBid = Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
-    const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
-    const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
-    const peAsk = Number((peLtp + halfSpread).toFixed(2));
+    const ceBid = nseQuote ? nseQuote.ceBid : Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
+    const ceAsk = nseQuote ? nseQuote.ceAsk : Number((ceLtp + halfSpread).toFixed(2));
+    const peBid = nseQuote ? nseQuote.peBid : Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
+    const peAsk = nseQuote ? nseQuote.peAsk : Number((peLtp + halfSpread).toFixed(2));
 
-    // Authentic previous close (112.50 for 23050 CE, 99.80 for 23050 PE)
-    const cePrevClose = isIndian && K === 23050 && ticker.symbol === 'NIFTY 50' ? 112.50 : Number((ceLtp * 1.06).toFixed(2));
-    const pePrevClose = isIndian && K === 23050 && ticker.symbol === 'NIFTY 50' ? 99.80 : Number((peLtp * 1.07).toFixed(2));
-    const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
-    const peChange = Number((peLtp - pePrevClose).toFixed(2));
+    // Dynamic previous close computed from reference previous session close
+    const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'CE');
+    const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'PE');
+    const cePrevClose = nseQuote ? Number((ceLtp - nseQuote.ceChange).toFixed(2)) : Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
+    const pePrevClose = nseQuote ? Number((peLtp - nseQuote.peChange).toFixed(2)) : Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
+
+    const ceChange = nseQuote ? nseQuote.ceChange : Number((ceLtp - cePrevClose).toFixed(2));
+    const peChange = nseQuote ? nseQuote.peChange : Number((peLtp - pePrevClose).toFixed(2));
+    const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
+    const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
+
+    const ceBidQty = nseQuote?.ceBidQty ?? 250;
+    const ceAskQty = nseQuote?.ceAskQty ?? 250;
+    const peBidQty = nseQuote?.peBidQty ?? 250;
+    const peAskQty = nseQuote?.peAskQty ?? 250;
 
     const ceContract: OptionContract = {
       strike: K,
@@ -107,14 +123,14 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       change: ceChange,
       changePercent: Number(((ceChange / cePrevClose) * 100).toFixed(2)),
       bidPrice: ceBid,
-      bidQty: 250,
+      bidQty: ceBidQty,
       askPrice: ceAsk,
-      askQty: 250,
+      askQty: ceAskQty,
       volume: ceVol,
       openInterest: ceOI,
       oiChange: ceChgOI,
       oiChangePercent: Number(((ceChgOI / Math.max(ceOI, 1)) * 100).toFixed(1)),
-      iv: ivPercent,
+      iv: nseQuote ? nseQuote.iv : ivPercent,
       greeks: {
         delta: ceBS.delta,
         gamma: ceBS.gamma,
@@ -134,14 +150,14 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       change: peChange,
       changePercent: Number(((peChange / pePrevClose) * 100).toFixed(2)),
       bidPrice: peBid,
-      bidQty: 250,
+      bidQty: peBidQty,
       askPrice: peAsk,
-      askQty: 250,
+      askQty: peAskQty,
       volume: peVol,
       openInterest: peOI,
       oiChange: peChgOI,
       oiChangePercent: Number(((peChgOI / Math.max(peOI, 1)) * 100).toFixed(1)),
-      iv: ivPercent,
+      iv: nseQuote ? nseQuote.iv : ivPercent,
       greeks: {
         delta: peBS.delta,
         gamma: peBS.gamma,
@@ -396,6 +412,59 @@ export function useLiveOptionChain() {
     setLastUpdated(new Date());
   };
 
+  // Manual contract LTP override (User edits/enters live broker quote e.g. from Zerodha Kite)
+  const setManualContractLtp = (strike: number, type: OptionType, customLtp: number) => {
+    if (!customLtp || isNaN(customLtp) || customLtp <= 0) return;
+    const tick = selectedTicker.currency === '₹' ? 0.05 : 0.01;
+    const roundedLtp = Number((Math.round(customLtp / tick) * tick).toFixed(2));
+    const halfSpread = selectedTicker.currency === '₹' ? 0.10 : 0.01;
+
+    setChain(prevChain => {
+      const updatedChain = prevChain.map(row => {
+        if (row.strike !== strike) return row;
+        if (type === 'CE') {
+          const prevClose = row.ce.prevClose || roundedLtp;
+          const change = Number((roundedLtp - prevClose).toFixed(2));
+          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+          return {
+            ...row,
+            ce: {
+              ...row.ce,
+              ltp: roundedLtp,
+              change,
+              changePercent,
+              bidPrice: Math.max(tick, Number((roundedLtp - halfSpread).toFixed(2))),
+              askPrice: Number((roundedLtp + halfSpread).toFixed(2)),
+            }
+          };
+        } else {
+          const prevClose = row.pe.prevClose || roundedLtp;
+          const change = Number((roundedLtp - prevClose).toFixed(2));
+          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+          return {
+            ...row,
+            pe: {
+              ...row.pe,
+              ltp: roundedLtp,
+              change,
+              changePercent,
+              bidPrice: Math.max(tick, Number((roundedLtp - halfSpread).toFixed(2))),
+              askPrice: Number((roundedLtp + halfSpread).toFixed(2)),
+            }
+          };
+        }
+      });
+
+      const updatedMetrics = computeMarketMetrics(selectedTicker, updatedChain);
+      setMetrics(updatedMetrics);
+      const updatedSignal = generateTradeSignal(selectedTicker, updatedMetrics, updatedChain, newsFeed);
+      setSignal(updatedSignal);
+      setLastUpdated(new Date());
+
+      return updatedChain;
+    });
+  };
+
   // Real-time live exchange poll: queries real exchange instead of synthetic random noise
   useEffect(() => {
     if (!isLiveActive) return;
@@ -495,6 +564,7 @@ export function useLiveOptionChain() {
     dataSourceNote,
     syncLiveExchange: () => fetchOptionChainFromBackend(selectedTicker, expiryIndex),
     setManualSpotPrice,
+    setManualContractLtp,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,

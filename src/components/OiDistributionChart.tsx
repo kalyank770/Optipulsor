@@ -141,11 +141,11 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
               }`}
             >
               {/* Left Bar: Call OI */}
-              <div className="flex-1 flex items-center justify-end gap-2">
-                <span className="text-[11px] text-slate-400 tabular-nums">
-                  {ceVal.toLocaleString()}
+              <div className="flex-1 flex items-center justify-end gap-1.5 sm:gap-2 min-w-0">
+                <span className="text-[10px] sm:text-[11px] text-slate-400 tabular-nums shrink-0">
+                  {ceVal >= 10000 ? `${(ceVal / 1000).toFixed(0)}k` : ceVal.toLocaleString()}
                 </span>
-                <div className="w-48 sm:w-64 h-4 bg-slate-950 rounded-sm overflow-hidden flex justify-end">
+                <div className="flex-1 max-w-[100px] sm:max-w-[220px] h-3.5 sm:h-4 bg-slate-950 rounded-sm overflow-hidden flex justify-end">
                   <div
                     className="h-full bg-emerald-500/80 rounded-l-sm transition-all duration-300"
                     style={{ width: `${ceWidth}%` }}
@@ -155,7 +155,7 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
               </div>
 
               {/* Center Strike Label */}
-              <div className="w-20 text-center font-bold text-xs shrink-0 flex items-center justify-center gap-1">
+              <div className="w-16 sm:w-20 text-center font-bold text-xs shrink-0 flex items-center justify-center gap-1">
                 <span className={isATM ? 'text-amber-300' : 'text-slate-200'}>
                   {row.strike.toLocaleString()}
                 </span>
@@ -177,16 +177,16 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
               </div>
 
               {/* Right Bar: Put OI */}
-              <div className="flex-1 flex items-center justify-start gap-2">
-                <div className="w-48 sm:w-64 h-4 bg-slate-950 rounded-sm overflow-hidden flex justify-start">
+              <div className="flex-1 flex items-center justify-start gap-1.5 sm:gap-2 min-w-0">
+                <div className="flex-1 max-w-[100px] sm:max-w-[220px] h-3.5 sm:h-4 bg-slate-950 rounded-sm overflow-hidden flex justify-start">
                   <div
                     className="h-full bg-rose-500/80 rounded-r-sm transition-all duration-300"
                     style={{ width: `${peWidth}%` }}
                     title={`Put OI: ${peVal.toLocaleString()}`}
                   />
                 </div>
-                <span className="text-[11px] text-slate-400 tabular-nums">
-                  {peVal.toLocaleString()}
+                <span className="text-[10px] sm:text-[11px] text-slate-400 tabular-nums shrink-0">
+                  {peVal >= 10000 ? `${(peVal / 1000).toFixed(0)}k` : peVal.toLocaleString()}
                 </span>
               </div>
             </div>

@@ -95,15 +95,15 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
   const zeroY = 170 - ((0 - minPnL) / pnlSpan) * 150 - 10;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div 
         role="dialog"
         aria-modal="true"
         aria-labelledby="payoff-modal-title"
-        className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+        className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-auto"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950">
+        <div className="flex items-center justify-between px-3.5 py-3 sm:px-6 sm:py-4 border-b border-slate-800 bg-slate-950 shrink-0">
           <div className="flex items-center gap-3">
             <span className={`p-2 rounded-lg font-bold text-sm font-mono ${
               isCE ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
@@ -179,7 +179,7 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-5">
+        <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
           {/* Key Metrics Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">

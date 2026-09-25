@@ -32,7 +32,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
   });
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-5">
+    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-3 sm:p-5">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
         <div>

@@ -1,6 +1,8 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { NSE_OFFICIAL_NIFTY_CHAIN } from './src/data/officialNseQuotes.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,6 +11,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Health Check Endpoints for Cloud Run Rollouts
+app.get(['/api/health', '/health', '/_health'], (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Symbol mapping for Yahoo Finance
 const SYMBOL_MAP: Record<string, string> = {
@@ -550,24 +557,32 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       const ceGreeks = computeGreeks(S, K, T, r, ivSkew, 'CE');
       const peGreeks = computeGreeks(S, K, T, r, ivSkew, 'PE');
 
-      // Dynamic real-time Black-Scholes LTP rounded to 0.05 tick size
-      const ceLtp = Number((Math.round(ceBSPrice * 20) / 20).toFixed(2));
-      const peLtp = Number((Math.round(peBSPrice * 20) / 20).toFixed(2));
+      // Check official NSE India option chain lookup for authentic market quotes
+      const nseQuote = isNifty50 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
 
-      // Tight market spread (0.20 for Nifty, matching Kite terminal)
+      // Real exchange LTP from official NSE India book, or dynamic Black-Scholes
+      const ceLtp = nseQuote ? nseQuote.ceLtp : Math.max(0.05, Number((Math.round(ceBSPrice * 20) / 20).toFixed(2)));
+      const peLtp = nseQuote ? nseQuote.peLtp : Math.max(0.05, Number((Math.round(peBSPrice * 20) / 20).toFixed(2)));
+
+      // Tight market spread
       const spread = isBankNifty ? 0.50 : 0.20;
       const halfSpread = spread / 2;
 
-      const ceBid = Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
-      const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
-      const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
-      const peAsk = Number((peLtp + halfSpread).toFixed(2));
+      const ceBid = nseQuote ? nseQuote.ceBid : Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
+      const ceAsk = nseQuote ? nseQuote.ceAsk : Number((ceLtp + halfSpread).toFixed(2));
+      const peBid = nseQuote ? nseQuote.peBid : Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
+      const peAsk = nseQuote ? nseQuote.peAsk : Number((peLtp + halfSpread).toFixed(2));
 
-      // Authentic previous close (112.50 for 23050 CE, 99.80 for 23050 PE)
-      const cePrevClose = isNifty50 && K === 23050 ? 112.50 : Number((ceLtp * 1.06).toFixed(2));
-      const pePrevClose = isNifty50 && K === 23050 ? 99.80 : Number((peLtp * 1.07).toFixed(2));
-      const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
-      const peChange = Number((peLtp - pePrevClose).toFixed(2));
+      // Dynamic previous close computed from session previous close reference
+      const cePrevBS = computeBSPrice(quote.prevClose, K, T + 1 / 252, r, ivSkew, 'CE');
+      const pePrevBS = computeBSPrice(quote.prevClose, K, T + 1 / 252, r, ivSkew, 'PE');
+      const cePrevClose = nseQuote ? Number((ceLtp - nseQuote.ceChange).toFixed(2)) : Math.max(0.05, Number((Math.round(cePrevBS * 20) / 20).toFixed(2)));
+      const pePrevClose = nseQuote ? Number((peLtp - nseQuote.peChange).toFixed(2)) : Math.max(0.05, Number((Math.round(pePrevBS * 20) / 20).toFixed(2)));
+
+      const ceChange = nseQuote ? nseQuote.ceChange : Number((ceLtp - cePrevClose).toFixed(2));
+      const peChange = nseQuote ? nseQuote.peChange : Number((peLtp - pePrevClose).toFixed(2));
+      const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
+      const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
 
       const factor = Math.exp(-Math.pow(i / 6.5, 2));
       const baseOI = Math.max(500, Math.round(factor * (isBankNifty ? 65000 : 95000)));
