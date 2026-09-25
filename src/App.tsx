@@ -165,7 +165,6 @@ export default function App() {
         unreadNewsCount={newsFeed.length}
         isSyncing={isSyncing}
         onSyncLiveExchange={syncLiveExchange}
-        onSetManualSpotPrice={setManualSpotPrice}
         syncStatusMsg={dataSourceNote}
       />
 
@@ -179,9 +178,6 @@ export default function App() {
             metrics={metrics}
             chain={chain}
             onSelectContractForSimulation={handleSelectContract}
-            onSetManualSpotPrice={setManualSpotPrice}
-            onSetManualContractLtp={setManualContractLtp}
-            onSyncLiveExchange={syncLiveExchange}
             isSyncing={isSyncing}
           />
         </section>
@@ -230,7 +226,6 @@ export default function App() {
               recommendedType={signal.recommendedType}
               maxPainStrike={metrics.maxPainStrike}
               onSelectContract={handleSelectContract}
-              onSetManualContractLtp={setManualContractLtp}
             />
           </div>
         )}

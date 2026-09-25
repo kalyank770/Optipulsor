@@ -12,12 +12,10 @@ import {
   Copy, 
   CheckCircle2, 
   Maximize2,
-  ArrowUpRight,
+  ArrowUpRight, 
   ArrowDownRight,
   Calculator,
-  AlertTriangle,
-  Edit2,
-  Check
+  AlertTriangle
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -26,26 +24,18 @@ interface SignalCardProps {
   metrics: MarketMetrics;
   chain?: OptionChainRow[];
   onSelectContractForSimulation: (strike: number, type: 'CE' | 'PE') => void;
-  onSetManualSpotPrice?: (price: number) => void;
-  onSetManualContractLtp?: (strike: number, type: 'CE' | 'PE', ltp: number) => void;
-  onSyncLiveExchange?: () => void;
   isSyncing?: boolean;
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
   signal,
   ticker,
-  metrics,
   chain,
   onSelectContractForSimulation,
-  onSetManualContractLtp,
-  isSyncing = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [lots, setLots] = useState<number>(1);
   const [priceFlash, setPriceFlash] = useState<'UP' | 'DOWN' | null>(null);
-  const [isEditingLtp, setIsEditingLtp] = useState(false);
-  const [customLtpInput, setCustomLtpInput] = useState('');
 
   const isCE = signal.action === 'BUY_CE';
   const isPE = signal.action === 'BUY_PE';
@@ -96,7 +86,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const slLossTotal = Number((slRiskPoints * totalQty).toFixed(2));
   const slLossPct = totalCapital > 0 ? Number(((slLossTotal / totalCapital) * 100).toFixed(1)) : 25.0;
 
-  // 1-Point tick value (How much ₹ P&L moves for every 1 point move in option premium)
+  // 1-Point tick value
   const tickValue1Pt = 1.0 * totalQty;
 
   // Expiry breakeven spot price
@@ -104,7 +94,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
     ? signal.recommendedStrike + currentLTP 
     : signal.recommendedStrike - currentLTP;
 
-  // Quick lot selection pills
+  // Quick lot selection
   const quickLots = [1, 2, 5, 10];
 
   const handleCopy = () => {
@@ -135,7 +125,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
           <div>
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-              <span className="uppercase font-semibold tracking-wider text-[11px]">Recommendation</span>
+              <span className="uppercase font-semibold tracking-wider text-[11px]">Trade Recommendation</span>
               <span className="text-slate-600">·</span>
               <span className="font-mono text-slate-300">
                 Spot: <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
@@ -160,7 +150,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Action Buttons: 2-column grid on mobile, flex on desktop */}
+        {/* Action Buttons */}
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={handleCopy}
@@ -197,78 +187,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         {/* Live Contract Price & Spread */}
         <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
-          {isEditingLtp ? (
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                const val = parseFloat(customLtpInput);
-                if (!isNaN(val) && val > 0 && onSetManualContractLtp) {
-                  onSetManualContractLtp(signal.recommendedStrike, signal.recommendedType, val);
-                }
-                setIsEditingLtp(false);
-              }}
-              className="flex items-center gap-1.5 bg-slate-900 border border-emerald-500/80 rounded px-2 py-1"
-            >
-              <span className="text-slate-400 text-[11px]">Set LTP:</span>
-              <span className="text-white font-bold">{ticker.currency}</span>
-              <input 
-                type="number"
-                step="0.05"
-                min="0.05"
-                value={customLtpInput}
-                onChange={(e) => setCustomLtpInput(e.target.value)}
-                placeholder={currentLTP.toFixed(2)}
-                autoFocus
-                className="w-20 px-1 py-0.5 bg-slate-950 border border-slate-700 rounded text-white font-bold text-xs focus:outline-none focus:border-emerald-400"
-              />
-              <button
-                type="submit"
-                className="px-2 py-1 bg-emerald-500 text-slate-950 font-bold rounded text-[11px] hover:bg-emerald-400 flex items-center gap-1 cursor-pointer"
-              >
-                <Check className="w-3 h-3" />
-                <span>Save</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEditingLtp(false)}
-                className="px-1.5 py-1 text-slate-400 hover:text-white text-[11px] cursor-pointer"
-              >
-                ✕
-              </button>
-            </form>
-          ) : (
-            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded transition-colors ${
-              priceFlash === 'UP' ? 'bg-emerald-500/30 text-emerald-300' :
-              priceFlash === 'DOWN' ? 'bg-rose-500/30 text-rose-300' :
-              'bg-slate-900 text-white'
-            }`}>
-              <span className="text-slate-400 text-[11px]">LTP:</span>
-              <span className="text-base sm:text-lg font-bold">
-                {ticker.currency}{currentLTP.toFixed(2)}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition-colors ${
+            priceFlash === 'UP' ? 'bg-emerald-500/30 text-emerald-300' :
+            priceFlash === 'DOWN' ? 'bg-rose-500/30 text-rose-300' :
+            'bg-slate-900 text-white'
+          }`}>
+            <span className="text-slate-400 text-[11px]">LTP:</span>
+            <span className="text-base sm:text-lg font-bold">
+              {ticker.currency}{currentLTP.toFixed(2)}
+            </span>
+            {liveContract?.change !== undefined && (
+              <span className={`text-[11px] font-semibold flex items-center ${liveContract.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {liveContract.change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                {liveContract.change >= 0 ? '+' : ''}{liveContract.change.toFixed(2)} ({liveContract.changePercent}%)
               </span>
-              {liveContract?.change !== undefined && (
-                <span className={`text-[11px] font-semibold flex items-center ${liveContract.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {liveContract.change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                  {liveContract.change >= 0 ? '+' : ''}{liveContract.change.toFixed(2)} ({liveContract.changePercent}%)
-                </span>
-              )}
-              {onSetManualContractLtp && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomLtpInput(currentLTP.toFixed(2));
-                    setIsEditingLtp(true);
-                  }}
-                  className="ml-1 p-1 text-slate-400 hover:text-emerald-300 rounded hover:bg-slate-800 transition-colors cursor-pointer"
-                  title="Edit or sync live broker LTP"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
-          {liveContract?.bidPrice !== undefined && liveContract?.askPrice !== undefined && !isEditingLtp && (
+          {liveContract?.bidPrice !== undefined && liveContract?.askPrice !== undefined && (
             <div className="text-slate-400 text-[11px] flex items-center gap-1.5">
               <span>Bid: <strong className="text-slate-200">{ticker.currency}{liveContract.bidPrice.toFixed(2)}</strong></span>
               <span>·</span>
@@ -286,7 +222,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <span className="hidden xs:inline">Position:</span>
           </div>
 
-          {/* Quick lot pills */}
+          {/* Quick lot buttons */}
           <div className="flex items-center gap-1">
             {quickLots.map(q => (
               <button
@@ -337,7 +273,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       </div>
 
-      {/* Real-Money Real-Time Predicted Profit & Loss Matrix: 2x2 on Mobile! */}
+      {/* Real-Money Live Profit & Loss Matrix */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mt-3">
         {/* Metric 1: Capital Deployed */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-slate-800 flex flex-col justify-between">
@@ -358,7 +294,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 2: Stop Loss Predicted Max Loss */}
+        {/* Metric 2: Stop Loss Max Loss */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-rose-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-rose-400">
             <span className="flex items-center gap-1">
@@ -382,7 +318,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 3: Target 1 Predicted Profit */}
+        {/* Metric 3: Target 1 Profit */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-emerald-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-emerald-400">
             <span className="flex items-center gap-1">
@@ -406,7 +342,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 4: Target 2 Predicted Profit */}
+        {/* Metric 4: Target 2 Profit */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-sky-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-sky-400">
             <span className="flex items-center gap-1">

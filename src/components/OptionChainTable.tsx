@@ -19,7 +19,6 @@ interface OptionChainTableProps {
   recommendedType?: 'CE' | 'PE';
   maxPainStrike: number;
   onSelectContract: (strike: number, type: 'CE' | 'PE') => void;
-  onSetManualContractLtp?: (strike: number, type: 'CE' | 'PE', ltp: number) => void;
 }
 
 export const OptionChainTable: React.FC<OptionChainTableProps> = ({
@@ -29,7 +28,6 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
   recommendedType,
   maxPainStrike,
   onSelectContract,
-  onSetManualContractLtp,
 }) => {
   const [mobileMode, setMobileMode] = useState<'compact' | 'matrix'>('compact');
 

@@ -14,7 +14,6 @@ import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { calculateBlackScholes } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
-import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -82,38 +81,34 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const rawCeLtp = Number(ceBS.price.toFixed(2));
     const rawPeLtp = Number(peBS.price.toFixed(2));
     
-    // Check official NSE India option chain lookup for authentic market quotes
-    const isNifty50 = isIndian && ticker.symbol === 'NIFTY 50';
-    const nseQuote = isNifty50 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
-
-    // Real exchange LTP from official NSE India book, or dynamic Black-Scholes
-    const ceLtp = nseQuote ? nseQuote.ceLtp : Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
-    const peLtp = nseQuote ? nseQuote.peLtp : Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
+    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S
+    const ceLtp = Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
+    const peLtp = Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
 
     // Tight market spread
     const spread = isIndian ? 0.20 : 0.02;
     const halfSpread = spread / 2;
 
-    const ceBid = nseQuote ? nseQuote.ceBid : Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
-    const ceAsk = nseQuote ? nseQuote.ceAsk : Number((ceLtp + halfSpread).toFixed(2));
-    const peBid = nseQuote ? nseQuote.peBid : Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
-    const peAsk = nseQuote ? nseQuote.peAsk : Number((peLtp + halfSpread).toFixed(2));
+    const ceBid = Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
+    const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
+    const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
+    const peAsk = Number((peLtp + halfSpread).toFixed(2));
 
     // Dynamic previous close computed from reference previous session close
     const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'CE');
     const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'PE');
-    const cePrevClose = nseQuote ? Number((ceLtp - nseQuote.ceChange).toFixed(2)) : Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
-    const pePrevClose = nseQuote ? Number((peLtp - nseQuote.peChange).toFixed(2)) : Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
+    const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
+    const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
 
-    const ceChange = nseQuote ? nseQuote.ceChange : Number((ceLtp - cePrevClose).toFixed(2));
-    const peChange = nseQuote ? nseQuote.peChange : Number((peLtp - pePrevClose).toFixed(2));
+    const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
+    const peChange = Number((peLtp - pePrevClose).toFixed(2));
     const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
     const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
 
-    const ceBidQty = nseQuote?.ceBidQty ?? 250;
-    const ceAskQty = nseQuote?.ceAskQty ?? 250;
-    const peBidQty = nseQuote?.peBidQty ?? 250;
-    const peAskQty = nseQuote?.peAskQty ?? 250;
+    const ceBidQty = 250;
+    const ceAskQty = 250;
+    const peBidQty = 250;
+    const peAskQty = 250;
 
     const ceContract: OptionContract = {
       strike: K,
@@ -130,7 +125,7 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       openInterest: ceOI,
       oiChange: ceChgOI,
       oiChangePercent: Number(((ceChgOI / Math.max(ceOI, 1)) * 100).toFixed(1)),
-      iv: nseQuote ? nseQuote.iv : ivPercent,
+      iv: ivPercent,
       greeks: {
         delta: ceBS.delta,
         gamma: ceBS.gamma,
@@ -157,7 +152,7 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       openInterest: peOI,
       oiChange: peChgOI,
       oiChangePercent: Number(((peChgOI / Math.max(peOI, 1)) * 100).toFixed(1)),
-      iv: nseQuote ? nseQuote.iv : ivPercent,
+      iv: ivPercent,
       greeks: {
         delta: peBS.delta,
         gamma: peBS.gamma,
