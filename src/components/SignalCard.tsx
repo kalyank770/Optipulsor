@@ -261,14 +261,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Total Quantity & Tick Sensitivity */}
+        {/* Total Quantity */}
         <div className="flex items-center justify-between sm:justify-end gap-3 text-xs font-mono w-full sm:w-auto border-t border-slate-800/60 pt-2 sm:border-0 sm:pt-0">
           <div className="text-sky-300 font-bold">
-            Total: <strong className="text-white">{totalQty} units</strong>
-          </div>
-          <span className="text-slate-600">·</span>
-          <div className="text-emerald-400 font-semibold">
-            1 Pt Move = <strong className="font-bold">±{ticker.currency}{tickValue1Pt.toFixed(0)}</strong>
+            Total Quantity: <strong className="text-white">{totalQty} units</strong> ({lots} Lot{lots > 1 ? 's' : ''})
           </div>
         </div>
       </div>
@@ -278,7 +274,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         {/* Metric 1: Capital Deployed */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-slate-400">
-            <span>Capital</span>
+            <span>Capital Outlay</span>
             <span className="text-[10px] text-slate-500 font-mono">{lots}L</span>
           </div>
           <div className="my-1.5">
@@ -294,7 +290,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 2: Stop Loss Max Loss */}
+        {/* Metric 2: Stop Loss Points Risk */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-rose-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-rose-400">
             <span className="flex items-center gap-1">
@@ -307,7 +303,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
           <div className="my-1.5">
             <div className="text-lg sm:text-2xl font-bold font-mono text-rose-400 tracking-tight">
-              -{ticker.currency}{slLossTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              -{slRiskPoints.toFixed(2)} pts
             </div>
             <div className="text-[10px] sm:text-[11px] text-rose-300/80 font-mono">
               Cut @ {ticker.currency}{stopLoss.toFixed(2)}
@@ -318,7 +314,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 3: Target 1 Profit */}
+        {/* Metric 3: Target 1 Points Gain */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-emerald-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-emerald-400">
             <span className="flex items-center gap-1">
@@ -331,7 +327,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
           <div className="my-1.5">
             <div className="text-lg sm:text-2xl font-bold font-mono text-emerald-400 tracking-tight">
-              +{ticker.currency}{t1ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              +{t1Points.toFixed(2)} pts
             </div>
             <div className="text-[10px] sm:text-[11px] text-emerald-300/80 font-mono">
               Exit @ {ticker.currency}{target1.toFixed(2)}
@@ -342,7 +338,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 4: Target 2 Profit */}
+        {/* Metric 4: Target 2 Points Gain */}
         <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-sky-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-sky-400">
             <span className="flex items-center gap-1">
@@ -355,7 +351,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
           <div className="my-1.5">
             <div className="text-lg sm:text-2xl font-bold font-mono text-sky-400 tracking-tight">
-              +{ticker.currency}{t2ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              +{t2Points.toFixed(2)} pts
             </div>
             <div className="text-[10px] sm:text-[11px] text-sky-300/80 font-mono">
               Exit @ {ticker.currency}{target2.toFixed(2)}

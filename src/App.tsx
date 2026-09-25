@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { SignalCard } from './components/SignalCard';
 import { FilterBar } from './components/FilterBar';
 import { OptionChainTable } from './components/OptionChainTable';
+import { StrikeHistoryTrends } from './components/StrikeHistoryTrends';
 import { OiDistributionChart } from './components/OiDistributionChart';
 import { NewsWidget } from './components/NewsWidget';
 import { OptionPayoffModal } from './components/OptionPayoffModal';
@@ -13,6 +14,7 @@ import {
   Download, 
   Table2,
   Zap,
+  History,
   BarChart3,
   SlidersHorizontal,
   Newspaper
@@ -25,6 +27,8 @@ export default function App() {
     chain,
     metrics,
     signal,
+    strikeHistory,
+    strikeAnalytics,
     filters,
     setFilters,
     newsFeed,
@@ -40,15 +44,13 @@ export default function App() {
     toggleUsePreMarket,
     dataSourceNote,
     syncLiveExchange,
-    setManualSpotPrice,
-    setManualContractLtp,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,
   } = useLiveOptionChain();
 
   // Active view navigation
-  const [activeView, setActiveView] = useState<'chain' | 'signals' | 'oi_map' | 'news' | 'strategy'>('chain');
+  const [activeView, setActiveView] = useState<'chain' | 'signals' | 'trends' | 'oi_map' | 'news' | 'strategy'>('chain');
 
   // Simulation modal state
   const [modalContract, setModalContract] = useState<OptionContract | null>(null);
@@ -292,7 +294,18 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 3: OI Distribution & Walls */}
+        {/* Tab 3: Strike Recommendation History & Profitability Trends */}
+        {activeView === 'trends' && (
+          <StrikeHistoryTrends
+            ticker={selectedTicker}
+            chain={chain}
+            history={strikeHistory}
+            analytics={strikeAnalytics}
+            onSelectContract={handleSelectContract}
+          />
+        )}
+
+        {/* Tab 4: OI Distribution & Walls */}
         {activeView === 'oi_map' && (
           <div className="space-y-6">
             <OiDistributionChart
@@ -304,7 +317,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 4: Strategy & Payoff Simulator */}
+        {/* Tab 5: Strategy & Payoff Simulator */}
         {activeView === 'strategy' && (
           <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-6">
             <div className="max-w-2xl mx-auto text-center py-8">
@@ -322,7 +335,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 5: Real-time News Feed */}
+        {/* Tab 6: Real-time News Feed */}
         {activeView === 'news' && (
           <div className="space-y-4">
             <NewsWidget
@@ -372,6 +385,18 @@ export default function App() {
         </button>
 
         <button
+          onClick={() => setActiveView('trends')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
+            activeView === 'trends' 
+              ? 'text-emerald-400 font-bold' 
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <History className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Trends</span>
+        </button>
+
+        <button
           onClick={() => setActiveView('oi_map')}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
             activeView === 'oi_map' 
@@ -393,18 +418,6 @@ export default function App() {
         >
           <SlidersHorizontal className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Payoff</span>
-        </button>
-
-        <button
-          onClick={() => setActiveView('news')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors cursor-pointer min-h-[44px] ${
-            activeView === 'news' 
-              ? 'text-emerald-400 font-bold' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Newspaper className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] tracking-tight">News</span>
         </button>
       </nav>
     </div>

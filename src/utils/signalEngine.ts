@@ -233,9 +233,10 @@ export function generateTradeSignal(
   const target2 = roundToTick(premium + target2Delta);
 
   // Real-world execution entry zone:
-  // If bid/ask exists in the live contract, use the live spread; otherwise tight 98%-101% limit zone
-  const entryLow = roundToTick(contract?.bidPrice ? Math.min(contract.bidPrice, premium * 0.98) : premium * 0.98);
-  const entryHigh = roundToTick(contract?.askPrice ? Math.max(contract.askPrice, premium * 1.01) : premium * 1.01);
+  // Tight realistic limit buy execution band calibrated to current live option LTP
+  const halfSpread = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
+  const entryLow = Math.max(tick, roundToTick(Math.min(premium - halfSpread, premium * 0.985)));
+  const entryHigh = roundToTick(Math.max(premium + halfSpread, premium * 1.015));
   const rrRatio = `1 : ${(target1Delta / Math.max(actualRisk, tick)).toFixed(1)}`;
 
   // Multi-Factor Quantitative Rationale Points

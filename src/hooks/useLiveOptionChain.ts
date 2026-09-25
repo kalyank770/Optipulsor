@@ -8,12 +8,20 @@ import {
   TradeSignal,
   NewsItem,
   BuildupType,
-  OptionType
+  OptionType,
+  StrikeHistoryItem,
+  StrikeTrendAnalytics
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { calculateBlackScholes } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
+import { 
+  loadStrikeHistory, 
+  updateHistoryWithLiveChain, 
+  recordSignalInHistory, 
+  deriveStrikeTrendAnalytics 
+} from '../utils/strikeHistoryEngine';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -217,6 +225,19 @@ export function useLiveOptionChain() {
     generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED)
   );
 
+  // Strike History and Derived Profitability Trends State
+  const [strikeHistory, setStrikeHistory] = useState<StrikeHistoryItem[]>(() =>
+    loadStrikeHistory(POPULAR_TICKERS[0], buildInitialChain(POPULAR_TICKERS[0], 0))
+  );
+
+  const [strikeAnalytics, setStrikeAnalytics] = useState<StrikeTrendAnalytics>(() =>
+    deriveStrikeTrendAnalytics(
+      loadStrikeHistory(POPULAR_TICKERS[0], buildInitialChain(POPULAR_TICKERS[0], 0)),
+      POPULAR_TICKERS[0],
+      buildInitialChain(POPULAR_TICKERS[0], 0)
+    )
+  );
+
   // Audio tone context for signals
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -356,6 +377,7 @@ export function useLiveOptionChain() {
   }, []);
 
   // Handle ticker change
+  // Handle ticker change
   const handleSelectTicker = (newTicker: TickerConfig) => {
     setSelectedTicker(newTicker);
     setExpiryIndex(0);
@@ -363,6 +385,10 @@ export function useLiveOptionChain() {
       ...prev,
       expiryDate: newTicker.expiryDates[0],
     }));
+
+    const tickerHistory = loadStrikeHistory(newTicker, chain);
+    setStrikeHistory(tickerHistory);
+    setStrikeAnalytics(deriveStrikeTrendAnalytics(tickerHistory, newTicker, chain));
 
     fetchOptionChainFromBackend(newTicker, 0);
     fetchRealNews(newTicker.symbol);
@@ -380,85 +406,19 @@ export function useLiveOptionChain() {
     fetchOptionChainFromBackend(selectedTicker, idx, targetTimestamp);
   };
 
-  // Manual spot price override (User clicks edit or types exact spot)
-  const setManualSpotPrice = (customSpot: number) => {
-    if (!customSpot || isNaN(customSpot) || customSpot <= 0) return;
-    const step = selectedTicker.strikeStep;
-    const newAtm = Math.round(customSpot / step) * step;
-    const chg = Number((customSpot - selectedTicker.prevClose).toFixed(2));
-    const chgPct = Number(((chg / selectedTicker.prevClose) * 100).toFixed(2));
-
-    const updated: TickerConfig = {
-      ...selectedTicker,
-      spotPrice: customSpot,
-      atmStrike: newAtm,
-      change: chg,
-      changePercent: chgPct,
-      asOnTime: `Custom Set (${new Date().toLocaleTimeString()})`,
-    };
-
-    setSelectedTicker(updated);
-    const newChain = buildInitialChain(updated, expiryIndex);
-    const newMetrics = computeMarketMetrics(updated, newChain);
-    const newSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed);
-    setChain(newChain);
-    setMetrics(newMetrics);
-    setSignal(newSignal);
-    setLastUpdated(new Date());
-  };
-
-  // Manual contract LTP override (User edits/enters live broker quote e.g. from Zerodha Kite)
-  const setManualContractLtp = (strike: number, type: OptionType, customLtp: number) => {
-    if (!customLtp || isNaN(customLtp) || customLtp <= 0) return;
-    const tick = selectedTicker.currency === '₹' ? 0.05 : 0.01;
-    const roundedLtp = Number((Math.round(customLtp / tick) * tick).toFixed(2));
-    const halfSpread = selectedTicker.currency === '₹' ? 0.10 : 0.01;
-
-    setChain(prevChain => {
-      const updatedChain = prevChain.map(row => {
-        if (row.strike !== strike) return row;
-        if (type === 'CE') {
-          const prevClose = row.ce.prevClose || roundedLtp;
-          const change = Number((roundedLtp - prevClose).toFixed(2));
-          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-          return {
-            ...row,
-            ce: {
-              ...row.ce,
-              ltp: roundedLtp,
-              change,
-              changePercent,
-              bidPrice: Math.max(tick, Number((roundedLtp - halfSpread).toFixed(2))),
-              askPrice: Number((roundedLtp + halfSpread).toFixed(2)),
-            }
-          };
-        } else {
-          const prevClose = row.pe.prevClose || roundedLtp;
-          const change = Number((roundedLtp - prevClose).toFixed(2));
-          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-          return {
-            ...row,
-            pe: {
-              ...row.pe,
-              ltp: roundedLtp,
-              change,
-              changePercent,
-              bidPrice: Math.max(tick, Number((roundedLtp - halfSpread).toFixed(2))),
-              askPrice: Number((roundedLtp + halfSpread).toFixed(2)),
-            }
-          };
-        }
-      });
-
-      const updatedMetrics = computeMarketMetrics(selectedTicker, updatedChain);
-      setMetrics(updatedMetrics);
-      const updatedSignal = generateTradeSignal(selectedTicker, updatedMetrics, updatedChain, newsFeed);
-      setSignal(updatedSignal);
-      setLastUpdated(new Date());
-
-      return updatedChain;
+  // Update strike history and derive live profitability trends as chain & spot tick
+  useEffect(() => {
+    if (chain.length === 0) return;
+    setStrikeHistory(prev => {
+      let updated = updateHistoryWithLiveChain(prev, selectedTicker, chain);
+      if (signal && signal.action !== 'WAIT_NEUTRAL') {
+        updated = recordSignalInHistory(updated, signal, selectedTicker);
+      }
+      const newAnalytics = deriveStrikeTrendAnalytics(updated, selectedTicker, chain);
+      setStrikeAnalytics(newAnalytics);
+      return updated;
     });
-  };
+  }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
 
   // Real-time live exchange poll: queries real exchange instead of synthetic random noise
   useEffect(() => {
@@ -543,6 +503,8 @@ export function useLiveOptionChain() {
     chain,
     metrics,
     signal,
+    strikeHistory,
+    strikeAnalytics,
     filters,
     setFilters,
     newsFeed,
@@ -558,8 +520,6 @@ export function useLiveOptionChain() {
     setSoundEnabled,
     dataSourceNote,
     syncLiveExchange: () => fetchOptionChainFromBackend(selectedTicker, expiryIndex),
-    setManualSpotPrice,
-    setManualContractLtp,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,

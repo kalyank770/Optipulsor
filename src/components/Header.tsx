@@ -10,8 +10,8 @@ import { POPULAR_TICKERS } from '../data/marketTickers';
 interface HeaderProps {
   selectedTicker: TickerConfig;
   onSelectTicker: (t: TickerConfig) => void;
-  activeView: 'chain' | 'signals' | 'oi_map' | 'news' | 'strategy';
-  setActiveView: (view: 'chain' | 'signals' | 'oi_map' | 'news' | 'strategy') => void;
+  activeView: 'chain' | 'signals' | 'trends' | 'oi_map' | 'news' | 'strategy';
+  setActiveView: (view: 'chain' | 'signals' | 'trends' | 'oi_map' | 'news' | 'strategy') => void;
   isLiveActive: boolean;
   onToggleLive: () => void;
   updateIntervalMs: number;
@@ -81,6 +81,17 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             CE / PE Signal
+          </button>
+
+          <button
+            onClick={() => setActiveView('trends')}
+            className={`transition-colors cursor-pointer py-1 border-b-2 text-xs lg:text-sm ${
+              activeView === 'trends'
+                ? 'text-emerald-400 border-emerald-400 font-semibold'
+                : 'text-slate-400 border-transparent hover:text-slate-200'
+            }`}
+          >
+            Strike History & Trends
           </button>
 
           <button

@@ -632,9 +632,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               const ceVol = call?.volume || 0;
               const ceBidQty = call?.totalBuyQty || 250;
               const ceAskQty = call?.totalSellQty || 250;
-              const ceSpread = isBankNifty ? 0.50 : 0.20;
-              const ceBid = call?.lowTradeRange && call.lowTradeRange > 0 ? Number(call.lowTradeRange.toFixed(2)) : Math.max(0.05, Number((ceLtp - ceSpread / 2).toFixed(2)));
-              const ceAsk = call?.highTradeRange && call.highTradeRange > 0 ? Number(call.highTradeRange.toFixed(2)) : Number((ceLtp + ceSpread / 2).toFixed(2));
+              const ceSpread = isBankNifty ? 0.30 : isFinNifty ? 0.20 : 0.15;
+              const ceBid = Math.max(0.05, Number((ceLtp - ceSpread / 2).toFixed(2)));
+              const ceAsk = Number((ceLtp + ceSpread / 2).toFixed(2));
 
               // Compute authentic Greeks & IV from real exchange LTP
               const ceIV = solveIV(S, K, T, r, ceLtp, 'CE');
@@ -658,8 +658,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               const peVol = put?.volume || 0;
               const peBidQty = put?.totalBuyQty || 250;
               const peAskQty = put?.totalSellQty || 250;
-              const peBid = put?.lowTradeRange && put.lowTradeRange > 0 ? Number(put.lowTradeRange.toFixed(2)) : Math.max(0.05, Number((peLtp - ceSpread / 2).toFixed(2)));
-              const peAsk = put?.highTradeRange && put.highTradeRange > 0 ? Number(put.highTradeRange.toFixed(2)) : Number((peLtp + ceSpread / 2).toFixed(2));
+              const peSpread = isBankNifty ? 0.30 : isFinNifty ? 0.20 : 0.15;
+              const peBid = Math.max(0.05, Number((peLtp - peSpread / 2).toFixed(2)));
+              const peAsk = Number((peLtp + peSpread / 2).toFixed(2));
 
               const peIV = solveIV(S, K, T, r, peLtp, 'PE');
               const peGreeks = computeGreeks(S, K, T, r, peIV, 'PE');

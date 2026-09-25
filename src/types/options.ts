@@ -143,6 +143,89 @@ export interface NewsItem {
   link?: string;
 }
 
+export type StrikeOutcomeStatus = 'ACTIVE' | 'TARGET_1_HIT' | 'TARGET_2_HIT' | 'STOP_LOSS_HIT' | 'PROFITABLE' | 'IN_LOSS';
+
+export interface StrikeHistoryItem {
+  id: string;
+  timestamp: number;
+  timeFormatted: string;
+  tickerSymbol: string;
+  action: SignalAction;
+  strike: number;
+  type: OptionType;
+  moneyness: Moneyness;
+  spotPriceAtSignal: number;
+  entryPrice: number;
+  entryRange: [number, number];
+  target1: number;
+  target2: number;
+  stopLoss: number;
+  currentLTP: number;
+  highestLTP: number;
+  pnlPercent: number;
+  maxProfitPercent: number;
+  status: StrikeOutcomeStatus;
+  confidence: number;
+  riskReward: string;
+}
+
+export interface StrikeProfitTrend {
+  strike: number;
+  type: OptionType;
+  moneyness: Moneyness;
+  totalSignals: number;
+  successRate: number;
+  avgProfitPercent: number;
+  bestProfitPercent: number;
+  profitScore: number;
+  trendRating: 'HIGH_PROFIT_EDGE' | 'MODERATE_EDGE' | 'NEUTRAL_EDGE' | 'HIGH_RISK';
+  recommendationNote: string;
+}
+
+export type CumulativeTrendAlignment = 
+  | 'STRONG_CONVERGENCE'
+  | 'MODERATE_CONVERGENCE'
+  | 'CONSOLIDATING_IN_ZONE'
+  | 'DIVERGING';
+
+export interface CumulativeActionTrend {
+  dominantAction: 'BULLISH_CE' | 'BEARISH_PE' | 'NEUTRAL';
+  alignmentStatus: CumulativeTrendAlignment;
+  alignmentScore: number; // 0 to 100
+  isMovingTowardsSuggested: boolean;
+  statusHeadline: string;
+  detailedAnalysis: string;
+  totalCallSignals: number;
+  totalPutSignals: number;
+  bullishRatioPercent: number;
+  netCumulativeReturnPercent: number;
+  signalsHitTarget1Count: number;
+  signalsHitTarget2Count: number;
+  signalsActiveInProfitCount: number;
+  signalsInLossCount: number;
+  targetProgressPercent: number;
+  currentMomentumVelocity: string;
+  suggestedActionVerdict: string;
+}
+
+export interface StrikeTrendAnalytics {
+  overallWinRate: number;
+  target1HitRate: number;
+  target2HitRate: number;
+  avgProfitPerWinningTrade: number;
+  bestPerformingMoneyness: Moneyness;
+  moneynessPerformance: {
+    moneyness: Moneyness;
+    winRate: number;
+    avgGain: number;
+    signalCount: number;
+  }[];
+  topRankedStrikes: StrikeProfitTrend[];
+  cumulativeTrend: CumulativeActionTrend;
+  activeSignalsCount: number;
+  totalHistoricalSignals: number;
+}
+
 export interface OptionFilters {
   expiryDate: string;
   strikeRange: 'ATM_5' | 'ATM_10' | 'ATM_15' | 'ALL' | 'CUSTOM';
