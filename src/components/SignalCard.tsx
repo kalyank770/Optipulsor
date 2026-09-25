@@ -25,6 +25,7 @@ interface SignalCardProps {
   chain?: OptionChainRow[];
   onSelectContractForSimulation: (strike: number, type: 'CE' | 'PE') => void;
   isSyncing?: boolean;
+  theme?: 'dark' | 'light';
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
@@ -32,7 +33,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   ticker,
   chain,
   onSelectContractForSimulation,
+  theme = 'dark',
 }) => {
+  const isLight = theme === 'light';
   const [copied, setCopied] = useState(false);
   const [lots, setLots] = useState<number>(1);
   const [priceFlash, setPriceFlash] = useState<'UP' | 'DOWN' | null>(null);
@@ -106,12 +109,14 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
   return (
     <div className={`rounded-xl border p-3.5 sm:p-5 transition-all shadow-md ${
-      isCE ? 'bg-slate-900/95 border-emerald-500/40 shadow-emerald-950/20' :
-      isPE ? 'bg-slate-900/95 border-rose-500/40 shadow-rose-950/20' :
-      'bg-slate-900/95 border-slate-800'
+      isLight 
+        ? (isCE ? 'bg-white border-emerald-500/50 text-slate-900 shadow-xl' : isPE ? 'bg-white border-rose-500/50 text-slate-900 shadow-xl' : 'bg-white border-slate-300 text-slate-900 shadow-xl')
+        : (isCE ? 'bg-slate-900/95 border-emerald-500/40 text-slate-100 shadow-xl' : isPE ? 'bg-slate-900/95 border-rose-500/40 text-slate-100 shadow-xl' : 'bg-slate-900/95 border-slate-800 text-slate-100')
     }`}>
       {/* Top Header: Recommendation & Action Buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-slate-800/80">
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b ${
+        isLight ? 'border-slate-200' : 'border-slate-800/80'
+      }`}>
         <div className="flex items-start sm:items-center gap-3">
           <div className={`p-2.5 sm:p-3 rounded-lg flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
             isCE ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
@@ -215,9 +220,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       </div>
 
       {/* Lot Sizer Control Bar */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2.5 p-2.5 sm:p-3 bg-slate-950/60 rounded-lg border border-slate-800/60">
+      <div className={`mt-3 flex flex-wrap items-center justify-between gap-2.5 p-2.5 sm:p-3 rounded-lg border ${
+        isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-slate-950/60 border-slate-800/60 text-slate-300'
+      }`}>
         <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-start">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+          <div className="flex items-center gap-1.5 text-xs font-semibold">
             <Calculator className="w-4 h-4 text-sky-400 shrink-0" />
             <span className="hidden xs:inline">Position:</span>
           </div>
@@ -230,8 +237,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 onClick={() => setLots(q)}
                 className={`px-2 py-1 text-xs font-mono font-bold rounded transition-colors cursor-pointer min-h-[32px] min-w-[32px] ${
                   lots === q 
-                    ? 'bg-sky-500 text-slate-950 font-bold shadow-sm' 
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                    ? 'bg-sky-500 text-white font-bold shadow-sm' 
+                    : isLight 
+                      ? 'bg-white hover:bg-slate-200 text-slate-700 border border-slate-300' 
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
                 }`}
               >
                 {q}L
@@ -240,20 +249,28 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
 
           {/* Stepper for custom lots */}
-          <div className="flex items-center border border-slate-700 bg-slate-900 rounded overflow-hidden">
+          <div className={`flex items-center rounded overflow-hidden border ${
+            isLight ? 'border-slate-300 bg-white' : 'border-slate-700 bg-slate-900'
+          }`}>
             <button
               onClick={() => setLots(Math.max(1, lots - 1))}
-              className="px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
+              className={`px-2.5 py-1 text-xs font-bold cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center ${
+                isLight ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
               title="Decrease lot"
             >
               -
             </button>
-            <span className="px-2 py-1 text-xs font-mono font-bold text-white min-w-[44px] text-center">
+            <span className={`px-2 py-1 text-xs font-mono font-bold min-w-[44px] text-center ${
+              isLight ? 'text-slate-900' : 'text-white'
+            }`}>
               {lots} {lots === 1 ? 'Lot' : 'Lots'}
             </span>
             <button
               onClick={() => setLots(lots + 1)}
-              className="px-2.5 py-1 text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
+              className={`px-2.5 py-1 text-xs font-bold cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center ${
+                isLight ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
               title="Increase lot"
             >
               +
@@ -262,9 +279,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
 
         {/* Total Quantity */}
-        <div className="flex items-center justify-between sm:justify-end gap-3 text-xs font-mono w-full sm:w-auto border-t border-slate-800/60 pt-2 sm:border-0 sm:pt-0">
-          <div className="text-sky-300 font-bold">
-            Total Quantity: <strong className="text-white">{totalQty} units</strong> ({lots} Lot{lots > 1 ? 's' : ''})
+        <div className={`flex items-center justify-between sm:justify-end gap-3 text-xs font-mono w-full sm:w-auto pt-2 sm:pt-0 ${
+          isLight ? 'border-t border-slate-200 sm:border-0' : 'border-t border-slate-800/60 sm:border-0'
+        }`}>
+          <div className="text-sky-600 dark:text-sky-300 font-bold">
+            Total Quantity: <strong className={isLight ? 'text-slate-900' : 'text-white'}>{totalQty} units</strong> ({lots} Lot{lots > 1 ? 's' : ''})
           </div>
         </div>
       </div>
@@ -272,92 +291,110 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       {/* Real-Money Live Profit & Loss Matrix */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mt-3">
         {/* Metric 1: Capital Deployed */}
-        <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-slate-800 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-slate-400">
+        <div className={`p-2.5 sm:p-3.5 rounded-lg border flex flex-col justify-between ${
+          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+        }`}>
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-slate-500 dark:text-slate-400">
             <span>Capital Outlay</span>
-            <span className="text-[10px] text-slate-500 font-mono">{lots}L</span>
+            <span className="text-[10px] text-slate-400 font-mono">{lots}L</span>
           </div>
           <div className="my-1.5">
-            <div className="text-lg sm:text-2xl font-bold font-mono text-white tracking-tight">
+            <div className={`text-lg sm:text-2xl font-bold font-mono tracking-tight ${
+              isLight ? 'text-slate-900' : 'text-white'
+            }`}>
               {ticker.currency}{totalCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] sm:text-[11px] text-slate-400 font-mono">
+            <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-mono">
               {totalQty} × {ticker.currency}{currentLTP.toFixed(2)}
             </div>
           </div>
-          <div className="text-[10px] text-slate-500 border-t border-slate-900 pt-1 flex items-center justify-between">
+          <div className={`text-[10px] text-slate-500 pt-1 flex items-center justify-between border-t ${
+            isLight ? 'border-slate-200' : 'border-slate-900'
+          }`}>
             <span>Max Outlay</span>
           </div>
         </div>
 
         {/* Metric 2: Stop Loss Points Risk */}
-        <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-rose-500/30 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-rose-400">
+        <div className={`p-2.5 sm:p-3.5 rounded-lg border border-rose-500/30 flex flex-col justify-between ${
+          isLight ? 'bg-rose-50/50' : 'bg-slate-950'
+        }`}>
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-rose-500 dark:text-rose-400">
             <span className="flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
               Stop Loss
             </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-rose-500/10 text-rose-300">
+            <span className="text-[10px] font-mono px-1 rounded bg-rose-500/10 text-rose-600 dark:text-rose-300">
               -{slLossPct}%
             </span>
           </div>
           <div className="my-1.5">
-            <div className="text-lg sm:text-2xl font-bold font-mono text-rose-400 tracking-tight">
+            <div className="text-lg sm:text-2xl font-bold font-mono text-rose-600 dark:text-rose-400 tracking-tight">
               -{slRiskPoints.toFixed(2)} pts
             </div>
-            <div className="text-[10px] sm:text-[11px] text-rose-300/80 font-mono">
+            <div className="text-[10px] sm:text-[11px] text-rose-700/80 dark:text-rose-300/80 font-mono">
               Cut @ {ticker.currency}{stopLoss.toFixed(2)}
             </div>
           </div>
-          <div className="text-[10px] text-slate-400 border-t border-slate-900 pt-1 flex items-center justify-between font-mono">
+          <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
+            isLight ? 'border-rose-200' : 'border-slate-900'
+          }`}>
             <span>Risk Limit</span>
           </div>
         </div>
 
         {/* Metric 3: Target 1 Points Gain */}
-        <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-emerald-500/30 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-emerald-400">
+        <div className={`p-2.5 sm:p-3.5 rounded-lg border border-emerald-500/30 flex flex-col justify-between ${
+          isLight ? 'bg-emerald-50/50' : 'bg-slate-950'
+        }`}>
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-emerald-600 dark:text-emerald-400">
             <span className="flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3" />
               Target 1
             </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-emerald-500/10 text-emerald-300">
+            <span className="text-[10px] font-mono px-1 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
               +{t1ProfitPct}%
             </span>
           </div>
           <div className="my-1.5">
-            <div className="text-lg sm:text-2xl font-bold font-mono text-emerald-400 tracking-tight">
+            <div className="text-lg sm:text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
               +{t1Points.toFixed(2)} pts
             </div>
-            <div className="text-[10px] sm:text-[11px] text-emerald-300/80 font-mono">
+            <div className="text-[10px] sm:text-[11px] text-emerald-700/80 dark:text-emerald-300/80 font-mono">
               Exit @ {ticker.currency}{target1.toFixed(2)}
             </div>
           </div>
-          <div className="text-[10px] text-slate-400 border-t border-slate-900 pt-1 flex items-center justify-between font-mono">
+          <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
+            isLight ? 'border-emerald-200' : 'border-slate-900'
+          }`}>
             <span>R:R {signal.riskRewardRatio}</span>
           </div>
         </div>
 
         {/* Metric 4: Target 2 Points Gain */}
-        <div className="bg-slate-950 p-2.5 sm:p-3.5 rounded-lg border border-sky-500/30 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-sky-400">
+        <div className={`p-2.5 sm:p-3.5 rounded-lg border border-sky-500/30 flex flex-col justify-between ${
+          isLight ? 'bg-sky-500/5' : 'bg-slate-950'
+        }`}>
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-sky-600 dark:text-sky-400">
             <span className="flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3" />
               Target 2
             </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-sky-500/10 text-sky-300">
+            <span className="text-[10px] font-mono px-1 rounded bg-sky-500/10 text-sky-600 dark:text-sky-300">
               +{t2ProfitPct}%
             </span>
           </div>
           <div className="my-1.5">
-            <div className="text-lg sm:text-2xl font-bold font-mono text-sky-400 tracking-tight">
+            <div className="text-lg sm:text-2xl font-bold font-mono text-sky-600 dark:text-sky-400 tracking-tight">
               +{t2Points.toFixed(2)} pts
             </div>
-            <div className="text-[10px] sm:text-[11px] text-sky-300/80 font-mono">
+            <div className="text-[10px] sm:text-[11px] text-sky-700/80 dark:text-sky-300/80 font-mono">
               Exit @ {ticker.currency}{target2.toFixed(2)}
             </div>
           </div>
-          <div className="text-[10px] text-slate-400 border-t border-slate-900 pt-1 flex items-center justify-between font-mono">
+          <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
+            isLight ? 'border-sky-200' : 'border-slate-900'
+          }`}>
             <span>Extended</span>
           </div>
         </div>

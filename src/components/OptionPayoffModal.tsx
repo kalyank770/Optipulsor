@@ -7,6 +7,7 @@ interface OptionPayoffModalProps {
   ticker: TickerConfig;
   isOpen: boolean;
   onClose: () => void;
+  theme?: 'dark' | 'light';
 }
 
 export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
@@ -14,8 +15,10 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
   ticker,
   isOpen,
   onClose,
+  theme = 'dark',
 }) => {
   if (!isOpen || !contract) return null;
+  const isLight = theme === 'light';
 
   const isCE = contract.type === 'CE';
   const K = contract.strike;
@@ -100,44 +103,52 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="payoff-modal-title"
-        className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-auto"
+        className={`border rounded-xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-auto ${
+          isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'
+        }`}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-3.5 py-3 sm:px-6 sm:py-4 border-b border-slate-800 bg-slate-950 shrink-0">
+        <div className={`flex items-center justify-between px-3.5 py-3 sm:px-6 sm:py-4 border-b shrink-0 ${
+          isLight ? 'bg-slate-100 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+        }`}>
           <div className="flex items-center gap-3">
             <span className={`p-2 rounded-lg font-bold text-sm font-mono ${
-              isCE ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
-              'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+              isCE ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40' :
+              'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40'
             }`}>
               {contract.strike} {contract.type}
             </span>
             <div>
-              <h2 id="payoff-modal-title" className="text-base font-bold text-white">
+              <h2 id="payoff-modal-title" className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {ticker.symbol} {contract.strike} {contract.type} Payoff & Greeks
               </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                <span>Premium (LTP): <strong className="font-mono text-white">{ticker.currency}{premium.toFixed(2)}</strong></span>
+              <div className={`flex items-center gap-2 text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                <span>Premium (LTP): <strong className={`font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{ticker.currency}{premium.toFixed(2)}</strong></span>
                 <span>·</span>
                 <span className="flex items-center gap-1">
                   <span>Lots:</span>
                   <button
                     onClick={() => setLots(Math.max(1, lots - 1))}
-                    className="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer text-[10px]"
+                    className={`px-1.5 py-0.2 rounded font-bold cursor-pointer text-[10px] ${
+                      isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-800 hover:bg-slate-700 text-white'
+                    }`}
                     title="Decrease lots"
                   >
                     -
                   </button>
-                  <strong className="font-mono text-white">{lots} ({totalQty} Qty)</strong>
+                  <strong className={`font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{lots} ({totalQty} Qty)</strong>
                   <button
                     onClick={() => setLots(lots + 1)}
-                    className="px-1.5 py-0.2 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer text-[10px]"
+                    className={`px-1.5 py-0.2 rounded font-bold cursor-pointer text-[10px] ${
+                      isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-slate-800 hover:bg-slate-700 text-white'
+                    }`}
                     title="Increase lots"
                   >
                     +
                   </button>
                 </span>
                 <span>·</span>
-                <span className="text-emerald-400 font-semibold font-mono">
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
                   Capital: {ticker.currency}{(Math.round(premium * totalQty)).toLocaleString()}
                 </span>
               </div>

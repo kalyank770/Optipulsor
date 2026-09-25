@@ -124,46 +124,58 @@ export function generateTradeSignal(
     nearbyPeOIChg += r.pe.oiChange;
   }
 
-  // News sentiment impact
-  const relevantNews = newsItems.filter(n => n.relatedTickers.includes(ticker.symbol));
+  // Global News, Gift Nifty & Macro Sentiment impact
+  const relevantNews = newsItems.filter(n => n.relatedTickers.includes(ticker.symbol) || n.category === 'Macro' || n.category === 'Geopolitics');
+  const giftNiftyNews = relevantNews.filter(n => n.title.toLowerCase().includes('gift nifty') || n.title.toLowerCase().includes('sgx') || n.title.toLowerCase().includes('global') || n.title.toLowerCase().includes('wall street'));
   const bullishNewsCount = relevantNews.filter(n => n.sentiment === 'BULLISH').length;
   const bearishNewsCount = relevantNews.filter(n => n.sentiment === 'BEARISH').length;
+  const giftNiftyBias = giftNiftyNews.reduce((acc, n) => acc + (n.sentiment === 'BULLISH' ? 1.5 : n.sentiment === 'BEARISH' ? -1.5 : 0), 0);
 
-  // Dynamic Multi-Factor Scoring Matrix
+  // Dynamic Multi-Factor Scoring Matrix including Macro, Gift Nifty, IV Rank & OI Buildup
   let score = 0;
 
   // 1. Current Spot Price vs Reference Previous Close (Momentum Edge)
   const spotChangePct = ticker.changePercent;
-  if (spotChangePct >= 0.5) score += 3.0;
-  else if (spotChangePct > 0.05) score += 1.8;
-  else if (spotChangePct <= -0.5) score -= 3.0;
-  else if (spotChangePct < -0.05) score -= 1.8;
+  if (spotChangePct >= 0.5) score += 2.5;
+  else if (spotChangePct > 0.05) score += 1.5;
+  else if (spotChangePct <= -0.5) score -= 2.5;
+  else if (spotChangePct < -0.05) score -= 1.5;
 
-  // 2. Current Spot Price relative to ATM Strike
+  // 2. Gift Nifty / Global Macro Sentiment Weight
+  score += giftNiftyBias;
+
+  // 3. Current Spot Price relative to ATM Strike & Max Pain
   if (spotPrice > atmStrike + (ticker.strikeStep * 0.15)) {
-    score += 1.2; // Spot pushing into upper strike band
+    score += 1.2;
   } else if (spotPrice < atmStrike - (ticker.strikeStep * 0.15)) {
-    score -= 1.2; // Spot pushing into lower strike band
+    score -= 1.2;
   }
 
-  // 3. Put-Call Ratio (PCR)
-  if (pcrTotalOI >= 1.20) score += 2.0;
+  if (spotPrice < maxPainStrike - (ticker.strikeStep * 0.5)) {
+    score += 0.8;
+  } else if (spotPrice > maxPainStrike + (ticker.strikeStep * 0.5)) {
+    score -= 0.8;
+  }
+
+  // 4. Put-Call Ratio (PCR) & OI Buildup Velocity
+  if (pcrTotalOI >= 1.25) score += 2.0;
   else if (pcrTotalOI >= 1.05) score += 1.0;
-  else if (pcrTotalOI <= 0.80) score -= 2.0;
+  else if (pcrTotalOI <= 0.78) score -= 2.0;
   else if (pcrTotalOI <= 0.95) score -= 1.0;
 
-  // 4. Institutional Wall Proximity
-  if (spotPrice >= majorResistanceStrike) {
-    // Breakout above resistance
-    score += 1.5;
-  } else if (spotPrice <= majorSupportStrike) {
-    // Breakdown below support
-    score -= 1.5;
+  if (nearbyPeOIChg > nearbyCeOIChg * 1.2) score += 1.2;
+  else if (nearbyCeOIChg > nearbyPeOIChg * 1.2) score -= 1.2;
+
+  // 5. IV Rank / Volatility Environment adjustment
+  if (ivRank > 65) {
+    score *= 0.9;
+  } else if (ivRank < 30) {
+    score *= 1.15;
   }
 
-  // 5. News Sentiment Weight
-  if (bullishNewsCount > bearishNewsCount) score += 0.8;
-  else if (bearishNewsCount > bullishNewsCount) score -= 0.8;
+  // 6. General News Sentiment Weight
+  if (bullishNewsCount > bearishNewsCount) score += 1.0;
+  else if (bearishNewsCount > bullishNewsCount) score -= 1.0;
 
   // Action Decision
   let action: SignalAction = 'WAIT_NEUTRAL';
@@ -218,18 +230,22 @@ export function generateTradeSignal(
   const tick = ticker.currency === '₹' ? 0.05 : 0.01;
   const roundToTick = (val: number) => Number((Math.round(val / tick) * tick).toFixed(2));
 
-  // Risk parameters for real-money execution:
-  // 25% Stop Loss risk boundary
-  const slDelta = roundToTick(premium * 0.25);
+  // Refined realistic risk & target parameters for intraday option movement
+  const contractDelta = contract ? Math.abs(contract.greeks.delta) : 0.50;
+
+  // Stop Loss: ~18% risk on premium for tight intraday protection
+  const slDelta = roundToTick(premium * 0.18);
   const stopLoss = Math.max(tick, roundToTick(premium - slDelta));
   const actualRisk = roundToTick(premium - stopLoss);
 
-  // Target 1: 1.6x Risk-Reward (+40% upside)
-  const target1Delta = roundToTick(actualRisk * 1.6);
+  // Target 1: Realistic near-term intraday target (+20% to +30% gain based on delta velocity)
+  const t1Multiplier = Math.max(1.2, Math.min(1.6, 1.35 / Math.max(0.3, contractDelta)));
+  const target1Delta = roundToTick(actualRisk * t1Multiplier);
   const target1 = roundToTick(premium + target1Delta);
 
-  // Target 2: 3.0x Risk-Reward (+75% upside)
-  const target2Delta = roundToTick(actualRisk * 3.0);
+  // Target 2: Extended intraday runner target (+40% to +55% gain)
+  const t2Multiplier = t1Multiplier * 1.75;
+  const target2Delta = roundToTick(actualRisk * t2Multiplier);
   const target2 = roundToTick(premium + target2Delta);
 
   // Real-world execution entry zone:

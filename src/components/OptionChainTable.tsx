@@ -19,6 +19,7 @@ interface OptionChainTableProps {
   recommendedType?: 'CE' | 'PE';
   maxPainStrike: number;
   onSelectContract: (strike: number, type: 'CE' | 'PE') => void;
+  theme?: 'dark' | 'light';
 }
 
 export const OptionChainTable: React.FC<OptionChainTableProps> = ({
@@ -28,28 +29,34 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
   recommendedType,
   maxPainStrike,
   onSelectContract,
+  theme = 'dark',
 }) => {
   const [mobileMode, setMobileMode] = useState<'compact' | 'matrix'>('compact');
+  const isLight = theme === 'light';
 
   // Compute max OI in current rows to normalize bar indicators
   const maxOI = Math.max(...rows.flatMap(r => [r.ce.openInterest, r.pe.openInterest]), 1);
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-lg overflow-hidden shadow-xl">
+    <div className={`border rounded-lg overflow-hidden shadow-xl ${
+      isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900/90 border-slate-800 text-slate-100'
+    }`}>
       {/* Mobile View Toggle Bar (Visible on mobile screens) */}
-      <div className="md:hidden flex items-center justify-between p-2.5 bg-slate-950 border-b border-slate-800 text-xs">
-        <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+      <div className={`md:hidden flex items-center justify-between p-2.5 border-b text-xs ${
+        isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-slate-950 border-slate-800 text-slate-300'
+      }`}>
+        <span className="font-semibold flex items-center gap-1.5">
           <span>Option Ladder</span>
-          <span className="text-[10px] text-slate-500 font-mono">({rows.length} strikes)</span>
+          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>({rows.length} strikes)</span>
         </span>
 
-        <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
+        <div className={`flex items-center gap-1 p-0.5 rounded border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-800'}`}>
           <button
             onClick={() => setMobileMode('compact')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer min-h-[30px] ${
               mobileMode === 'compact'
-                ? 'bg-emerald-500 text-slate-950 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-emerald-500 text-white font-bold'
+                : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Smartphone className="w-3.5 h-3.5" />
@@ -59,8 +66,8 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
             onClick={() => setMobileMode('matrix')}
             className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer min-h-[30px] ${
               mobileMode === 'matrix'
-                ? 'bg-emerald-500 text-slate-950 font-bold'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-emerald-500 text-white font-bold'
+                : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <Table2 className="w-3.5 h-3.5" />
@@ -180,19 +187,19 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
         <table className="w-full text-xs font-mono tabular-nums border-collapse select-none">
           <thead>
             {/* Top Super-header */}
-            <tr className="border-b border-slate-800 bg-slate-950 text-slate-300">
-              <th colSpan={7} className="py-2.5 px-3 text-center font-bold tracking-wider text-emerald-400 border-r border-slate-800 uppercase bg-emerald-950/20">
+            <tr className={`border-b ${isLight ? 'border-slate-200 bg-slate-100 text-slate-800' : 'border-slate-800 bg-slate-950 text-slate-300'}`}>
+              <th colSpan={7} className={`py-2.5 px-3 text-center font-bold tracking-wider text-emerald-600 dark:text-emerald-400 border-r uppercase ${isLight ? 'border-slate-200 bg-emerald-500/10' : 'border-slate-800 bg-emerald-950/20'}`}>
                 CALL OPTIONS (CE)
               </th>
-              <th className="py-2.5 px-4 text-center font-bold tracking-wider text-white bg-slate-900 uppercase">
+              <th className={`py-2.5 px-4 text-center font-bold tracking-wider uppercase ${isLight ? 'bg-slate-200 text-slate-900' : 'bg-slate-900 text-white'}`}>
                 STRIKE
               </th>
-              <th colSpan={7} className="py-2.5 px-3 text-center font-bold tracking-wider text-rose-400 border-l border-slate-800 uppercase bg-rose-950/20">
+              <th colSpan={7} className={`py-2.5 px-3 text-center font-bold tracking-wider text-rose-600 dark:text-rose-400 border-l uppercase ${isLight ? 'border-slate-200 bg-rose-500/10' : 'border-slate-800 bg-rose-950/20'}`}>
                 PUT OPTIONS (PE)
               </th>
             </tr>
             {/* Column Headers */}
-            <tr className="border-b border-slate-800 bg-slate-950/80 text-[11px] text-slate-400">
+            <tr className={`border-b text-[11px] ${isLight ? 'border-slate-200 bg-slate-50 text-slate-700' : 'border-slate-800 bg-slate-950/80 text-slate-400'}`}>
               {/* CE Columns */}
               <th className="py-2 px-2 text-right">OI</th>
               <th className="py-2 px-2 text-right">Chg OI</th>
@@ -200,15 +207,15 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
               <th className="py-2 px-2 text-right">IV%</th>
               <th className="py-2 px-2 text-right">Delta</th>
               <th className="py-2 px-2 text-right">Theta</th>
-              <th className="py-2 px-3 text-right font-bold text-slate-200 border-r border-slate-800">LTP</th>
+              <th className={`py-2 px-3 text-right font-bold border-r ${isLight ? 'border-slate-200 text-slate-900' : 'border-slate-800 text-slate-200'}`}>LTP</th>
 
               {/* Center Strike */}
-              <th className="py-2 px-4 text-center font-bold text-white bg-slate-900/90">
+              <th className={`py-2 px-4 text-center font-bold ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-slate-900/90 text-white'}`}>
                 Strike
               </th>
 
               {/* PE Columns */}
-              <th className="py-2 px-3 text-left font-bold text-slate-200 border-l border-slate-800">LTP</th>
+              <th className={`py-2 px-3 text-left font-bold border-l ${isLight ? 'border-slate-200 text-slate-900' : 'border-slate-800 text-slate-200'}`}>LTP</th>
               <th className="py-2 px-2 text-left">Theta</th>
               <th className="py-2 px-2 text-left">Delta</th>
               <th className="py-2 px-2 text-left">IV%</th>
@@ -217,7 +224,7 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
               <th className="py-2 px-2 text-left">OI</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 text-slate-300">
+          <tbody className={`divide-y ${isLight ? 'divide-slate-200 text-slate-800' : 'divide-slate-800/60 text-slate-300'}`}>
             {rows.map(row => {
               const strike = row.strike;
               const isATM = row.isATM;

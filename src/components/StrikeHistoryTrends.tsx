@@ -28,6 +28,7 @@ interface StrikeHistoryTrendsProps {
   history: StrikeHistoryItem[];
   analytics: StrikeTrendAnalytics;
   onSelectContract: (strike: number, type: OptionType) => void;
+  theme?: 'dark' | 'light';
 }
 
 export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
@@ -36,8 +37,10 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
   history,
   analytics,
   onSelectContract,
+  theme = 'dark',
 }) => {
   const isIndian = ticker.currency === '₹';
+  const isLight = theme === 'light';
   const cumulative = analytics.cumulativeTrend;
   const isBullish = cumulative.dominantAction === 'BULLISH_CE';
 
@@ -45,58 +48,62 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
     <div className="space-y-4 sm:space-y-6">
       {/* 1. Cumulative Trend Movement & Directional Convergence Hero Card */}
       <div className={`rounded-xl border p-4 sm:p-6 shadow-xl transition-all ${
-        cumulative.alignmentStatus === 'STRONG_CONVERGENCE' ? 'bg-slate-900/95 border-emerald-500/50 shadow-emerald-950/20' :
-        cumulative.alignmentStatus === 'MODERATE_CONVERGENCE' ? 'bg-slate-900/95 border-sky-500/50 shadow-sky-950/20' :
-        cumulative.alignmentStatus === 'CONSOLIDATING_IN_ZONE' ? 'bg-slate-900/95 border-amber-500/50 shadow-amber-950/20' :
-        'bg-slate-900/95 border-rose-500/50 shadow-rose-950/20'
+        isLight
+          ? 'bg-white border-slate-200 text-slate-900 shadow-md'
+          : (cumulative.alignmentStatus === 'STRONG_CONVERGENCE' ? 'bg-slate-900/95 border-emerald-500/50 text-slate-100 shadow-emerald-950/20' :
+             cumulative.alignmentStatus === 'MODERATE_CONVERGENCE' ? 'bg-slate-900/95 border-sky-500/50 text-slate-100 shadow-sky-950/20' :
+             cumulative.alignmentStatus === 'CONSOLIDATING_IN_ZONE' ? 'bg-slate-900/95 border-amber-500/50 text-slate-100 shadow-amber-950/20' :
+             'bg-slate-900/95 border-rose-500/50 text-slate-100 shadow-rose-950/20')
       }`}>
         {/* Hero Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
           <div className="flex items-start gap-3.5">
             <div className={`p-3 rounded-xl flex items-center justify-center shrink-0 ${
               cumulative.isMovingTowardsSuggested 
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' 
-                : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' 
+                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
             }`}>
               <Compass className="w-6 h-6 animate-pulse" />
             </div>
 
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                <span className="uppercase font-bold tracking-wider text-[11px] text-emerald-400">
+              <div className={`flex flex-wrap items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                <span className="uppercase font-bold tracking-wider text-[11px] text-emerald-600 dark:text-emerald-400">
                   Cumulative Trend Intelligence
                 </span>
-                <span className="text-slate-600">·</span>
-                <span className="font-mono text-slate-300">
+                <span className={isLight ? 'text-slate-400' : 'text-slate-600'}>·</span>
+                <span className={`font-mono ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                   Evaluated across all {cumulative.totalCallSignals + cumulative.totalPutSignals} historical suggestions
                 </span>
               </div>
 
-              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white mt-1">
+              <h2 className={`text-lg sm:text-2xl font-bold tracking-tight mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {cumulative.statusHeadline}
               </h2>
 
-              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-3xl leading-relaxed">
+              <p className={`text-xs sm:text-sm mt-1 max-w-3xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                 {cumulative.detailedAnalysis}
               </p>
             </div>
           </div>
 
           {/* Alignment Score Badge */}
-          <div className="bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 flex items-center justify-between lg:flex-col lg:justify-center gap-2 shrink-0">
-            <div className="text-[11px] font-semibold text-slate-400 uppercase">
+          <div className={`px-4 py-3 rounded-xl border flex items-center justify-between lg:flex-col lg:justify-center gap-2 shrink-0 ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+          }`}>
+            <div className={`text-[11px] font-semibold uppercase ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
               Action Alignment Score
             </div>
             <div className="flex items-baseline gap-1">
               <span className={`text-2xl sm:text-3xl font-bold font-mono ${
-                cumulative.alignmentScore >= 80 ? 'text-emerald-400' :
-                cumulative.alignmentScore >= 65 ? 'text-sky-400' : 'text-amber-400'
+                cumulative.alignmentScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
+                cumulative.alignmentScore >= 65 ? 'text-sky-600 dark:text-sky-400' : 'text-amber-600 dark:text-amber-400'
               }`}>
                 {cumulative.alignmentScore}%
               </span>
-              <span className="text-xs text-slate-500">/ 100</span>
+              <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>/ 100</span>
             </div>
-            <span className="text-[10px] text-slate-400 font-mono hidden lg:inline">
+            <span className={`text-[10px] font-mono hidden lg:inline ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               {cumulative.isMovingTowardsSuggested ? 'Towards Target' : 'Consolidating'}
             </span>
           </div>
@@ -105,51 +112,51 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
         {/* Cumulative Trend Diagnostics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5 mt-4">
           {/* Box 1: Cumulative Action Bias */}
-          <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
-            <div className="text-[11px] uppercase font-semibold text-slate-400">Dominant Bias</div>
-            <div className="text-base sm:text-lg font-bold font-mono text-white mt-1 flex items-center gap-1.5">
-              {isBullish ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />}
+          <div className={`p-3 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+            <div className={`text-[11px] uppercase font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Dominant Bias</div>
+            <div className={`text-base sm:text-lg font-bold font-mono mt-1 flex items-center gap-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              {isBullish ? <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
               <span>{isBullish ? 'BULLISH (CE)' : 'BEARISH (PE)'}</span>
             </div>
-            <div className="text-[10px] text-slate-400 mt-1 font-mono">
+            <div className={`text-[10px] mt-1 font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               {cumulative.totalCallSignals} Call vs {cumulative.totalPutSignals} Put calls ({cumulative.bullishRatioPercent}% Calls)
             </div>
           </div>
 
           {/* Box 2: Net Cumulative ROI */}
-          <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
-            <div className="text-[11px] uppercase font-semibold text-slate-400">Net Cumulative ROI</div>
+          <div className={`p-3 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+            <div className={`text-[11px] uppercase font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Net Cumulative ROI</div>
             <div className={`text-base sm:text-lg font-bold font-mono mt-1 ${
-              cumulative.netCumulativeReturnPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              cumulative.netCumulativeReturnPercent >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
             }`}>
               {cumulative.netCumulativeReturnPercent >= 0 ? '+' : ''}{cumulative.netCumulativeReturnPercent}%
             </div>
-            <div className="text-[10px] text-slate-400 mt-1 font-mono">
+            <div className={`text-[10px] mt-1 font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               Avg gain across all suggestions
             </div>
           </div>
 
           {/* Box 3: Target Hits Count */}
-          <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
-            <div className="text-[11px] uppercase font-semibold text-slate-400">Target Completions</div>
-            <div className="text-base sm:text-lg font-bold font-mono text-emerald-400 mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <div className={`p-3 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+            <div className={`text-[11px] uppercase font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Target Completions</div>
+            <div className="text-base sm:text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>{cumulative.signalsHitTarget1Count} Targets Hit</span>
             </div>
-            <div className="text-[10px] text-slate-400 mt-1 font-mono">
+            <div className={`text-[10px] mt-1 font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               {cumulative.signalsHitTarget2Count} extended runners (T2)
             </div>
           </div>
 
           {/* Box 4: Target Progress Gauge */}
-          <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
-            <div className="text-[11px] uppercase font-semibold text-slate-400">Target Convergence</div>
-            <div className="text-base sm:text-lg font-bold font-mono text-sky-400 mt-1">
+          <div className={`p-3 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'}`}>
+            <div className={`text-[11px] uppercase font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Target Convergence</div>
+            <div className="text-base sm:text-lg font-bold font-mono text-sky-600 dark:text-sky-400 mt-1">
               {cumulative.targetProgressPercent}% Progress
             </div>
-            <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className={`w-full h-1.5 rounded-full mt-2 overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
               <div 
-                className="bg-sky-400 h-full rounded-full transition-all duration-500" 
+                className="bg-sky-500 dark:bg-sky-400 h-full rounded-full transition-all duration-500" 
                 style={{ width: `${cumulative.targetProgressPercent}%` }}
               />
             </div>
@@ -157,10 +164,12 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
         </div>
 
         {/* Tactical Verdict Strip */}
-        <div className="mt-3.5 p-2.5 sm:p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 flex items-center gap-2">
-          <Flame className="w-4 h-4 text-amber-400 shrink-0" />
+        <div className={`mt-3.5 p-2.5 sm:p-3 rounded-lg border text-xs flex items-center gap-2 ${
+          isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-950 border-slate-800 text-slate-300'
+        }`}>
+          <Flame className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
           <div>
-            <strong className="text-white mr-1.5">Actionable Verdict:</strong>
+            <strong className={`mr-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>Actionable Verdict:</strong>
             {cumulative.suggestedActionVerdict}
           </div>
         </div>

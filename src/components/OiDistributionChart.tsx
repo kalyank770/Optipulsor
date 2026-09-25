@@ -6,6 +6,7 @@ interface OiDistributionChartProps {
   ticker: TickerConfig;
   metrics: MarketMetrics;
   onSelectStrike: (strike: number) => void;
+  theme?: 'dark' | 'light';
 }
 
 export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
@@ -13,7 +14,9 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
   ticker,
   metrics,
   onSelectStrike,
+  theme = 'dark',
 }) => {
+  const isLight = theme === 'light';
   const [metricMode, setMetricMode] = useState<'TOTAL_OI' | 'CHG_OI'>('TOTAL_OI');
 
   // Compute maximum value for scaling
@@ -27,21 +30,21 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
   );
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-5">
+    <div className={`border rounded-lg p-5 ${isLight ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-slate-900/90 border-slate-800 text-white'}`}>
       {/* Header with Mode Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
+          <h3 className={`text-base font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
             <span>Open Interest Profile & Institutional Walls</span>
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
             Identify institutional support floors (Put OI) and resistance ceilings (Call OI)
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Legend */}
-          <div className="flex items-center gap-3 text-xs text-slate-400 mr-2">
+          <div className={`flex items-center gap-3 text-xs mr-2 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded bg-emerald-500" />
               <span>Call OI (Resistance)</span>
@@ -52,13 +55,13 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800 text-xs">
+          <div className={`flex items-center gap-1 p-1 rounded border text-xs ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
             <button
               onClick={() => setMetricMode('TOTAL_OI')}
               className={`px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
                 metricMode === 'TOTAL_OI'
-                  ? 'bg-slate-800 text-white font-semibold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? isLight ? 'bg-white text-slate-900 font-semibold shadow-xs' : 'bg-slate-800 text-white font-semibold'
+                  : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               Total Open Interest
@@ -67,8 +70,8 @@ export const OiDistributionChart: React.FC<OiDistributionChartProps> = ({
               onClick={() => setMetricMode('CHG_OI')}
               className={`px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
                 metricMode === 'CHG_OI'
-                  ? 'bg-slate-800 text-white font-semibold'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? isLight ? 'bg-white text-slate-900 font-semibold shadow-xs' : 'bg-slate-800 text-white font-semibold'
+                  : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               Change in OI (Intraday)

@@ -6,13 +6,16 @@ interface NewsWidgetProps {
   news: NewsItem[];
   selectedTicker: TickerConfig;
   onSelectTickerBySymbol?: (symbol: string) => void;
+  theme?: 'dark' | 'light';
 }
 
 export const NewsWidget: React.FC<NewsWidgetProps> = ({
   news,
   selectedTicker,
   onSelectTickerBySymbol,
+  theme = 'dark',
 }) => {
+  const isLight = theme === 'light';
   const [filterSentiment, setFilterSentiment] = useState<'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'>('ALL');
   const [filterTickerOnly, setFilterTickerOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -32,15 +35,15 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
   });
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-3 sm:p-5">
+    <div className={`border rounded-lg p-3 sm:p-5 ${isLight ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-slate-900/90 border-slate-800 text-white'}`}>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800">
+      <div className={`flex flex-wrap items-center justify-between gap-3 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
         <div>
           <div className="flex items-center gap-2">
-            <Newspaper className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-base font-bold text-white">Options Market News & Macro Catalysts</h3>
+            <Newspaper className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Options Market News & Macro Catalysts</h3>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
             Real-time feed evaluated for Implied Volatility shifts, institutional flow, and CE/PE implications
           </p>
         </div>
@@ -52,23 +55,23 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
             onClick={() => setFilterTickerOnly(!filterTickerOnly)}
             className={`px-2.5 py-1 rounded font-medium border transition-colors cursor-pointer ${
               filterTickerOnly
-                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 font-semibold'
-                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-300 font-semibold'
+                : isLight ? 'bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
           >
             {selectedTicker.symbol} Only
           </button>
 
           {/* Sentiment Filter */}
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800">
+          <div className={`flex items-center gap-1 p-1 rounded border ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
             {(['ALL', 'BULLISH', 'BEARISH', 'NEUTRAL'] as const).map(sentiment => (
               <button
                 key={sentiment}
                 onClick={() => setFilterSentiment(sentiment)}
                 className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
                   filterSentiment === sentiment
-                    ? 'bg-slate-800 text-white font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? isLight ? 'bg-white text-slate-900 font-semibold shadow-xs' : 'bg-slate-800 text-white font-semibold'
+                    : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {sentiment === 'ALL' ? 'All Sentiments' : sentiment}
