@@ -9,6 +9,7 @@ import {
   NewsItem,
   OptionType 
 } from '../types/options';
+import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 
 /**
  * Computes market metrics from an option chain
@@ -177,6 +178,10 @@ export function generateTradeSignal(
   if (bullishNewsCount > bearishNewsCount) score += 1.0;
   else if (bearishNewsCount > bullishNewsCount) score -= 1.0;
 
+  // 7. Candlestick & Multi-Timeframe Chart Patterns Confluence (2m, 5m, 15m)
+  const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+  score += (candlePatterns.confluenceScore * 0.4);
+
   // Action Decision
   let action: SignalAction = 'WAIT_NEUTRAL';
   let strength: SignalStrength = 'MODERATE';
@@ -230,26 +235,218 @@ export function generateTradeSignal(
   const tick = ticker.currency === '₹' ? 0.05 : 0.01;
   const roundToTick = (val: number) => Number((Math.round(val / tick) * tick).toFixed(2));
 
-  // Refined realistic risk & target parameters for intraday option movement
-  const contractDelta = contract ? Math.abs(contract.greeks.delta) : 0.50;
+  // =========================================================================
+  // REALISTIC EXIT TARGET DERIVATION ENGINE
+  // Synthesizes: 1. Option Chart Data, 2. Previous Trend Patterns, 3. News Catalysts
+  // =========================================================================
 
-  // Stop Loss: ~18% risk on premium for tight intraday protection
-  const slDelta = roundToTick(premium * 0.18);
+  const step = ticker.strikeStep;
+  const isCE = recommendedType === 'CE';
+
+  // --- 1. OPTION CHART DATA (OI HURDLES & WALLS) ---
+  const higherStrikes = chain.filter(r => r.strike > spotPrice).sort((a, b) => a.strike - b.strike);
+  const lowerStrikes = chain.filter(r => r.strike < spotPrice).sort((a, b) => b.strike - a.strike);
+
+  // Immediate resistance hurdle with highest Call OI above spot
+  let immediateCallHurdle = higherStrikes.length > 0 ? higherStrikes[0].strike : spotPrice + step;
+  if (higherStrikes.length > 1) {
+    const topNearCall = [...higherStrikes.slice(0, 3)].sort((a, b) => b.ce.openInterest - a.ce.openInterest)[0];
+    if (topNearCall && topNearCall.strike > spotPrice) immediateCallHurdle = topNearCall.strike;
+  }
+
+  // Immediate support floor with highest Put OI below spot
+  let immediatePutSupport = lowerStrikes.length > 0 ? lowerStrikes[0].strike : spotPrice - step;
+  if (lowerStrikes.length > 1) {
+    const topNearPut = [...lowerStrikes.slice(0, 3)].sort((a, b) => b.pe.openInterest - a.pe.openInterest)[0];
+    if (topNearPut && topNearPut.strike < spotPrice) immediatePutSupport = topNearPut.strike;
+  }
+
+  const majorCallWall = majorResistanceStrike;
+  const majorPutWall = majorSupportStrike;
+
+  // --- 2. PREVIOUS TREND PATTERNS & INTRADAY VOLATILITY ---
+  const vix = Math.max(9, ticker.vix || 13);
+  // Daily Expected Move based on VIX: Spot * (VIX / 100) / sqrt(252)
+  const dailyExpectedMove = spotPrice * (vix / 100) / 15.87;
+  const intradaySessionMove = Math.max(step * 0.45, dailyExpectedMove * 0.40);
+
+  const dayHigh = ticker.dayHigh && ticker.dayHigh > spotPrice ? ticker.dayHigh : spotPrice + step * 0.7;
+  const dayLow = ticker.dayLow && ticker.dayLow < spotPrice ? ticker.dayLow : spotPrice - step * 0.7;
+  const dayRange = Math.max(step, dayHigh - dayLow);
+  const isNearDayHigh = (dayHigh - spotPrice) <= step * 0.4;
+  const isNearDayLow = (spotPrice - dayLow) <= step * 0.4;
+
+  // --- 3. LIVE & LAST NIGHT (OVERNIGHT) NEWS SYNTHESIS ---
+  const overnightNews = relevantNews.filter(n => 
+    n.timing === 'OVERNIGHT' || n.category === 'Overnight' || (Date.now() - n.timestamp > 3.5 * 3600 * 1000)
+  );
+  const liveNews = relevantNews.filter(n => 
+    n.timing === 'LIVE' || (Date.now() - n.timestamp <= 3.5 * 3600 * 1000)
+  );
+
+  let overnightScore = 0;
+  for (const item of overnightNews) {
+    const impactMult = item.impact === 'HIGH' ? 2.0 : item.impact === 'MEDIUM' ? 1.3 : 0.8;
+    const sentVal = item.sentiment === 'BULLISH' ? 1 : item.sentiment === 'BEARISH' ? -1 : 0;
+    overnightScore += sentVal * impactMult;
+  }
+  if (overnightNews.length > 0) {
+    overnightScore = Math.max(-1, Math.min(1, overnightScore / (overnightNews.length * 1.5)));
+  }
+
+  let liveScore = 0;
+  for (const item of liveNews) {
+    const impactMult = item.impact === 'HIGH' ? 2.0 : item.impact === 'MEDIUM' ? 1.3 : 0.8;
+    const sentVal = item.sentiment === 'BULLISH' ? 1 : item.sentiment === 'BEARISH' ? -1 : 0;
+    liveScore += sentVal * impactMult;
+  }
+  if (liveNews.length > 0) {
+    liveScore = Math.max(-1, Math.min(1, liveScore / (liveNews.length * 1.5)));
+  }
+
+  // Combined News Sentiment Factor (Overnight anchor: 40% + Live intraday breaking: 60%)
+  let newsSentimentFactor = Number(((overnightScore * 0.40) + (liveScore * 0.60)).toFixed(2));
+  if (giftNiftyBias > 0) {
+    newsSentimentFactor = Math.min(1, newsSentimentFactor + 0.20);
+  } else if (giftNiftyBias < 0) {
+    newsSentimentFactor = Math.max(-1, newsSentimentFactor - 0.20);
+  }
+
+  const topOvernightHeadline = overnightNews[0]?.title || 'Overnight Global Markets Balanced';
+  const topLiveHeadline = liveNews[0]?.title || 'Live Intraday Flow Stable';
+
+  // --- 4. DERIVE REALISTIC TARGET SPOT PRICES ---
+  // Synthesizes 4 Quantitative Pillars:
+  // 1. Multi-Timeframe Candlestick (2m, 5m, 15m)
+  // 2. Live & Overnight News Momentum
+  // 3. Previous Multi-Session Trend & Day Range
+  // 4. Option Chart OI Walls & Max Pain
+  let spotTarget1 = spotPrice;
+  let spotTarget2 = spotPrice;
+  let target1Basis = '';
+  let target2Basis = '';
+
+  const newsTargetAdjustment = isCE
+    ? (newsSentimentFactor > 0 ? (newsSentimentFactor * step * 0.25) : -(Math.abs(newsSentimentFactor) * step * 0.15))
+    : (newsSentimentFactor < 0 ? (Math.abs(newsSentimentFactor) * step * 0.25) : -(newsSentimentFactor * step * 0.15));
+
+  if (isCE) {
+    // BUY CALL:
+    // Target 1: Blend 2m/5m pattern measured move with Call OI hurdle and News Momentum
+    const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const hurdleDist = Math.max(step * 0.35, (immediateCallHurdle - spotPrice) * 0.85);
+    const patternMove = Math.max(chartTarget1 - spotPrice, step * 0.35);
+    const combinedMove = Math.min((patternMove * 0.55 + hurdleDist * 0.45) + newsTargetAdjustment, intradaySessionMove * 0.88);
+    spotTarget1 = Number((spotPrice + Math.max(step * 0.35, combinedMove)).toFixed(2));
+    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} + News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+
+    // Target 2: Blend 15m range expansion measured move with Major Call Wall
+    const chartTarget2 = candlePatterns.derivedExitLevel2;
+    const runnerCandidate = Math.max(spotTarget1 + step * 0.5, (chartTarget2 * 0.55 + majorCallWall * 0.45));
+    const maxCeiling = spotPrice + dailyExpectedMove * 0.85;
+    spotTarget2 = Number(Math.min(runnerCandidate, maxCeiling).toFixed(2));
+    target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} & Call Wall @ ${ticker.currency}${majorCallWall.toLocaleString()}`;
+
+  } else {
+    // BUY PUT:
+    // Target 1: Blend 2m/5m pattern measured move with Put OI support and News Momentum
+    const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const hurdleDist = Math.max(step * 0.35, (spotPrice - immediatePutSupport) * 0.85);
+    const patternMove = Math.max(spotPrice - chartTarget1, step * 0.35);
+    const combinedMove = Math.min((patternMove * 0.55 + hurdleDist * 0.45) + newsTargetAdjustment, intradaySessionMove * 0.88);
+    spotTarget1 = Number((spotPrice - Math.max(step * 0.35, combinedMove)).toFixed(2));
+    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} + News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+
+    // Target 2: Blend 15m range expansion measured move with Major Put Wall
+    const chartTarget2 = candlePatterns.derivedExitLevel2;
+    const runnerCandidate = Math.min(spotTarget1 - step * 0.5, (chartTarget2 * 0.55 + majorPutWall * 0.45));
+    const minFloor = spotPrice - dailyExpectedMove * 0.85;
+    spotTarget2 = Number(Math.max(runnerCandidate, minFloor).toFixed(2));
+    target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} & Put Wall @ ${ticker.currency}${majorPutWall.toLocaleString()}`;
+  }
+
+  // --- 5. DERIVE REALISTIC OPTION PREMIUMS VIA BLACK-SCHOLES GREEKS ---
+  const delta = contract ? Math.abs(contract.greeks.delta) : 0.50;
+  const gamma = contract ? Math.abs(contract.greeks.gamma) : 0.0018;
+  const theta = contract ? Math.abs(contract.greeks.theta) : (premium * 0.06);
+
+  const deltaSpot1 = Math.abs(spotTarget1 - spotPrice);
+  const deltaSpot2 = Math.abs(spotTarget2 - spotPrice);
+
+  // Greek Taylor expansion with typical 2hr / 4hr holding theta erosion
+  const intradayTheta1 = theta * (2 / 6.25);
+  const intradayTheta2 = theta * (4 / 6.25);
+
+  const deltaExpansion1 = delta * deltaSpot1;
+  const gammaAcceleration1 = 0.5 * gamma * Math.pow(deltaSpot1, 2);
+  const rawDeltaP1 = deltaExpansion1 + gammaAcceleration1 - intradayTheta1;
+  const rawDeltaP2 = (delta * deltaSpot2) + (0.5 * gamma * Math.pow(deltaSpot2, 2)) - intradayTheta2;
+
+  // Realistic bounds calibrated to professional intraday options trading:
+  // Target 1: +18% to +30% gain on entry premium (safe tactical exit)
+  const minT1Gain = premium * 0.18;
+  const maxT1Gain = premium * 0.30;
+  const target1Delta = roundToTick(Math.max(minT1Gain, Math.min(maxT1Gain, rawDeltaP1)));
+  const target1 = roundToTick(premium + target1Delta);
+
+  // Target 2: +35% to +55% gain on entry premium (extended runner target)
+  const minT2Gain = Math.max(target1Delta * 1.35, premium * 0.35);
+  const maxT2Gain = premium * 0.55;
+  const target2Delta = roundToTick(Math.max(minT2Gain, Math.min(maxT2Gain, rawDeltaP2)));
+  const target2 = roundToTick(premium + target2Delta);
+
+  // Stop Loss: derived from 2m/5m candlestick pattern invalidation level
+  const candleInvalidationMove = isCE
+    ? Math.max(step * 0.25, spotPrice - candlePatterns.invalidationLevel)
+    : Math.max(step * 0.25, candlePatterns.invalidationLevel - spotPrice);
+  const invalidationSpotMove = Math.min(step * 0.45, candleInvalidationMove);
+  const rawSlDelta = delta * invalidationSpotMove;
+  
+  // Prudent risk limit: 14% to 18% risk on premium
+  const minSlRisk = premium * 0.14;
+  const maxSlRisk = premium * 0.18;
+  const slDelta = roundToTick(Math.max(minSlRisk, Math.min(maxSlRisk, rawSlDelta)));
   const stopLoss = Math.max(tick, roundToTick(premium - slDelta));
   const actualRisk = roundToTick(premium - stopLoss);
 
-  // Target 1: Realistic near-term intraday target (+20% to +30% gain based on delta velocity)
-  const t1Multiplier = Math.max(1.2, Math.min(1.6, 1.35 / Math.max(0.3, contractDelta)));
-  const target1Delta = roundToTick(actualRisk * t1Multiplier);
-  const target1 = roundToTick(premium + target1Delta);
-
-  // Target 2: Extended intraday runner target (+40% to +55% gain)
-  const t2Multiplier = t1Multiplier * 1.75;
-  const target2Delta = roundToTick(actualRisk * t2Multiplier);
-  const target2 = roundToTick(premium + target2Delta);
+  // Build 4-Pillar Target Exit Synthesis Model
+  const targetExitSynthesis = {
+    candlestickPillar: {
+      confluencePattern: candlePatterns.confluencePattern,
+      confluenceScore: candlePatterns.confluenceScore,
+      m2Pattern: candlePatterns.m2.pattern,
+      m5Pattern: candlePatterns.m5.pattern,
+      m15Pattern: candlePatterns.m15.pattern,
+      swingTarget1: candlePatterns.derivedExitLevel1,
+      swingTarget2: candlePatterns.derivedExitLevel2,
+    },
+    newsPillar: {
+      overnightSentiment: (overnightScore > 0 ? 'BULLISH' : overnightScore < 0 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+      overnightHeadline: topOvernightHeadline,
+      liveSentiment: (liveScore > 0 ? 'BULLISH' : liveScore < 0 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+      liveHeadline: topLiveHeadline,
+      netNewsBiasScore: Number((newsSentimentFactor * 10).toFixed(1)),
+      newsTargetImpact: `${newsTargetAdjustment >= 0 ? '+' : ''}${newsTargetAdjustment.toFixed(1)} pts spot momentum adjustment`,
+    },
+    trendPillar: {
+      prevSessionTrend: spotChangePct >= 0.3 ? 'Uptrend Momentum' : spotChangePct <= -0.3 ? 'Downtrend Pressure' : 'Range Mean-Reversion',
+      dayRange: Number(dayRange.toFixed(1)),
+      atrDaily: Number(dailyExpectedMove.toFixed(1)),
+      trendContinuationProb: Math.min(92, Math.round(62 + Math.abs(spotChangePct) * 20)),
+      momentumVerdict: spotChangePct >= 0.05 ? 'Bullish Delta Velocity' : spotChangePct <= -0.05 ? 'Bearish Delta Drift' : 'Equilibrium Consolidation',
+    },
+    optionChartPillar: {
+      callWall: majorCallWall,
+      putWall: majorPutWall,
+      maxPain: maxPainStrike,
+      pcrTotalOI,
+      deltaExpansion: Number(deltaExpansion1.toFixed(2)),
+      gammaAcceleration: Number(gammaAcceleration1.toFixed(2)),
+      thetaDecayBuffer: Number(intradayTheta1.toFixed(2)),
+    },
+  };
 
   // Real-world execution entry zone:
-  // Tight realistic limit buy execution band calibrated to current live option LTP
   const halfSpread = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
   const entryLow = Math.max(tick, roundToTick(Math.min(premium - halfSpread, premium * 0.985)));
   const entryHigh = roundToTick(Math.max(premium + halfSpread, premium * 1.015));
@@ -306,13 +503,13 @@ export function generateTradeSignal(
     rationalePoints.push({
       title: 'Call Open Interest Absorption',
       verdict: 'BULLISH',
-      description: `Current spot is pushing upward toward ${targetStrike + ticker.strikeStep}. Short covering at near ATM call strikes increases probability of gamma expansion.`,
+      description: `Target 1 (${ticker.currency}${target1.toFixed(2)}) is derived from spot push toward ${ticker.currency}${spotTarget1.toLocaleString()} (${target1Basis}). Runner Target 2 (${ticker.currency}${target2.toFixed(2)}) targets Call Wall @ ${ticker.currency}${majorCallWall.toLocaleString()}.`,
     });
   } else if (action === 'BUY_PE') {
     rationalePoints.push({
       title: 'Put Buyer Buildup & Call Wall Resistance',
       verdict: 'BEARISH',
-      description: `Heavy Call writing at ${majorResistanceStrike} forms a firm barrier. Spot weakness below ${targetStrike} drives put delta expansion toward ${targetStrike - ticker.strikeStep}.`,
+      description: `Target 1 (${ticker.currency}${target1.toFixed(2)}) is derived from spot descent toward ${ticker.currency}${spotTarget1.toLocaleString()} (${target1Basis}). Runner Target 2 (${ticker.currency}${target2.toFixed(2)}) targets Put Wall @ ${ticker.currency}${majorPutWall.toLocaleString()}.`,
     });
   } else {
     rationalePoints.push({
@@ -322,12 +519,18 @@ export function generateTradeSignal(
     });
   }
 
-  // Rationale 4: Volatility Regime
-  const ivStatus = ivRank < 35 ? 'Low' : ivRank > 65 ? 'Elevated' : 'Moderate';
+  // Rationale 4: Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m)
   rationalePoints.push({
-    title: `Implied Volatility Regime (${ivStatus} IV)`,
-    verdict: ivRank < 40 ? 'BULLISH' : 'NEUTRAL',
-    description: `Current IV Rank is ${ivRank}% (VIX: ${ticker.vix.toFixed(1)}). Option premiums carry ${ivRank < 40 ? 'low extrinsic pricing, providing safe entry for directional option buyers' : 'moderate premium; adhere to stop-loss discipline'}.`,
+    title: 'Candlestick & Chart Patterns (2m | 5m | 15m)',
+    verdict: candlePatterns.confluenceBias,
+    description: `Confluence: ${candlePatterns.confluencePattern}. 2m Pattern: ${candlePatterns.m2.pattern} | 5m Pattern: ${candlePatterns.m5.pattern} (ATR: ${ticker.currency}${candlePatterns.m5.atr}) | 15m Structure: ${candlePatterns.m15.pattern}. Score: ${candlePatterns.confluenceScore > 0 ? '+' : ''}${candlePatterns.confluenceScore}/10. Targets derived from 2m/5m measured moves & 15m range expansion.`,
+  });
+
+  // Rationale 5: Exit Targets Derivation Architecture
+  rationalePoints.push({
+    title: 'Exit Targets Derivation Architecture',
+    verdict: action === 'BUY_CE' ? 'BULLISH' : action === 'BUY_PE' ? 'BEARISH' : 'NEUTRAL',
+    description: `Targets are algorithmically computed using: 1. Option Chart OI Walls (T1 Spot: ${ticker.currency}${spotTarget1.toLocaleString()} | T2 Spot: ${ticker.currency}${spotTarget2.toLocaleString()}), 2. Multi-Timeframe Candlestick Patterns (2m & 5m measured move + 15m range extension), and 3. Macro/News Sentiment (${newsSentimentFactor >= 0 ? '+' : ''}${(newsSentimentFactor * 100).toFixed(0)}% bias). Option exits translated via Delta (${delta.toFixed(2)}) and Gamma.`,
   });
 
   // Summary Note: Explicitly states current price and reason
@@ -337,9 +540,9 @@ export function generateTradeSignal(
 
   let summaryNote = '';
   if (action === 'BUY_CE') {
-    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Upward momentum and solid support at ${ticker.currency}${majorSupportStrike.toLocaleString()} favor buying ${targetStrike} CE. Target 1: ${ticker.currency}${target1.toFixed(2)} | SL: ${ticker.currency}${stopLoss.toFixed(2)}.`;
+    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((slDelta / premium) * 100).toFixed(1)}%). Derived via 2m/5m/15m candlestick patterns & OI hurdles.`;
   } else if (action === 'BUY_PE') {
-    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Downward pressure below resistance at ${ticker.currency}${majorResistanceStrike.toLocaleString()} favors buying ${targetStrike} PE. Target 1: ${ticker.currency}${target1.toFixed(2)} | SL: ${ticker.currency}${stopLoss.toFixed(2)}.`;
+    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((slDelta / premium) * 100).toFixed(1)}%). Derived via 2m/5m/15m candlestick patterns & OI hurdles.`;
   } else {
     summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. Market is consolidating between support (${ticker.currency}${majorSupportStrike.toLocaleString()}) and resistance (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
   }
@@ -360,5 +563,11 @@ export function generateTradeSignal(
     summaryNote,
     rationalePoints,
     generatedAt: new Date().toLocaleTimeString(),
+    target1Basis,
+    target2Basis,
+    spotTarget1,
+    spotTarget2,
+    candleAnalysis: candlePatterns,
+    targetExitSynthesis,
   };
 }

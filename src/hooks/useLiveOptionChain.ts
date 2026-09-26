@@ -22,6 +22,7 @@ import {
   recordSignalInHistory, 
   deriveStrikeTrendAnalytics 
 } from '../utils/strikeHistoryEngine';
+import { getMarketHoursStatus, MarketHoursStatus } from '../utils/marketHours';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -238,6 +239,21 @@ export function useLiveOptionChain() {
     )
   );
 
+  // Market hours status (tracks whether exchange is currently open)
+  const [marketStatus, setMarketStatus] = useState<MarketHoursStatus>(() =>
+    getMarketHoursStatus(POPULAR_TICKERS[0])
+  );
+
+  // Periodically evaluate market hours status (every 20s)
+  useEffect(() => {
+    const checkMarket = () => {
+      setMarketStatus(getMarketHoursStatus(selectedTicker));
+    };
+    checkMarket();
+    const interval = setInterval(checkMarket, 20000);
+    return () => clearInterval(interval);
+  }, [selectedTicker]);
+
   // Audio tone context for signals
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -420,17 +436,26 @@ export function useLiveOptionChain() {
     });
   }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
 
-  // Real-time live exchange poll: queries real exchange instead of synthetic random noise
+  // Real-time live exchange poll: STRICTLY DURING OFFICIAL MARKET HOURS (not 24X7)
   useEffect(() => {
     if (!isLiveActive) return;
 
+    // Check market hours: if market is closed, pause continuous background polling
+    const currentStatus = getMarketHoursStatus(selectedTicker);
+    if (!currentStatus.isOpen) {
+      return;
+    }
+
     const timer = setInterval(() => {
-      // Re-fetch genuine quote from exchange
-      fetchOptionChainFromBackend(selectedTicker, expiryIndex);
+      // Re-verify market is still open on each tick before querying exchange
+      const statusOnTick = getMarketHoursStatus(selectedTicker);
+      if (statusOnTick.isOpen) {
+        fetchOptionChainFromBackend(selectedTicker, expiryIndex);
+      }
     }, updateIntervalMs);
 
     return () => clearInterval(timer);
-  }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex]);
+  }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex, marketStatus.isOpen]);
 
   // Recalculate metrics & signals when ticker spot or chain changes
   useEffect(() => {
@@ -519,6 +544,7 @@ export function useLiveOptionChain() {
     soundEnabled,
     setSoundEnabled,
     dataSourceNote,
+    marketStatus,
     syncLiveExchange: () => fetchOptionChainFromBackend(selectedTicker, expiryIndex),
     handleSelectTicker,
     handleSelectExpiry,

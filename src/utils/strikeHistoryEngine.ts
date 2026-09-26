@@ -28,11 +28,11 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
   const itmStrike = atm - step;
   const itmRow = chain.find(r => r.strike === itmStrike);
   const itmLtp = itmRow?.ce.ltp ?? (isIndian ? 210.50 : 8.40);
-  const itmEntry = Number((itmLtp * 0.78).toFixed(2));
-  const itmTarget1 = Number((itmEntry * 1.35).toFixed(2));
-  const itmTarget2 = Number((itmEntry * 1.65).toFixed(2));
-  const itmSL = Number((itmEntry * 0.78).toFixed(2));
-  const itmHighest = Math.max(itmLtp, Number((itmEntry * 1.42).toFixed(2)));
+  const itmEntry = Number((itmLtp * 0.82).toFixed(2));
+  const itmTarget1 = Number((itmEntry * 1.24).toFixed(2)); // +24% realistic target 1
+  const itmTarget2 = Number((itmEntry * 1.44).toFixed(2)); // +44% realistic target 2
+  const itmSL = Number((itmEntry * 0.84).toFixed(2)); // -16% tight SL
+  const itmHighest = Math.max(itmLtp, Number((itmEntry * 1.28).toFixed(2)));
 
   seedRecords.push({
     id: `seed-1-${ticker.symbol}`,
@@ -55,17 +55,17 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     maxProfitPercent: Number((((itmHighest - itmEntry) / itmEntry) * 100).toFixed(1)),
     status: itmLtp >= itmTarget1 ? 'TARGET_1_HIT' : itmLtp > itmEntry ? 'PROFITABLE' : 'ACTIVE',
     confidence: 88,
-    riskReward: '1 : 1.8',
+    riskReward: '1 : 1.5',
   });
 
   // Strike 2: ATM Call (Recorded 1 hour ago)
   const atmRow = chain.find(r => r.strike === atm);
   const atmLtp = atmRow?.ce.ltp ?? (isIndian ? 134.50 : 5.20);
-  const atmEntry = Number((atmLtp * 0.82).toFixed(2));
-  const atmTarget1 = Number((atmEntry * 1.40).toFixed(2));
-  const atmTarget2 = Number((atmEntry * 1.75).toFixed(2));
-  const atmSL = Number((atmEntry * 0.75).toFixed(2));
-  const atmHighest = Math.max(atmLtp, Number((atmEntry * 1.48).toFixed(2)));
+  const atmEntry = Number((atmLtp * 0.85).toFixed(2));
+  const atmTarget1 = Number((atmEntry * 1.25).toFixed(2)); // +25%
+  const atmTarget2 = Number((atmEntry * 1.46).toFixed(2)); // +46%
+  const atmSL = Number((atmEntry * 0.84).toFixed(2)); // -16%
+  const atmHighest = Math.max(atmLtp, Number((atmEntry * 1.32).toFixed(2)));
 
   seedRecords.push({
     id: `seed-2-${ticker.symbol}`,
@@ -88,7 +88,7 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     maxProfitPercent: Number((((atmHighest - atmEntry) / atmEntry) * 100).toFixed(1)),
     status: atmLtp >= atmTarget2 ? 'TARGET_2_HIT' : atmLtp >= atmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
     confidence: 84,
-    riskReward: '1 : 2.0',
+    riskReward: '1 : 1.6',
   });
 
   // Strike 3: ATM + 1 Strike OTM Call (Recorded 35 mins ago)
@@ -96,9 +96,9 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
   const otmRow = chain.find(r => r.strike === otmStrike);
   const otmLtp = otmRow?.ce.ltp ?? (isIndian ? 82.00 : 3.10);
   const otmEntry = Number((otmLtp * 0.90).toFixed(2));
-  const otmTarget1 = Number((otmEntry * 1.45).toFixed(2));
-  const otmTarget2 = Number((otmEntry * 1.85).toFixed(2));
-  const otmSL = Number((otmEntry * 0.70).toFixed(2));
+  const otmTarget1 = Number((otmEntry * 1.26).toFixed(2)); // +26%
+  const otmTarget2 = Number((otmEntry * 1.48).toFixed(2)); // +48%
+  const otmSL = Number((otmEntry * 0.83).toFixed(2)); // -17%
 
   seedRecords.push({
     id: `seed-3-${ticker.symbol}`,
@@ -121,7 +121,7 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     maxProfitPercent: Number((((Math.max(otmLtp, otmEntry * 1.25) - otmEntry) / otmEntry) * 100).toFixed(1)),
     status: otmLtp >= otmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
     confidence: 76,
-    riskReward: '1 : 2.2',
+    riskReward: '1 : 1.5',
   });
 
   return seedRecords;

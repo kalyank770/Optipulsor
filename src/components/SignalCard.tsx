@@ -15,7 +15,13 @@ import {
   ArrowUpRight, 
   ArrowDownRight,
   Calculator,
-  AlertTriangle
+  AlertTriangle,
+  BarChart2,
+  Globe,
+  Moon,
+  Zap,
+  Layers,
+  Activity
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -89,9 +95,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const slLossTotal = Number((slRiskPoints * totalQty).toFixed(2));
   const slLossPct = totalCapital > 0 ? Number(((slLossTotal / totalCapital) * 100).toFixed(1)) : 25.0;
 
-  // 1-Point tick value
-  const tickValue1Pt = 1.0 * totalQty;
-
   // Expiry breakeven spot price
   const breakevenSpot = signal.recommendedType === 'CE' 
     ? signal.recommendedStrike + currentLTP 
@@ -101,7 +104,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const quickLots = [1, 2, 5, 10];
 
   const handleCopy = () => {
-    const text = `OptiPulse Live Signal: ${signal.action === 'BUY_CE' ? 'CALL (CE)' : signal.action === 'BUY_PE' ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${signal.recommendedStrike} ${signal.recommendedType} @ ${ticker.currency}${currentLTP.toFixed(2)}\nSelected Lots: ${lots} (${totalQty} Qty)\nCapital Deployed: ${ticker.currency}${totalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nPredicted Target 1 Profit: +${ticker.currency}${t1ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (+${t1ProfitPct}%)\nPredicted Target 2 Profit: +${ticker.currency}${t2ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (+${t2ProfitPct}%)\nPredicted Max Risk (SL): -${ticker.currency}${slLossTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (-${slLossPct}%)\n1-Point Move = ±${ticker.currency}${tickValue1Pt.toFixed(2)} P&L\nBreakeven Spot: ${ticker.currency}${breakevenSpot.toFixed(2)}\nR:R: ${signal.riskRewardRatio}`;
+    const text = `OptiPulse Live Signal: ${signal.action === 'BUY_CE' ? 'CALL (CE)' : signal.action === 'BUY_PE' ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${signal.recommendedStrike} ${signal.recommendedType} @ ${ticker.currency}${currentLTP.toFixed(2)}\nSelected Lots: ${lots} (${totalQty} Qty)\nCapital Deployed: ${ticker.currency}${totalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\nTarget 1: ${ticker.currency}${target1.toFixed(2)} (+${t1ProfitPct}%) [${signal.target1Basis || `Spot ${signal.spotTarget1}`}]\nTarget 2: ${ticker.currency}${target2.toFixed(2)} (+${t2ProfitPct}%) [${signal.target2Basis || `Spot ${signal.spotTarget2}`}]\nStop Loss: ${ticker.currency}${stopLoss.toFixed(2)} (-${slLossPct}%)\nBreakeven Spot: ${ticker.currency}${breakevenSpot.toFixed(2)}\nR:R: ${signal.riskRewardRatio}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -367,7 +370,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
             isLight ? 'border-emerald-200' : 'border-slate-900'
           }`}>
-            <span>R:R {signal.riskRewardRatio}</span>
+            <span className="truncate mr-1 text-[9.5px] text-emerald-400/90" title={signal.target1Basis || `Spot Target`}>
+              {signal.spotTarget1 ? `Spot: ${ticker.currency}${signal.spotTarget1.toLocaleString()}` : `R:R ${signal.riskRewardRatio}`}
+            </span>
+            <span className="shrink-0">R:R {signal.riskRewardRatio}</span>
           </div>
         </div>
 
@@ -395,13 +401,16 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
             isLight ? 'border-sky-200' : 'border-slate-900'
           }`}>
-            <span>Extended</span>
+            <span className="truncate mr-1 text-[9.5px] text-sky-400/90" title={signal.target2Basis || `Major Wall`}>
+              {signal.spotTarget2 ? `Spot: ${ticker.currency}${signal.spotTarget2.toLocaleString()}` : 'Extended Wall'}
+            </span>
+            <span className="shrink-0">Runner</span>
           </div>
         </div>
       </div>
 
       {/* Execution Guidance & Key Levels Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-xs font-mono">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 text-xs font-mono">
         <div className="p-2 rounded bg-slate-950 border border-slate-800">
           <span className="text-slate-400 block text-[10px] uppercase font-sans">Entry Zone</span>
           <span className="text-white font-bold text-xs sm:text-sm mt-0.5 block truncate">
@@ -422,14 +431,233 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             {signal.riskRewardRatio}
           </span>
         </div>
-
-        <div className="p-2 rounded bg-slate-950 border border-slate-800">
-          <span className="text-slate-400 block text-[10px] uppercase font-sans">1 Pt Move</span>
-          <span className="text-white font-bold text-xs sm:text-sm mt-0.5 block truncate">
-            ±{ticker.currency}{tickValue1Pt.toFixed(0)}
-          </span>
-        </div>
       </div>
+
+      {/* Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m) */}
+      {signal.candleAnalysis && (
+        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <BarChart2 className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Multi-Timeframe Candlestick & Chart Patterns (2m · 5m · 15m)
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="text-slate-400">Pattern Confluence:</span>
+              <span className={`font-bold px-2 py-0.5 rounded text-[10px] border ${
+                signal.candleAnalysis.confluenceBias === 'BULLISH'
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                  : signal.candleAnalysis.confluenceBias === 'BEARISH'
+                  ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+              }`}>
+                {signal.candleAnalysis.confluenceBias} ({signal.candleAnalysis.confluenceScore > 0 ? '+' : ''}{signal.candleAnalysis.confluenceScore}/10)
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+            {/* 2-Minute Candle Analysis */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-sky-400 font-bold">2-Min Candles (Micro Trigger)</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                    signal.candleAnalysis.m2.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.candleAnalysis.m2.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.candleAnalysis.m2.trend}
+                  </span>
+                </div>
+                <div className="font-bold text-slate-200 text-xs mt-0.5">
+                  {signal.candleAnalysis.m2.pattern.replace(/2m\s*/, '')}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.support.toLocaleString()}</strong></span>
+                <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.resistance.toLocaleString()}</strong></span>
+              </div>
+            </div>
+
+            {/* 5-Minute Candle Analysis */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-emerald-400 font-bold">5-Min Candles (Tactical Trend)</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                    signal.candleAnalysis.m5.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.candleAnalysis.m5.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.candleAnalysis.m5.trend}
+                  </span>
+                </div>
+                <div className="font-bold text-slate-200 text-xs mt-0.5">
+                  {signal.candleAnalysis.m5.pattern.replace(/5m\s*/, '')}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                <span>Swing Target 1: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
+                <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m5.atr}</strong></span>
+              </div>
+            </div>
+
+            {/* 15-Minute Candle Analysis */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-amber-400 font-bold">15-Min Candles (Structure Anchor)</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                    signal.candleAnalysis.m15.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.candleAnalysis.m15.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.candleAnalysis.m15.trend}
+                  </span>
+                </div>
+                <div className="font-bold text-slate-200 text-xs mt-0.5">
+                  {signal.candleAnalysis.m15.pattern.replace(/15m\s*/, '')}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                <span>Runner Target 2: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
+                <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m15.atr}</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-2 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+            <span>Pattern Confluence: <strong className="text-slate-200">{signal.candleAnalysis.confluencePattern}</strong></span>
+            <span className="font-mono">
+              Pattern Invalidation Stop: <strong className="text-rose-400">{ticker.currency}{signal.candleAnalysis.invalidationLevel.toLocaleString()}</strong>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 4-Pillar Target Exit Prediction Confluence Architecture */}
+      {signal.targetExitSynthesis && (
+        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-sky-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Target Exit Predictive Confluence Model
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 font-mono">
+              Synthesizing: Candles · News · Trends · Option Chart
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+            {/* Pillar A: Live & Last Night News Impact */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5" />
+                    Live & Last Night News
+                  </span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.targetExitSynthesis.newsPillar.netNewsBiasScore < 0 ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? '+' : ''}{signal.targetExitSynthesis.newsPillar.netNewsBiasScore}
+                  </span>
+                </div>
+                
+                <div className="space-y-1.5 mt-1.5">
+                  <div className="text-[11px] leading-tight">
+                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Last Night / Overnight:</span>
+                    <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.overnightHeadline}>
+                      {signal.targetExitSynthesis.newsPillar.overnightHeadline}
+                    </span>
+                  </div>
+                  <div className="text-[11px] leading-tight">
+                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Live Breaking Session:</span>
+                    <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.liveHeadline}>
+                      {signal.targetExitSynthesis.newsPillar.liveHeadline}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-emerald-400">
+                {signal.targetExitSynthesis.newsPillar.newsTargetImpact}
+              </div>
+            </div>
+
+            {/* Pillar B: Previous Multi-Session Trend & Volatility */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" />
+                    Previous Trend & Range
+                  </span>
+                  <span className="text-slate-400 text-[10px] font-mono">
+                    {signal.targetExitSynthesis.trendPillar.trendContinuationProb}% Prob
+                  </span>
+                </div>
+
+                <div className="space-y-1 mt-1 text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Session Drift:</span>
+                    <strong className="text-slate-200">{signal.targetExitSynthesis.trendPillar.prevSessionTrend}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Day Established Range:</span>
+                    <strong className="text-slate-200 font-mono">{ticker.currency}{signal.targetExitSynthesis.trendPillar.dayRange} pts</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Daily Expected Move (ATR):</span>
+                    <strong className="text-slate-200 font-mono">±{ticker.currency}{signal.targetExitSynthesis.trendPillar.atrDaily} pts</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-300">
+                Velocity: <span className="text-emerald-400 font-semibold">{signal.targetExitSynthesis.trendPillar.momentumVerdict}</span>
+              </div>
+            </div>
+
+            {/* Pillar C: Option Chart Data & Greeks Engine */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                  <span className="text-sky-400 font-bold flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5" />
+                    Option Chart Data & Greeks
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    PCR {signal.targetExitSynthesis.optionChartPillar.pcrTotalOI.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="space-y-1 mt-1 text-[11px] font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-sans">Institutional Call Wall:</span>
+                    <strong className="text-rose-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.callWall.toLocaleString()}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-sans">Institutional Put Wall:</span>
+                    <strong className="text-emerald-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.putWall.toLocaleString()}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-sans">Max Pain Anchor:</span>
+                    <strong className="text-sky-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.maxPain.toLocaleString()}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex justify-between">
+                <span>Δ Gain: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.deltaExpansion}</strong></span>
+                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.gammaAcceleration}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Trade Rationale */}
       <div className="mt-3 p-2.5 sm:p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs leading-relaxed text-slate-300">

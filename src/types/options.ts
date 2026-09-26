@@ -110,6 +110,78 @@ export interface RationalePoint {
   description: string;
 }
 
+export interface Candle {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: number;
+}
+
+export interface TimeframeCandleAnalysis {
+  timeframe: '2m' | '5m' | '15m';
+  candles: Candle[];
+  latestCandle: Candle;
+  trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+  pattern: string;
+  patternBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  resistance: number;
+  support: number;
+  atr: number;
+  momentumScore: number; // -10 to +10
+  measuredMoveTarget: number;
+}
+
+export interface MultiTimeframeChartPatterns {
+  m2: TimeframeCandleAnalysis;
+  m5: TimeframeCandleAnalysis;
+  m15: TimeframeCandleAnalysis;
+  confluencePattern: string;
+  confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  confluenceScore: number;
+  derivedExitLevel1: number;
+  derivedExitLevel2: number;
+  invalidationLevel: number;
+}
+
+export interface TargetExitSynthesis {
+  candlestickPillar: {
+    confluencePattern: string;
+    confluenceScore: number;
+    m2Pattern: string;
+    m5Pattern: string;
+    m15Pattern: string;
+    swingTarget1: number;
+    swingTarget2: number;
+  };
+  newsPillar: {
+    overnightSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    overnightHeadline: string;
+    liveSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    liveHeadline: string;
+    netNewsBiasScore: number;
+    newsTargetImpact: string;
+  };
+  trendPillar: {
+    prevSessionTrend: string;
+    dayRange: number;
+    atrDaily: number;
+    trendContinuationProb: number;
+    momentumVerdict: string;
+  };
+  optionChartPillar: {
+    callWall: number;
+    putWall: number;
+    maxPain: number;
+    pcrTotalOI: number;
+    deltaExpansion: number;
+    gammaAcceleration: number;
+    thetaDecayBuffer: number;
+  };
+}
+
 export interface TradeSignal {
   action: SignalAction;
   strength: SignalStrength;
@@ -126,6 +198,12 @@ export interface TradeSignal {
   summaryNote: string;
   rationalePoints: RationalePoint[];
   generatedAt: string;
+  target1Basis?: string;
+  target2Basis?: string;
+  spotTarget1?: number;
+  spotTarget2?: number;
+  candleAnalysis?: MultiTimeframeChartPatterns;
+  targetExitSynthesis?: TargetExitSynthesis;
 }
 
 export interface NewsItem {
@@ -139,7 +217,8 @@ export interface NewsItem {
   relatedTickers: string[];
   optionTakeaway: string;
   summary: string;
-  category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics';
+  category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight';
+  timing?: 'LIVE' | 'OVERNIGHT';
   link?: string;
 }
 

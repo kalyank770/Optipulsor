@@ -43,6 +43,7 @@ export default function App() {
     usePreMarket,
     toggleUsePreMarket,
     dataSourceNote,
+    marketStatus,
     syncLiveExchange,
     handleSelectTicker,
     handleSelectExpiry,
@@ -162,12 +163,11 @@ export default function App() {
         onChangeInterval={setUpdateIntervalMs}
         onForceRefresh={handleForceRefresh}
         lastUpdated={lastUpdated}
-        soundEnabled={soundEnabled}
-        onToggleSound={() => setSoundEnabled(!soundEnabled)}
         unreadNewsCount={newsFeed.length}
         isSyncing={isSyncing}
         onSyncLiveExchange={syncLiveExchange}
         syncStatusMsg={dataSourceNote}
+        marketStatus={marketStatus}
       />
 
       {/* Main Content Area */}
