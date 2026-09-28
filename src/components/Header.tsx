@@ -1,6 +1,8 @@
 import React from 'react';
 import { 
-  RefreshCw
+  RefreshCw,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { TickerConfig } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
@@ -21,6 +23,8 @@ interface HeaderProps {
   onSyncLiveExchange?: () => void;
   syncStatusMsg?: string;
   marketStatus?: MarketHoursStatus;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing = false,
   onSyncLiveExchange,
   marketStatus,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   const isPositive = selectedTicker.change >= 0;
 
@@ -64,13 +70,13 @@ export const Header: React.FC<HeaderProps> = ({
               </defs>
 
               {/* Background Trading Grid Lines (Subtle) */}
-              <line x1="4" y1="10" x2="28" y2="10" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
-              <line x1="4" y1="16" x2="28" y2="16" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
-              <line x1="4" y1="22" x2="28" y2="22" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="4" y1="10" x2="28" y2="10" className="stroke-slate-800" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="4" y1="16" x2="28" y2="16" className="stroke-slate-800" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="4" y1="22" x2="28" y2="22" className="stroke-slate-800" strokeWidth="1" strokeDasharray="2 2" />
 
               {/* Background Candlestick 1 (Bearish/Correction - Slate) */}
-              <line x1="10" y1="12" x2="10" y2="24" stroke="#475569" strokeWidth="1.2" strokeLinecap="round" />
-              <rect x="8.5" y="15" width="3" height="6" rx="0.5" fill="#334155" stroke="#475569" strokeWidth="1" />
+              <line x1="10" y1="12" x2="10" y2="24" className="stroke-slate-500" strokeWidth="1.2" strokeLinecap="round" />
+              <rect x="8.5" y="15" width="3" height="6" rx="0.5" className="fill-slate-800 stroke-slate-500" strokeWidth="1" />
 
               {/* Background Candlestick 2 (Bullish - Green) */}
               <line x1="22" y1="6" x2="22" y2="18" stroke="#059669" strokeWidth="1.2" strokeLinecap="round" />
@@ -93,9 +99,8 @@ export const Header: React.FC<HeaderProps> = ({
                 cy="22" 
                 r="3.5" 
                 fill="url(#strike-node-glow)" 
-                stroke="#0F172A" 
+                className="stroke-slate-900 drop-shadow-[0_0_4px_rgba(52,211,153,0.6)]" 
                 strokeWidth="1.5"
-                className="drop-shadow-[0_0_4px_rgba(52,211,153,0.6)]"
               />
 
               {/* Breakout Arrow Pointer */}
@@ -160,6 +165,21 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden xs:inline">{isSyncing ? 'Syncing...' : 'Live Sync'}</span>
             </button>
           )}
+
+          {onToggleTheme && (
+            <button
+              onClick={onToggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              className="flex items-center justify-center p-2 rounded bg-slate-900 border border-slate-700 hover:text-white hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer min-h-[36px] min-w-[36px]"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4.5 h-4.5 text-amber-400 animate-pulse" />
+              ) : (
+                <Moon className="w-4.5 h-4.5 text-sky-400" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -167,9 +187,9 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="border-t border-slate-800/80 bg-slate-900/60 px-3 sm:px-6 py-1.5">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-slate-950 flex items-center gap-1.5 shadow-sm">
+            <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-[#020617] flex items-center gap-1.5 shadow-sm">
               <span>NIFTY 50</span>
-              <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-slate-950 font-mono font-bold">
+              <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-[#020617] font-mono font-bold">
                 NSE INDEX
               </span>
             </div>

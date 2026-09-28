@@ -1,5 +1,87 @@
 @import "tailwindcss";
 
+@theme {
+  --color-slate-50: var(--slate-50);
+  --color-slate-100: var(--slate-100);
+  --color-slate-200: var(--slate-200);
+  --color-slate-300: var(--slate-300);
+  --color-slate-400: var(--slate-400);
+  --color-slate-500: var(--slate-500);
+  --color-slate-600: var(--slate-600);
+  --color-slate-700: var(--slate-700);
+  --color-slate-800: var(--slate-800);
+  --color-slate-900: var(--slate-900);
+  --color-slate-950: var(--slate-950);
+}
+
+:root {
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+  --slate-950: #020617;
+}
+
+.light {
+  color-scheme: light;
+  background-color: var(--slate-950);
+  color: var(--slate-100);
+
+  /* Dynamic inversion mapping */
+  --slate-50: #020617;
+  --slate-100: #0f172a;
+  --slate-200: #1e293b;
+  --slate-300: #334155;
+  --slate-400: #475569;
+  --slate-500: #64748b;
+  --slate-600: #94a3b8;
+  --slate-700: #cbd5e1;
+  --slate-800: #cbd5e1;
+  --slate-900: #ffffff;
+  --slate-950: #f8fafc;
+
+  /* Force standard dark-mode absolute elements like text-white to flip correctly in light mode */
+  .text-white {
+    color: var(--slate-100) !important;
+  }
+  .hover\:text-white:hover {
+    color: var(--slate-100) !important;
+  }
+
+  /* Prevent reversing white text inside solid colored accent blocks (e.g. badges, buttons) */
+  .bg-emerald-500 .text-white,
+  .bg-rose-500 .text-white,
+  .bg-sky-500 .text-white,
+  .bg-amber-500 .text-white,
+  .bg-blue-500 .text-white,
+  .bg-emerald-600 .text-white,
+  .bg-rose-600 .text-white,
+  .bg-emerald-500.text-white,
+  .bg-rose-500.text-white,
+  .bg-rose-500 .text-slate-100,
+  .bg-emerald-500 .text-slate-100 {
+    color: #ffffff !important;
+  }
+
+  /* Keep text-slate-950 appropriately dark inside primary green, amber, or rose indicators */
+  .bg-emerald-500.text-slate-950,
+  .bg-emerald-500 .text-slate-950,
+  .bg-amber-500.text-slate-950,
+  .bg-amber-500 .text-slate-950,
+  .bg-rose-500.text-slate-950,
+  .bg-rose-500 .text-slate-950,
+  .bg-sky-500.text-slate-950,
+  .bg-sky-500 .text-slate-950 {
+    color: #020617 !important;
+  }
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

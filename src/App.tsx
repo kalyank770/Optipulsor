@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveOptionChain } from './hooks/useLiveOptionChain';
 import { Header } from './components/Header';
 import { SignalCard } from './components/SignalCard';
@@ -65,6 +65,29 @@ export default function App() {
     handleSelectExpiry,
     handleForceRefresh,
   } = useLiveOptionChain();
+
+  // Dark/Light Theme state with localStorage persistence
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('optipulse-theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+      document.documentElement.style.colorScheme = 'light';
+    } else {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.documentElement.style.colorScheme = 'dark';
+    }
+    localStorage.setItem('optipulse-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   // Active view navigation & section expansion state
   type SectionKey = 'chain' | 'signals' | 'quant' | 'grounded_payoff' | 'trends' | 'oi_map' | 'strategy' | 'news';
@@ -265,7 +288,7 @@ export default function App() {
   }, [newsBullCount, newsBearCount]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Bar Contract Navigation & Live Spot Quote Strip */}
       <Header
         selectedTicker={selectedTicker}
@@ -282,6 +305,8 @@ export default function App() {
         onSyncLiveExchange={syncLiveExchange}
         syncStatusMsg={dataSourceNote}
         marketStatus={marketStatus}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       {/* Main Content Area */}
@@ -295,6 +320,7 @@ export default function App() {
             chain={chain}
             onSelectContractForSimulation={handleSelectContract}
             isSyncing={isSyncing}
+            theme={theme}
           />
         </section>
 
@@ -405,6 +431,7 @@ export default function App() {
                 recommendedType={signal.recommendedType}
                 maxPainStrike={metrics.maxPainStrike}
                 onSelectContract={handleSelectContract}
+                theme={theme}
               />
             </div>
           )}
@@ -624,6 +651,7 @@ export default function App() {
                 history={strikeHistory}
                 analytics={strikeAnalytics}
                 onSelectContract={handleSelectContract}
+                theme={theme}
               />
             </div>
           )}
@@ -670,6 +698,7 @@ export default function App() {
                 ticker={selectedTicker}
                 metrics={metrics}
                 onSelectStrike={handleSelectStrike}
+                theme={theme}
               />
             </div>
           )}
@@ -784,6 +813,7 @@ export default function App() {
                 onSelectTickerBySymbol={handleSelectTickerBySymbol}
                 onRefreshNews={refreshNews}
                 isNewsLoading={isNewsLoading}
+                theme={theme}
               />
             </div>
           )}

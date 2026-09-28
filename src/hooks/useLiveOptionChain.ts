@@ -381,10 +381,10 @@ export function useLiveOptionChain() {
   }, [selectedTicker, expiryIndex, expiryTimestamps, newsFeed]);
 
   // Fetch genuine real-time financial wire news (Last Night to Current Live Session)
-  const fetchRealNews = useCallback(async (sym = selectedTicker.symbol) => {
+  const fetchRealNews = useCallback(async (sym = selectedTicker.symbol, force = false) => {
     setIsNewsLoading(true);
     try {
-      const res = await fetch(`/api/news?q=${encodeURIComponent(sym)}`);
+      const res = await fetch(`/api/news?q=${encodeURIComponent(sym)}${force ? '&refresh=true' : ''}`);
       if (res.ok) {
         const liveArticles = await res.json();
         if (Array.isArray(liveArticles) && liveArticles.length > 0) {
@@ -543,7 +543,7 @@ export function useLiveOptionChain() {
   // Manual Force Refresh
   const handleForceRefresh = () => {
     fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-    fetchRealNews(selectedTicker.symbol);
+    fetchRealNews(selectedTicker.symbol, true);
     playTone(750, 0.05);
   };
 
@@ -563,7 +563,7 @@ export function useLiveOptionChain() {
     setFilters,
     newsFeed,
     isNewsLoading,
-    refreshNews: () => fetchRealNews(selectedTicker.symbol),
+    refreshNews: () => fetchRealNews(selectedTicker.symbol, true),
     isLiveActive,
     setIsLiveActive,
     isSyncing,

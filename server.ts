@@ -1048,8 +1048,9 @@ app.get('/api/news', async (req: Request, res: Response) => {
     const queryKey = rawQ.toUpperCase();
     const now = Date.now();
 
-    // Serve from cache if fresh (within 60s)
-    if (newsCache && newsCache.queryKey === queryKey && (now - newsCache.timestamp) < 60000) {
+    // Serve from cache if fresh (within 60s) unless refresh is forced
+    const forceRefresh = req.query.refresh === 'true';
+    if (!forceRefresh && newsCache && newsCache.queryKey === queryKey && (now - newsCache.timestamp) < 60000) {
       return res.json(newsCache.data);
     }
 
