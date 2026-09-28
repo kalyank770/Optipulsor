@@ -42,14 +42,74 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2.5 shrink-0">
           <button 
             onClick={onGoHome}
-            className="text-base sm:text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors flex items-center gap-2 cursor-pointer"
-            title="OptiPulse - Scroll to Top"
+            className="text-base sm:text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors flex items-center gap-2 cursor-pointer group"
+            title="OptiPulse V1.0 - Scroll to Top"
           >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-            </span>
+            {/* Custom Scalable Professional SVG Logo (Options Payoff & Trading Candlesticks) */}
+            <svg 
+              className="w-6 h-6 transition-transform duration-300 group-hover:scale-110 shrink-0" 
+              viewBox="0 0 32 32" 
+              fill="none" 
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="optipulse-trading-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#10B981" /> {/* emerald-500 */}
+                  <stop offset="100%" stopColor="#3B82F6" /> {/* blue-500 */}
+                </linearGradient>
+                <linearGradient id="strike-node-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#34D399" />
+                  <stop offset="100%" stopColor="#60A5FA" />
+                </linearGradient>
+              </defs>
+
+              {/* Background Trading Grid Lines (Subtle) */}
+              <line x1="4" y1="10" x2="28" y2="10" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="4" y1="16" x2="28" y2="16" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
+              <line x1="4" y1="22" x2="28" y2="22" stroke="#1E293B" strokeWidth="1" strokeDasharray="2 2" />
+
+              {/* Background Candlestick 1 (Bearish/Correction - Slate) */}
+              <line x1="10" y1="12" x2="10" y2="24" stroke="#475569" strokeWidth="1.2" strokeLinecap="round" />
+              <rect x="8.5" y="15" width="3" height="6" rx="0.5" fill="#334155" stroke="#475569" strokeWidth="1" />
+
+              {/* Background Candlestick 2 (Bullish - Green) */}
+              <line x1="22" y1="6" x2="22" y2="18" stroke="#059669" strokeWidth="1.2" strokeLinecap="round" />
+              <rect x="20.5" y="8" width="3" height="7" rx="0.5" fill="#064E3B" stroke="#059669" strokeWidth="1" />
+
+              {/* Option Payoff Curve / Breakout Trend Line */}
+              {/* This mimics an Option Call Payoff chart (flat premium line, then sharp upward trend breakout) */}
+              <path 
+                d="M5 22H14L25 7" 
+                stroke="url(#optipulse-trading-grad)" 
+                strokeWidth="3.2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+                className="drop-shadow-[0_0_6px_rgba(16,185,129,0.55)]"
+              />
+
+              {/* Volatility Target / Strike Price Inflection Node */}
+              <circle 
+                cx="14" 
+                cy="22" 
+                r="3.5" 
+                fill="url(#strike-node-glow)" 
+                stroke="#0F172A" 
+                strokeWidth="1.5"
+                className="drop-shadow-[0_0_4px_rgba(52,211,153,0.6)]"
+              />
+
+              {/* Breakout Arrow Pointer */}
+              <path 
+                d="M21 7H25V11" 
+                stroke="url(#optipulse-trading-grad)" 
+                strokeWidth="2.5" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+              />
+            </svg>
+
             <span>OptiPulse</span>
+            <span className="text-[11px] font-semibold text-slate-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V1.0</span>
           </button>
           <span className="hidden sm:inline-block text-xs font-mono text-slate-500 border-l border-slate-800 pl-2.5">
             NSE Live Derivatives

@@ -158,17 +158,16 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
 
           <div>
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <span className="uppercase font-semibold tracking-wider text-[11px]">Trade Recommendation</span>
               
-              {/* Compact Copy Icon Button beside header */}
+              {/* Compact Copy Icon beside header */}
               <button
                 onClick={handleCopy}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-center shrink-0"
                 title="Copy Trade Recommendation Details"
               >
-                {copied ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
-                <span className="text-[10.5px]">{copied ? 'Copied' : 'Copy'}</span>
+                {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400 hover:text-slate-200" />}
               </button>
 
               <span className="text-slate-600">·</span>
@@ -239,10 +238,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-amber-300 text-xs">
-                  Target 1 Hit Earlier (Retracing @ {ticker.currency}{currentLTP.toFixed(2)})
+                  ⚠️ Target Reached Earlier
                 </div>
                 <p className="text-amber-200/90 text-xs mt-0.5">
-                  Do not enter new trades now. Existing traders should hold trailing stop loss.
+                  The target price was already hit. Do not enter new trades now.
                 </p>
               </div>
             </div>
@@ -257,10 +256,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-emerald-300 text-xs">
-                  🎯 Target 1 Hit @ {ticker.currency}{currentLTP.toFixed(2)} (+{t1ProfitPct}%)
+                  🎯 First Target Achieved! (+{t1ProfitPct}%)
                 </div>
                 <p className="text-emerald-200/90 text-xs mt-0.5">
-                  Book 50%–75% profit now and move Stop Loss to entry price ({ticker.currency}{signal.entryRange[0].toFixed(2)}) for Target 2 ({ticker.currency}{target2.toFixed(2)}).
+                  First profit target hit. Sell half of your trade to secure profits, and move your safety limit (Stop Loss) to your buy price to make it a risk-free trade.
                 </p>
               </div>
             </div>
@@ -275,10 +274,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-sky-300 text-xs">
-                  🚀 Target 2 Hit @ {ticker.currency}{currentLTP.toFixed(2)} (+{t2ProfitPct}%)
+                  🚀 All Targets Achieved! (+{t2ProfitPct}%)
                 </div>
                 <p className="text-sky-200/90 text-xs mt-0.5">
-                  Full target reached! Exit remaining lots now to lock in total profits.
+                  All profit targets have been met. Exit your remaining trade now to secure your total profits.
                 </p>
               </div>
             </div>
@@ -293,10 +292,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-emerald-300 text-xs">
-                  📈 Trade In Profit @ {ticker.currency}{currentLTP.toFixed(2)}
+                  📈 Trade is in Profit
                 </div>
                 <p className="text-emerald-200/90 text-xs mt-0.5">
-                  Price is moving towards Target 1 ({ticker.currency}{target1.toFixed(2)}). Move Stop Loss to entry price ({ticker.currency}{signal.entryRange[0].toFixed(2)}) for a risk-free trade.
+                  The price is moving up in your favor. Hold on and get ready to book profits as it nears the target.
                 </p>
               </div>
             </div>
@@ -311,10 +310,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-rose-300 text-xs">
-                  🛑 Stop Loss Hit @ {ticker.currency}{currentLTP.toFixed(2)}
+                  🛑 Trade Closed (Safety Limit Hit)
                 </div>
                 <p className="text-rose-200/90 text-xs mt-0.5">
-                  Price reached Stop Loss ({ticker.currency}{stopLoss.toFixed(2)}). Exit now to protect your capital.
+                  The price hit the safety limit (Stop Loss). Exit the trade now to prevent further loss and protect your money.
                 </p>
               </div>
             </div>
@@ -329,10 +328,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
               <div>
                 <div className="font-bold text-slate-200 text-xs">
-                  ⏸️ Market Consolidating (Wait)
+                  ⏸️ Sideways Market (No Trade)
                 </div>
                 <p className="text-slate-400 text-xs mt-0.5">
-                  No clear directional trend right now. Wait on the sidelines until a clear breakout occurs.
+                  No clear trend. It is safest to wait on the sidelines for a clearer market move.
                 </p>
               </div>
             </div>
@@ -347,10 +346,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             </div>
             <div>
               <div className="font-bold text-emerald-300 text-xs">
-                ⚡ Entry Zone Active @ {ticker.currency}{currentLTP.toFixed(2)}
+                ⚡ Buy Signal Active
               </div>
               <p className="text-emerald-200/90 text-xs mt-0.5">
-                Buy range: {ticker.currency}{signal.entryRange[0].toFixed(2)} – {ticker.currency}{signal.entryRange[1].toFixed(2)} | Stop Loss: {ticker.currency}{stopLoss.toFixed(2)} | Target 1: {ticker.currency}{target1.toFixed(2)}.
+                Good time to buy. Buy between {ticker.currency}{signal.entryRange[0].toFixed(2)} and {ticker.currency}{signal.entryRange[1].toFixed(2)}. Set safety limit (Stop Loss) at {ticker.currency}{stopLoss.toFixed(2)} and sell target at {ticker.currency}{target1.toFixed(2)}.
               </p>
             </div>
           </div>

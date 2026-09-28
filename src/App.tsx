@@ -28,7 +28,10 @@ import {
   Compass,
   Activity,
   Gauge,
-  Radio
+  Radio,
+  TrendingUp,
+  TrendingDown,
+  Clock
 } from 'lucide-react';
 
 export default function App() {
@@ -253,6 +256,13 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
   };
+
+  // Compute overall news sentiment
+  const newsBullCount = useMemo(() => newsFeed.filter(n => n.sentiment === 'BULLISH').length, [newsFeed]);
+  const newsBearCount = useMemo(() => newsFeed.filter(n => n.sentiment === 'BEARISH').length, [newsFeed]);
+  const overallNewsSentiment = useMemo(() => {
+    return newsBullCount > newsBearCount ? 'BULLISH' : newsBearCount > newsBullCount ? 'BEARISH' : 'NEUTRAL';
+  }, [newsBullCount, newsBearCount]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -736,10 +746,20 @@ export default function App() {
                 <Newspaper className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <div>
-                <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-white flex flex-wrap items-center gap-2">
                   <span>Options Market News & Macro Catalysts</span>
-                  <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                  <span className="text-[11px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60 shrink-0">
                     {newsFeed.length} Wire Items
+                  </span>
+                  
+                  {/* Overall news-based market movement badge beside section header */}
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold uppercase border tracking-wider shrink-0 ${
+                    overallNewsSentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                    overallNewsSentiment === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                    'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}>
+                    {overallNewsSentiment === 'BULLISH' ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : overallNewsSentiment === 'BEARISH' ? <TrendingDown className="w-3 h-3 text-rose-400" /> : <Clock className="w-3 h-3 text-slate-400" />}
+                    <span>Market Sentiment: {overallNewsSentiment}</span>
                   </span>
                 </h3>
                 <p className="text-xs text-slate-400 font-mono hidden sm:block mt-0.5">
