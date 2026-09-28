@@ -347,6 +347,37 @@ export interface TargetExitSynthesis {
   };
 }
 
+export interface AdjacentStrikeAnalysis {
+  strike: number;
+  type: OptionType;
+  relativePosition: -2 | -1 | 0 | 1 | 2; // -2 = 2 below, -1 = 1 below, 0 = predicted, 1 = 1 above, 2 = 2 above
+  positionLabel: string;
+  isPredicted: boolean;
+  moneyness: Moneyness;
+  ltp: number;
+  change: number;
+  changePercent: number;
+  iv: number;
+  delta: number;
+  gamma: number;
+  theta: number;
+  openInterest: number;
+  oiChange: number;
+  volume: number;
+  buildup: BuildupType;
+  profitProbabilityPercent: number; // % Possibility of profit
+  target1Price: number;
+  target1GainPercent: number;
+  target2Price: number;
+  target2GainPercent: number;
+  stopLossPrice: number;
+  stopLossRiskPercent: number;
+  breakevenSpot: number;
+  riskRewardRatio: string;
+  expectedPayoffScore: number; // 0 - 100 attractiveness score
+  recommendationTag: string;
+}
+
 export interface TradeSignal {
   action: SignalAction;
   strength: SignalStrength;
@@ -372,6 +403,7 @@ export interface TradeSignal {
   targetExitSynthesis?: TargetExitSynthesis;
   realtimeIndicators?: RealtimePredictionIndicators;
   constituentAnalysis?: NiftyConstituentAnalysis;
+  adjacentStrikes?: AdjacentStrikeAnalysis[];
 }
 
 export interface NewsItem {

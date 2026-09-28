@@ -25,7 +25,9 @@ import {
   Gauge,
   Radio,
   SlidersHorizontal,
-  Compass
+  Compass,
+  Target,
+  Percent
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -439,6 +441,87 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Compact Strike Profit Possibility Strip (2 Below · Predicted · 2 Above) */}
+      {signal.adjacentStrikes && signal.adjacentStrikes.length > 0 && (
+        <div className="mt-3 p-2.5 sm:p-3 rounded-lg bg-slate-950/90 border border-slate-800">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-white uppercase tracking-wider">
+              <Target className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Strike Matrix (2 Below · Predicted · 2 Above)</span>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              {signal.recommendedType === 'CE' ? 'Calls (CE)' : 'Puts (PE)'} · Click to Simulate
+            </span>
+          </div>
+
+          {/* Compact 5-Strike Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 font-mono text-xs">
+            {signal.adjacentStrikes.map((adj) => {
+              const isPred = adj.isPredicted;
+              return (
+                <button
+                  key={adj.strike}
+                  onClick={() => onSelectContractForSimulation(adj.strike, adj.type)}
+                  className={`p-2 rounded-md border text-left transition-colors cursor-pointer flex flex-col justify-between ${
+                    isPred
+                      ? 'bg-emerald-950/40 border-emerald-500/60 ring-1 ring-emerald-500/40'
+                      : 'bg-slate-900/80 border-slate-800/80 hover:bg-slate-850 hover:border-slate-700'
+                  }`}
+                  title={`Click to simulate ${adj.strike} ${adj.type} (${adj.recommendationTag})`}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className={`font-bold ${isPred ? 'text-emerald-400 font-bold' : 'text-slate-200'}`}>
+                      {adj.strike} {adj.type}
+                    </span>
+                    {isPred ? (
+                      <span className="text-[9px] px-1 py-0.2 rounded font-bold bg-emerald-500 text-slate-950 font-mono">
+                        PICK
+                      </span>
+                    ) : (
+                      <span className="text-[9.5px] text-slate-500 font-mono">
+                        {adj.relativePosition > 0 ? `+${adj.relativePosition}` : adj.relativePosition}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-[11px]">
+                    <span className="text-slate-400 font-sans font-normal">Price:</span>
+                    <span className="text-white font-bold">
+                      {ticker.currency}{adj.ltp.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-[11px] mt-0.5 pt-0.5 border-t border-slate-800/60">
+                    <span className="text-slate-400 font-sans font-normal" title="Probability of Profit / Win Chance">Win Prob:</span>
+                    <span className={`font-bold ${
+                      adj.profitProbabilityPercent >= 70 ? 'text-emerald-400' :
+                      adj.profitProbabilityPercent >= 55 ? 'text-sky-400' :
+                      adj.profitProbabilityPercent >= 45 ? 'text-amber-400' : 'text-purple-400'
+                    }`}>
+                      {adj.profitProbabilityPercent}%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-[10.5px] mt-0.5">
+                    <span className="text-slate-400 font-sans font-normal" title="Expected Target 1 Gain %">T1 ROI:</span>
+                    <span className="text-emerald-400 font-semibold">
+                      +{adj.target1GainPercent}%
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Explanatory Rationale Footer */}
+          <div className="mt-2 pt-1.5 border-t border-slate-800/70 flex items-center justify-between text-[10.5px] text-slate-400">
+            <span className="text-slate-300">
+              💡 <strong className="text-slate-200">Selection Logic:</strong> Deep ITM strikes (e.g. {signal.recommendedStrike + ticker.strikeStep * (signal.recommendedType === 'PE' ? 1 : -1)} {signal.recommendedType}) have higher Win Prob (90%+) via high Delta, but require high capital outlay with lower % leverage. The algorithm recommends <strong className="text-emerald-400">ATM {signal.recommendedStrike} {signal.recommendedType}</strong> for optimal Gamma acceleration, higher % ROI, and maximum liquidity.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m) with Momentum Scoring */}
       {signal.candleAnalysis && (

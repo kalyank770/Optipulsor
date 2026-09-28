@@ -7,7 +7,8 @@ import {
   SignalStrength, 
   Moneyness, 
   NewsItem,
-  OptionType 
+  OptionType,
+  AdjacentStrikeAnalysis
 } from '../types/options';
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
@@ -916,6 +917,19 @@ export function generateTradeSignal(
       : `${pricePrefix}: Suggesting WAIT / NEUTRAL. Market is consolidating between support (${ticker.currency}${majorSupportStrike.toLocaleString()}) and resistance (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
   }
 
+  // Compute Adjacent Strike Spectrum (2 strikes below and 2 strikes above predicted strike with Profit Probability %)
+  const adjacentStrikes = computeAdjacentStrikeSpectrum(
+    targetStrike,
+    recommendedType,
+    ticker,
+    chain,
+    spotTarget1,
+    spotTarget2,
+    spotStopLoss,
+    netNewsImpactMultiplier,
+    candlePatterns.confluenceScore
+  );
+
   return {
     action,
     strength,
@@ -941,5 +955,167 @@ export function generateTradeSignal(
     targetExitSynthesis,
     realtimeIndicators: rt,
     constituentAnalysis,
+    adjacentStrikes,
   };
+}
+
+/**
+ * Computes the Adjacent Strike Spectrum (2 strikes below · Predicted Strike · 2 strikes above)
+ * Evaluates real-time Black-Scholes Greeks, Profit Probability %, Target 1/2 Payoffs, and Risk/Reward for each strike.
+ */
+export function computeAdjacentStrikeSpectrum(
+  predictedStrike: number,
+  predictedType: OptionType,
+  ticker: TickerConfig,
+  chain: OptionChainRow[],
+  spotTarget1: number,
+  spotTarget2: number,
+  spotStopLoss: number,
+  netNewsMultiplier: number,
+  candleConfluenceScore: number
+): AdjacentStrikeAnalysis[] {
+  const step = ticker.strikeStep;
+  const S = ticker.spotPrice;
+  const isIndian = ticker.currency === '₹';
+  const r = isIndian ? 0.065 : 0.045;
+  const T = isIndian ? Math.max(0.004, 2.4 / 252) : Math.max(0.005, 5 / 365);
+  const baseIV = isIndian ? (ticker.symbol.includes('BANK') ? 0.128 : 0.1106) : ticker.vix / 100;
+  const isCE = predictedType === 'CE';
+
+  const offsets: (-2 | -1 | 0 | 1 | 2)[] = [-2, -1, 0, 1, 2];
+
+  return offsets.map(offset => {
+    const strike = predictedStrike + offset * step;
+    const isPredicted = offset === 0;
+    
+    // Find contract from option chain row if available
+    const row = chain.find(r => r.strike === strike);
+    const contract = isCE ? row?.ce : row?.pe;
+
+    // Moneyness determination
+    const atm = ticker.atmStrike;
+    const isATM = strike === atm;
+    const moneyness = isCE 
+      ? (strike < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM')
+      : (strike > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM');
+
+    // Implied Volatility
+    const m = (strike - S) / S;
+    const ivSkew = isIndian ? baseIV + (m < 0 ? -m * 0.12 : m * 0.08) : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
+    const iv = contract?.iv ?? Number((ivSkew * 100).toFixed(1));
+
+    // Black-Scholes Greeks
+    const bs = calculateBlackScholes(S, strike, T, r, iv / 100, predictedType);
+    const delta = Math.abs(contract?.greeks.delta ?? bs.delta);
+    const gamma = Math.abs(contract?.greeks.gamma ?? bs.gamma);
+    const theta = Math.abs(contract?.greeks.theta ?? bs.theta);
+
+    // Live or BS LTP
+    const rawLtp = contract?.ltp ?? Number(bs.price.toFixed(2));
+    const ltp = Math.max(0.05, Number((Math.round(rawLtp * 20) / 20).toFixed(2)));
+    const prevClose = contract?.prevClose ?? ltp;
+    const change = contract?.change ?? Number((ltp - prevClose).toFixed(2));
+    const changePercent = contract?.changePercent ?? Number(((change / Math.max(prevClose, 0.05)) * 100).toFixed(2));
+    const openInterest = contract?.openInterest ?? 25000;
+    const oiChange = contract?.oiChange ?? 1200;
+    const volume = contract?.volume ?? 15000;
+    const buildup = contract?.buildup ?? (change >= 0 ? 'Long Buildup' : 'Short Buildup');
+
+    // --- PROBABILITY OF PROFIT (% POSSIBILITY OF PROFIT) ---
+    // Quantitative formula:
+    // Base probability derived from Delta (higher Delta ITM strikes carry higher probability of profit, lower theta decay)
+    // plus tactical touch multiplier for intraday target reaches
+    const deltaPOP = Math.min(88, Math.max(20, delta * 100 * 1.18));
+    const confluenceAdjustment = (candleConfluenceScore / 10) * 5.0; // +/- 5%
+    const newsAdjustment = (netNewsMultiplier - 1.0) * 12.0; // +/- 4%
+    const moneynessBonus = moneyness === 'ITM' ? 7.0 : moneyness === 'ATM' ? 2.0 : -6.0;
+    
+    let rawPOP = deltaPOP + confluenceAdjustment + newsAdjustment + moneynessBonus;
+    if (isPredicted) {
+      rawPOP += 4.0; // Algorithmic optimal confluence bonus
+    }
+    const profitProbabilityPercent = Math.min(94, Math.max(15, Math.round(rawPOP)));
+
+    // Re-price option at Target 1, Target 2, and Stop Loss Spot prices
+    const spotDistT1 = Math.abs(spotTarget1 - S);
+    const target1GreekGain = Math.max(0.5, delta * spotDistT1 + 0.5 * gamma * Math.pow(spotDistT1, 2) - theta * 0.15);
+    const target1Price = Number((Math.round((ltp + target1GreekGain) * 20) / 20).toFixed(2));
+    const target1GainPercent = Number((((target1Price - ltp) / ltp) * 100).toFixed(1));
+
+    const spotDistT2 = Math.abs(spotTarget2 - S);
+    const target2GreekGain = Math.max(1.0, delta * spotDistT2 + 0.5 * gamma * Math.pow(spotDistT2, 2) - theta * 0.30);
+    const target2Price = Number((Math.round((ltp + target2GreekGain) * 20) / 20).toFixed(2));
+    const target2GainPercent = Number((((target2Price - ltp) / ltp) * 100).toFixed(1));
+
+    const spotDistSL = Math.abs(S - spotStopLoss);
+    const slLoss = Math.min(ltp * 0.35, Math.max(0.5, delta * spotDistSL * 0.85));
+    const stopLossPrice = Math.max(0.05, Number((Math.round((ltp - slLoss) * 20) / 20).toFixed(2)));
+    const stopLossRiskPercent = Number((((ltp - stopLossPrice) / ltp) * 100).toFixed(1));
+
+    const breakevenSpot = isCE ? strike + ltp : strike - ltp;
+
+    const riskRewardRatio = `1 : ${(target1GainPercent / Math.max(stopLossRiskPercent, 1)).toFixed(1)}`;
+
+    // Expected Payoff Attractiveness Score (0 - 100)
+    const expectedPayoffScore = Math.min(99, Math.max(25, Math.round(
+      profitProbabilityPercent * 0.55 + 
+      Math.min(40, target1GainPercent * 0.8) + 
+      (isPredicted ? 10 : 0)
+    )));
+
+    // Position Labels and Descriptions
+    const ptsDiff = offset * step;
+    let positionLabel = '';
+    let recommendationTag = '';
+
+    if (offset === -2) {
+      positionLabel = `2 Below (${ptsDiff} pts)`;
+      recommendationTag = isCE 
+        ? (moneyness === 'ITM' ? 'Deep In-The-Money · High Win Prob / Low Theta' : 'Deep Out-of-The-Money · High Leverage Risk')
+        : (moneyness === 'ITM' ? 'Deep In-The-Money · High Win Prob / Low Theta' : 'Deep Out-of-The-Money · High Leverage Risk');
+    } else if (offset === -1) {
+      positionLabel = `1 Below (${ptsDiff} pts)`;
+      recommendationTag = moneyness === 'ITM' ? 'In-The-Money · Higher Probability / Low Theta Decay' : 'Out-of-The-Money · Dynamic Scalp Strike';
+    } else if (offset === 0) {
+      positionLabel = 'PREDICTED (Recommended)';
+      recommendationTag = 'Optimal Risk-to-Reward · Algorithmic Benchmark Pick';
+    } else if (offset === 1) {
+      positionLabel = `1 Above (+${ptsDiff} pts)`;
+      recommendationTag = moneyness === 'OTM' ? 'Out-of-The-Money · High Percentage ROI Multiplier' : 'In-The-Money · Low Extrinsic Premium';
+    } else {
+      positionLabel = `2 Above (+${ptsDiff} pts)`;
+      recommendationTag = moneyness === 'OTM' ? 'Far Out-of-The-Money · Aggressive Momentum Spike' : 'Deep In-The-Money · Strong Intrinsic Value';
+    }
+
+    return {
+      strike,
+      type: predictedType,
+      relativePosition: offset,
+      positionLabel,
+      isPredicted,
+      moneyness,
+      ltp,
+      change,
+      changePercent,
+      iv,
+      delta: Number(delta.toFixed(2)),
+      gamma: Number(gamma.toFixed(4)),
+      theta: Number(theta.toFixed(2)),
+      openInterest,
+      oiChange,
+      volume,
+      buildup,
+      profitProbabilityPercent,
+      target1Price,
+      target1GainPercent,
+      target2Price,
+      target2GainPercent,
+      stopLossPrice,
+      stopLossRiskPercent,
+      breakevenSpot,
+      riskRewardRatio,
+      expectedPayoffScore,
+      recommendationTag,
+    };
+  });
 }
