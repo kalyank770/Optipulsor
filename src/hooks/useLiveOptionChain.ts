@@ -198,6 +198,7 @@ export function useLiveOptionChain() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
   const [dataSourceNote, setDataSourceNote] = useState<string>('Live Exchange Spot Quote + Official SEBI Expiries');
   const [usePreMarket, setUsePreMarket] = useState<boolean>(false);
+  const [isNewsLoading, setIsNewsLoading] = useState<boolean>(false);
 
   // Filters State
   const [filters, setFilters] = useState<OptionFilters>({
@@ -371,26 +372,45 @@ export function useLiveOptionChain() {
     setIsSyncing(false);
   }, [selectedTicker, expiryIndex, expiryTimestamps, newsFeed]);
 
-  // Fetch genuine real-time financial wire news
+  // Fetch genuine real-time financial wire news (Last Night to Current Live Session)
   const fetchRealNews = useCallback(async (sym = selectedTicker.symbol) => {
+    setIsNewsLoading(true);
     try {
       const res = await fetch(`/api/news?q=${encodeURIComponent(sym)}`);
       if (res.ok) {
         const liveArticles = await res.json();
         if (Array.isArray(liveArticles) && liveArticles.length > 0) {
           setNewsFeed(liveArticles);
+          // Re-evaluate signal with updated live catalysts
+          setSignal(prev => {
+            if (chain.length > 0) {
+              return generateTradeSignal(selectedTicker, metrics, chain, liveArticles);
+            }
+            return prev;
+          });
         }
       }
     } catch (e) {
       console.warn('Failed to fetch real live news:', e);
+    } finally {
+      setIsNewsLoading(false);
     }
-  }, [selectedTicker.symbol]);
+  }, [selectedTicker, metrics, chain]);
 
   // Initial load
   useEffect(() => {
     fetchOptionChainFromBackend(selectedTicker, 0);
     fetchRealNews(selectedTicker.symbol);
   }, []);
+
+  // Periodically refresh news during market hours (every 60s)
+  useEffect(() => {
+    if (!isLiveActive || !marketStatus.isOpen) return;
+    const newsTimer = setInterval(() => {
+      fetchRealNews(selectedTicker.symbol);
+    }, 60000);
+    return () => clearInterval(newsTimer);
+  }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
 
   // Handle ticker change
   // Handle ticker change
@@ -515,6 +535,7 @@ export function useLiveOptionChain() {
   // Manual Force Refresh
   const handleForceRefresh = () => {
     fetchOptionChainFromBackend(selectedTicker, expiryIndex);
+    fetchRealNews(selectedTicker.symbol);
     playTone(750, 0.05);
   };
 
@@ -533,6 +554,8 @@ export function useLiveOptionChain() {
     filters,
     setFilters,
     newsFeed,
+    isNewsLoading,
+    refreshNews: () => fetchRealNews(selectedTicker.symbol),
     isLiveActive,
     setIsLiveActive,
     isSyncing,

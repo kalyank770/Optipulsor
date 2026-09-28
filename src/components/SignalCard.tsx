@@ -81,19 +81,19 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const target1 = signal.target1;
   const t1Points = Number((target1 - currentLTP).toFixed(2));
   const t1ProfitTotal = Number((t1Points * totalQty).toFixed(2));
-  const t1ProfitPct = totalCapital > 0 ? Number(((t1ProfitTotal / totalCapital) * 100).toFixed(1)) : 40.0;
+  const t1ProfitPct = totalCapital > 0 ? Number(((t1ProfitTotal / totalCapital) * 100).toFixed(1)) : 15.0;
 
   // Real-time Target 2 P&L calculation
   const target2 = signal.target2;
   const t2Points = Number((target2 - currentLTP).toFixed(2));
   const t2ProfitTotal = Number((t2Points * totalQty).toFixed(2));
-  const t2ProfitPct = totalCapital > 0 ? Number(((t2ProfitTotal / totalCapital) * 100).toFixed(1)) : 75.0;
+  const t2ProfitPct = totalCapital > 0 ? Number(((t2ProfitTotal / totalCapital) * 100).toFixed(1)) : 30.0;
 
   // Real-time Stop Loss P&L calculation
   const stopLoss = signal.stopLoss;
   const slRiskPoints = Number((currentLTP - stopLoss).toFixed(2));
   const slLossTotal = Number((slRiskPoints * totalQty).toFixed(2));
-  const slLossPct = totalCapital > 0 ? Number(((slLossTotal / totalCapital) * 100).toFixed(1)) : 25.0;
+  const slLossPct = totalCapital > 0 ? Number(((slLossTotal / totalCapital) * 100).toFixed(1)) : 12.0;
 
   // Expiry breakeven spot price
   const breakevenSpot = signal.recommendedType === 'CE' 
@@ -342,7 +342,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
             isLight ? 'border-rose-200' : 'border-slate-900'
           }`}>
-            <span>Risk Limit</span>
+            <span className="truncate mr-1 text-[9.5px] text-rose-400/90" title={signal.spotStopLoss ? `Spot Invalidation @ ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit'}>
+              {signal.spotStopLoss ? `Spot: ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit'}
+            </span>
+            <span className="shrink-0">Max SL</span>
           </div>
         </div>
 

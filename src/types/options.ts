@@ -202,6 +202,7 @@ export interface TradeSignal {
   target2Basis?: string;
   spotTarget1?: number;
   spotTarget2?: number;
+  spotStopLoss?: number;
   candleAnalysis?: MultiTimeframeChartPatterns;
   targetExitSynthesis?: TargetExitSynthesis;
 }

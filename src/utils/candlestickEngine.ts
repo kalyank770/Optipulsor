@@ -19,10 +19,22 @@ export function generateRollingCandles(
 ): Candle[] {
   const S = ticker.spotPrice;
   const changePct = ticker.changePercent;
-  const isUptrend = changePct >= 0;
   const step = ticker.strikeStep;
   const now = Date.now();
   const tfMs = timeframeMinutes * 60 * 1000;
+
+  // Determine true intraday direction:
+  // If price has recovered substantially from the session dayLow, it is an intraday recovery (Uptrend)
+  // regardless of whether the net change vs yesterday's close is still red
+  const dayHigh = ticker.dayHigh && ticker.dayHigh > S ? ticker.dayHigh : S + step * 0.7;
+  const dayLow = ticker.dayLow && ticker.dayLow < S ? ticker.dayLow : S - step * 0.7;
+  const dayRange = Math.max(step * 0.5, dayHigh - dayLow);
+  const recoveryRatio = (S - dayLow) / dayRange; // 0 = at low, 1.0 = at high
+  const recoveryFromLow = S - dayLow;
+
+  const isIntradayRecovery = recoveryRatio >= 0.50 || recoveryFromLow >= step * 0.5;
+  const isIntradayBreakdown = recoveryRatio <= 0.30;
+  const isUptrend = isIntradayRecovery ? true : (isIntradayBreakdown ? false : changePct >= 0);
 
   // Typical candle volatility scaled to timeframe
   const candleVolatility = Math.max(step * 0.08, (S * (Math.max(10, ticker.vix || 13) / 100) / 15.87) * Math.sqrt(timeframeMinutes / 375));
@@ -291,49 +303,46 @@ export function computeMultiTimeframeChartPatterns(
 
   const S = ticker.spotPrice;
   const step = ticker.strikeStep;
+  const vix = Math.max(9, ticker.vix || 13);
+  const dailyExpectedMove = S * (vix / 100) / 15.87;
 
-  // Derived Exit Level 1 (Tactical Target based on 2m & 5m measured swing move)
+  // Derived Exit Level 1 (Tactical Target based on 2m & 5m measured swing move: 0.18x to 0.28x daily ATR)
   let derivedExitLevel1 = S;
+  const tacticalMove = Math.max(step * 0.40, Math.min(dailyExpectedMove * 0.28, Math.max(m5.atr * 1.2, dailyExpectedMove * 0.20)));
   if (confluenceBias === 'BULLISH') {
-    const swing5m = Math.max(step * 0.35, m5.measuredMoveTarget - S);
-    derivedExitLevel1 = Number((S + Math.min(swing5m, m5.atr * 2.2)).toFixed(2));
+    derivedExitLevel1 = Number((S + tacticalMove).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    const swing5m = Math.max(step * 0.35, S - m5.measuredMoveTarget);
-    derivedExitLevel1 = Number((S - Math.min(swing5m, m5.atr * 2.2)).toFixed(2));
+    derivedExitLevel1 = Number((S - tacticalMove).toFixed(2));
   } else {
     derivedExitLevel1 = ticker.changePercent >= 0 
-      ? Number((S + step * 0.45).toFixed(2)) 
-      : Number((S - step * 0.45).toFixed(2));
+      ? Number((S + tacticalMove).toFixed(2)) 
+      : Number((S - tacticalMove).toFixed(2));
   }
 
-  // Derived Exit Level 2 (Extended Runner Target based on 15m range expansion)
+  // Derived Exit Level 2 (Extended Runner Target based on 15m range expansion: 0.38x to 0.55x daily ATR)
   let derivedExitLevel2 = S;
+  const runnerMove = Math.max(tacticalMove + step * 0.35, Math.min(dailyExpectedMove * 0.55, Math.max(m15.atr * 2.2, dailyExpectedMove * 0.42)));
   if (confluenceBias === 'BULLISH') {
-    const swing15m = Math.max(step * 0.65, m15.measuredMoveTarget - S);
-    derivedExitLevel2 = Number((S + Math.min(swing15m, m15.atr * 3.8)).toFixed(2));
+    derivedExitLevel2 = Number((S + runnerMove).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    const swing15m = Math.max(step * 0.65, S - m15.measuredMoveTarget);
-    derivedExitLevel2 = Number((S - Math.min(swing15m, m15.atr * 3.8)).toFixed(2));
+    derivedExitLevel2 = Number((S - runnerMove).toFixed(2));
   } else {
     derivedExitLevel2 = ticker.changePercent >= 0 
-      ? Number((S + step * 0.9).toFixed(2)) 
-      : Number((S - step * 0.9).toFixed(2));
+      ? Number((S + runnerMove).toFixed(2)) 
+      : Number((S - runnerMove).toFixed(2));
   }
 
-  // Invalidation Level (Technical Stop Loss level based on 2m/5m support/resistance)
+  // Invalidation Level (Technical Stop Loss level: 0.11x to 0.17x daily ATR)
   let invalidationLevel = S;
+  const slDist = Math.max(step * 0.25, Math.min(dailyExpectedMove * 0.17, Math.max(m5.atr * 0.7, dailyExpectedMove * 0.12)));
   if (confluenceBias === 'BULLISH') {
-    // For Call: Stop loss is below 2m/5m swing low
-    const lowestLow = Math.min(m2.support, m5.support);
-    invalidationLevel = Number((Math.min(lowestLow, S - m5.atr * 0.9)).toFixed(2));
+    invalidationLevel = Number((S - slDist).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    // For Put: Stop loss is above 2m/5m swing high
-    const highestHigh = Math.max(m2.resistance, m5.resistance);
-    invalidationLevel = Number((Math.max(highestHigh, S + m5.atr * 0.9)).toFixed(2));
+    invalidationLevel = Number((S + slDist).toFixed(2));
   } else {
     invalidationLevel = ticker.changePercent >= 0 
-      ? Number((S - step * 0.4).toFixed(2)) 
-      : Number((S + step * 0.4).toFixed(2));
+      ? Number((S - slDist).toFixed(2)) 
+      : Number((S + slDist).toFixed(2));
   }
 
   return {

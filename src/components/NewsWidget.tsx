@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { NewsItem, TickerConfig } from '../types/options';
-import { Newspaper, Flame, ExternalLink, Filter, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Newspaper, Flame, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Clock, Moon, Sun, Sparkles } from 'lucide-react';
 
 interface NewsWidgetProps {
   news: NewsItem[];
   selectedTicker: TickerConfig;
   onSelectTickerBySymbol?: (symbol: string) => void;
   theme?: 'dark' | 'light';
+  onRefreshNews?: () => void;
+  isNewsLoading?: boolean;
 }
 
 export const NewsWidget: React.FC<NewsWidgetProps> = ({
@@ -14,13 +16,23 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
   selectedTicker,
   onSelectTickerBySymbol,
   theme = 'dark',
+  onRefreshNews,
+  isNewsLoading = false,
 }) => {
   const isLight = theme === 'light';
+  const [filterTiming, setFilterTiming] = useState<'ALL' | 'LIVE' | 'OVERNIGHT'>('ALL');
   const [filterSentiment, setFilterSentiment] = useState<'ALL' | 'BULLISH' | 'BEARISH' | 'NEUTRAL'>('ALL');
   const [filterTickerOnly, setFilterTickerOnly] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  const liveCount = news.filter(n => n.timing === 'LIVE').length;
+  const overnightCount = news.filter(n => n.timing === 'OVERNIGHT').length;
+
   const filteredNews = news.filter(item => {
+    if (filterTiming !== 'ALL') {
+      if (filterTiming === 'LIVE' && item.timing !== 'LIVE') return false;
+      if (filterTiming === 'OVERNIGHT' && item.timing !== 'OVERNIGHT') return false;
+    }
     if (filterSentiment !== 'ALL' && item.sentiment !== filterSentiment) return false;
     if (filterTickerOnly && !item.relatedTickers.includes(selectedTicker.symbol)) return false;
     if (searchQuery.trim()) {
@@ -41,15 +53,81 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <Newspaper className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
-            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Options Market News & Macro Catalysts</h3>
+            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              Options Market News & Macro Catalysts
+            </h3>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <Sparkles className="w-3 h-3 text-emerald-400" /> Last Night to Current Live Session
+            </span>
           </div>
           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-            Real-time feed evaluated for Implied Volatility shifts, institutional flow, and CE/PE implications
+            Strictly past 24h: Overnight global cues (Gift Nifty, Wall Street, Crude, FIIs) + Live intraday breaking news affecting CE & PE strikes
           </p>
         </div>
 
-        {/* Filter Controls */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        {/* Action Controls */}
+        <div className="flex items-center gap-2">
+          {onRefreshNews && (
+            <button
+              onClick={onRefreshNews}
+              disabled={isNewsLoading}
+              title="Refresh latest news wire from last night to current moment"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold border transition-colors cursor-pointer ${
+                isNewsLoading
+                  ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-not-allowed'
+                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border-emerald-500/40'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isNewsLoading ? 'animate-spin text-emerald-400' : ''}`} />
+              <span>{isNewsLoading ? 'Fetching Wire...' : 'Refresh Wire'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 pb-1 text-xs">
+        {/* Timing Scope Tabs: ALL vs LIVE vs OVERNIGHT */}
+        <div className={`flex items-center gap-1 p-1 rounded border ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
+          <button
+            onClick={() => setFilterTiming('ALL')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+              filterTiming === 'ALL'
+                ? isLight ? 'bg-white text-slate-900 font-bold shadow-xs' : 'bg-slate-800 text-white font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>All ({news.length})</span>
+          </button>
+
+          <button
+            onClick={() => setFilterTiming('LIVE')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+              filterTiming === 'LIVE'
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-bold'
+                : 'text-slate-400 hover:text-emerald-300'
+            }`}
+          >
+            <Sun className="w-3 h-3 text-emerald-400" />
+            <span>Live Today ({liveCount})</span>
+          </button>
+
+          <button
+            onClick={() => setFilterTiming('OVERNIGHT')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+              filterTiming === 'OVERNIGHT'
+                ? 'bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-bold'
+                : 'text-slate-400 hover:text-indigo-300'
+            }`}
+          >
+            <Moon className="w-3 h-3 text-indigo-400" />
+            <span>Last Night ({overnightCount})</span>
+          </button>
+        </div>
+
+        {/* Secondary Filters */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* Ticker specific toggle */}
           <button
             onClick={() => setFilterTickerOnly(!filterTickerOnly)}
@@ -92,22 +170,34 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
             const isBull = item.sentiment === 'BULLISH';
             const isBear = item.sentiment === 'BEARISH';
             const isHighImpact = item.impact === 'HIGH';
+            const isOvernight = item.timing === 'OVERNIGHT';
 
             return (
               <div key={item.id} className="py-4 first:pt-2 last:pb-2">
-                {/* Meta Header - Zero-Pill discipline: unboxed text with separators */}
+                {/* Meta Header */}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs mb-1.5">
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex flex-wrap items-center gap-2 text-slate-400">
+                    {/* Timing Badge: LIVE vs OVERNIGHT */}
+                    {isOvernight ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-700/60">
+                        <Moon className="w-2.5 h-2.5 text-indigo-400" /> Last Night
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 animate-pulse">
+                        <Sun className="w-2.5 h-2.5 text-emerald-400" /> Live Intraday
+                      </span>
+                    )}
+
                     <span className="font-semibold text-slate-300">{item.source}</span>
                     <span aria-hidden="true">·</span>
-                    <span className="font-mono text-slate-400">{item.timeAgo}</span>
+                    <span className="font-mono text-emerald-400 font-semibold">{item.timeAgo}</span>
                     <span aria-hidden="true">·</span>
-                    <span>{item.category}</span>
+                    <span className="text-slate-400">{item.category}</span>
                     {isHighImpact && (
                       <>
                         <span aria-hidden="true">·</span>
                         <span className="text-rose-400 font-semibold flex items-center gap-1">
-                          <Flame className="w-3 h-3 text-rose-400" /> High Market Impact
+                          <Flame className="w-3 h-3 text-rose-400" /> High Option Impact
                         </span>
                       </>
                     )}
@@ -151,12 +241,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
                   </h4>
                 </div>
 
-                {/* News Summary */}
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  {item.summary}
-                </p>
-
-                {/* Options Takeaway Box: Exactly explains why it affects CE or PE */}
+                {/* Options Takeaway Box: Directly explains why it affects CE or PE */}
                 <div className="mt-2.5 p-2.5 rounded bg-slate-950/80 border border-slate-800/90 text-xs">
                   <div className="flex items-center gap-1.5 text-slate-300 font-semibold mb-1">
                     {isBull ? (

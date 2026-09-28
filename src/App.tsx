@@ -32,6 +32,8 @@ export default function App() {
     filters,
     setFilters,
     newsFeed,
+    isNewsLoading,
+    refreshNews,
     isLiveActive,
     setIsLiveActive,
     updateIntervalMs,
@@ -290,6 +292,8 @@ export default function App() {
               news={newsFeed}
               selectedTicker={selectedTicker}
               onSelectTickerBySymbol={handleSelectTickerBySymbol}
+              onRefreshNews={refreshNews}
+              isNewsLoading={isNewsLoading}
             />
           </div>
         )}
@@ -342,6 +346,8 @@ export default function App() {
               news={newsFeed}
               selectedTicker={selectedTicker}
               onSelectTickerBySymbol={handleSelectTickerBySymbol}
+              onRefreshNews={refreshNews}
+              isNewsLoading={isNewsLoading}
             />
           </div>
         )}
@@ -353,6 +359,7 @@ export default function App() {
         ticker={selectedTicker}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        signal={signal}
       />
 
       {/* Mobile Bottom Navigation Bar (Fixed for mobile trading experience) */}

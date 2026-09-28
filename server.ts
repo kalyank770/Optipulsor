@@ -1,19 +1,22 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// AI Studio / Cloud Run container runs Nginx on 8080 which reverse-proxies to Node on 3000.
+// Node must always listen on port 3000 (never on 8080 which causes EADDRINUSE collision with Nginx).
+const PORT = process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000;
 
 app.use(express.json());
 
-// Health Check Endpoints for Cloud Run Rollouts
-app.get(['/api/health', '/health', '/_health'], (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Comprehensive Health Check Endpoints for Cloud Run Rollouts and Probes
+app.get(['/api/health', '/health', '/_health', '/healthz', '/ping'], (_req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Symbol mapping for Yahoo Finance
@@ -934,65 +937,262 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
   }
 });
 
-// 3. API: Live Real-Time Financial News & Catalyst Feed
+// Helper: Clean RSS text strings
+function cleanRssText(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Derive intelligent Option Trading Takeaway specifically analyzing CE vs PE, IV and OI
+function deriveOptionTakeaway(
+  title: string,
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+  timing: 'LIVE' | 'OVERNIGHT',
+  category: string
+): string {
+  const t = title.toLowerCase();
+
+  if (timing === 'OVERNIGHT') {
+    if (t.includes('gift nifty') || t.includes('sgx')) {
+      return sentiment === 'BEARISH'
+        ? 'Overnight Gift Nifty weakness triggers cautious opening gap; Put premiums price in risk, watch for morning low defense before buying CE.'
+        : 'Overnight Gift Nifty strength anchors positive morning gap; Call option buyers get early tailwind, watch for profit booking at resistance.';
+    }
+    if (t.includes('crude') || t.includes('oil')) {
+      return 'Overnight crude price swings elevate India VIX and input-cost worries for Auto/FMCG; favors keeping tight stop loss on long Call positions.';
+    }
+    if (t.includes('wall street') || t.includes('nasdaq') || t.includes('s&p') || t.includes('dow')) {
+      return sentiment === 'BULLISH'
+        ? 'Wall Street overnight recovery provides liquidity support to Indian IT and Financial heavyweights; cushions ATM Put strikes from deep selloff.'
+        : 'Wall Street overnight drag dampens risk appetite; index Call option premiums likely to experience initial theta and IV compression.';
+    }
+    if (t.includes('fii') || t.includes('dii')) {
+      return 'Overnight institutional derivative positioning shows foreign desk adjustments; watch whether Call writers defend major overhead strike hurdles.';
+    }
+    return `Overnight global macro cue establishes the trading baseline for today. Helps calibrate opening strike selection and risk-reward buffer.`;
+  }
+
+  // LIVE INTRADAY
+  if (t.includes('crash') || t.includes('tumble') || t.includes('plunge') || t.includes('fall') || t.includes('below')) {
+    return 'Heavy intraday selling fuels Put (PE) delta expansion. Call writers aggressively add open interest at higher strikes, making Call bounces risky.';
+  }
+  if (t.includes('surge') || t.includes('rally') || t.includes('rebound') || t.includes('jump') || t.includes('gain')) {
+    return 'Intraday short-covering wave triggers rapid Call (CE) premium expansion. Look for dip-buying opportunities near immediate pivot supports.';
+  }
+  if (t.includes('vix') || t.includes('volatilit')) {
+    return 'Spike in market volatility expands option Greeks (Vega & Theta). Recommended strategy is buying ATM strikes with strict predefined targets.';
+  }
+  if (t.includes('bank') || t.includes('rbi')) {
+    return 'Banking sector action heavily sways Bank Nifty PCR and ATM straddles. Watch pivotal strike hurdles for directional breakout confirmation.';
+  }
+
+  return sentiment === 'BEARISH'
+    ? 'Intraday downward pressure favors Put option buyers on failed pullbacks. Monitor Put-Call Ratio for signs of oversold bounce.'
+    : sentiment === 'BULLISH'
+      ? 'Positive intraday momentum supports Call option buyers. Trailing stop-loss recommended as resistance walls are approached.'
+      : 'Range-bound news catalyst; option premiums may experience time decay. Wait for decisive strike breakout before entering.';
+}
+
+// In-memory cache for news feed (60s TTL)
+let newsCache: { data: any[]; timestamp: number; queryKey: string } | null = null;
+
+// 3. API: Live Real-Time Financial News & Catalyst Feed (Strictly Last Night to Current Live Session)
 app.get('/api/news', async (req: Request, res: Response) => {
   try {
-    const query = req.query.q ? String(req.query.q) : 'NIFTY,SPY,QQQ,NVDA,TSLA';
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=15`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      },
-    });
+    const rawQ = req.query.q ? String(req.query.q).trim() : 'NIFTY 50';
+    const queryKey = rawQ.toUpperCase();
+    const now = Date.now();
 
-    if (!response.ok) {
-      return res.json([]);
+    // Serve from cache if fresh (within 60s)
+    if (newsCache && newsCache.queryKey === queryKey && (now - newsCache.timestamp) < 60000) {
+      return res.json(newsCache.data);
     }
 
-    const data = await response.json();
-    const rawNews = data?.news || [];
+    const isUS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT'].includes(queryKey);
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-    const formattedNews = rawNews.map((n: any, idx: number) => {
-      const pubTime = n.providerPublishTime ? n.providerPublishTime * 1000 : Date.now();
-      const diffMinutes = Math.max(1, Math.round((Date.now() - pubTime) / 60000));
-      const timeAgo = diffMinutes < 60 ? `${diffMinutes}m ago` : `${Math.round(diffMinutes / 60)}h ago`;
-
-      // Sentiment inference from title keywords
-      const titleLower = (n.title || '').toLowerCase();
-      let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-      if (/surge|jump|gain|record|boost|bull|rise|high|profit|rally|up|breakout/.test(titleLower)) {
-        sentiment = 'BULLISH';
-      } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|low/.test(titleLower)) {
-        sentiment = 'BEARISH';
+    const queries: string[] = [];
+    if (isUS) {
+      queries.push(`"${queryKey}" options OR market OR stock when:1d`);
+      queries.push(`"Wall Street" OR "S&P 500" OR "Nasdaq" OR "Federal Reserve" when:1d`);
+    } else {
+      // Indian Index derivatives: 1. Live market & options news, 2. Overnight cues (Gift Nifty, Crude, Wall Street, FII)
+      queries.push(`Nifty OR "Bank Nifty" OR "Sensex" options OR derivatives OR "stock market" when:1d`);
+      queries.push(`"Gift Nifty" OR "crude oil" OR "Wall Street" OR "FII" OR "stock market crash" when:1d`);
+      if (queryKey.includes('BANK')) {
+        queries.push(`"Bank Nifty" OR "banking stocks" OR "HDFC Bank" when:1d`);
       }
+    }
+
+    // Fetch RSS feeds concurrently
+    const feedPromises = queries.map(q => {
+      const gl = isUS ? 'US' : 'IN';
+      const hl = isUS ? 'en-US' : 'en-IN';
+      const ceid = isUS ? 'US:en' : 'IN:en';
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
+      return fetch(url, { headers: { 'User-Agent': userAgent } })
+        .then(r => r.ok ? r.text() : '')
+        .catch(() => '');
+    });
+
+    const xmlResults = await Promise.all(feedPromises);
+    const combinedXml = xmlResults.join('\n');
+
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+    const items: any[] = [];
+    const seenTitles = new Set<string>();
+    let match: RegExpExecArray | null;
+
+    while ((match = itemRegex.exec(combinedXml)) !== null) {
+      const content = match[1];
+      const titleM = content.match(/<title>([\s\S]*?)<\/title>/i);
+      const linkM = content.match(/<link>([\s\S]*?)<\/link>/i);
+      const pubDateM = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+      const sourceM = content.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+
+      if (!titleM || !pubDateM) continue;
+
+      let rawTitle = cleanRssText(titleM[1]);
+      let source = sourceM ? cleanRssText(sourceM[1]) : 'Financial Wire';
+      const link = linkM ? cleanRssText(linkM[1]) : undefined;
+
+      // Extract publisher suffix from title if formatted as "Headline - Source"
+      if (rawTitle.includes(' - ')) {
+        const parts = rawTitle.split(' - ');
+        if (!source || source === 'Financial Wire') {
+          source = parts.pop()?.trim() || 'Financial Wire';
+        } else {
+          parts.pop();
+        }
+        rawTitle = parts.join(' - ').trim();
+      }
+
+      // Title deduplication
+      const cleanKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanKey.length < 10 || seenTitles.has(cleanKey)) continue;
+      seenTitles.add(cleanKey);
+
+      const pubTime = new Date(pubDateM[1]).getTime();
+      if (isNaN(pubTime)) continue;
+
+      // STRICT FILTER: Keep only news from the last 26 hours (strictly last night to current live session)
+      const diffMs = now - pubTime;
+      const diffMins = Math.max(1, Math.round(diffMs / 60000));
+      const hoursAgo = diffMins / 60;
+      if (hoursAgo > 26 || hoursAgo < -0.5) continue; // discard stale (>26h) or bogus future dates
+
+      // Distinguish LIVE (within current trading day/session <= 3.5h) vs OVERNIGHT (last night 3.5h - 26h)
+      const isOvernight = hoursAgo >= 3.5;
+      const timing: 'LIVE' | 'OVERNIGHT' = isOvernight ? 'OVERNIGHT' : 'LIVE';
+
+      let timeAgo = '';
+      if (diffMins < 60) {
+        timeAgo = `${diffMins}m ago`;
+      } else if (hoursAgo < 4) {
+        timeAgo = `${Math.round(hoursAgo)}h ago`;
+      } else {
+        timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
+      }
+
+      // Sentiment derivation from headline terminology
+      const titleLower = rawTitle.toLowerCase();
+      let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+      const isCrudeOrWarSpike = /crude|oil|brent|war|inflation|vix/.test(titleLower) && /spike|jump|rise|surge|soar|cross/.test(titleLower);
+
+      if (isCrudeOrWarSpike) {
+        sentiment = 'BEARISH';
+      } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|low|crash|bloodbath|rout|selloff|weakness|slide|recession|deficit/.test(titleLower)) {
+        sentiment = 'BEARISH';
+      } else if (/surge|jump|gain|record|boost|bull|rise|high|profit|rally|up|breakout|soar|bounce|outperform|climb|stimulus|recovery|positive/.test(titleLower)) {
+        sentiment = 'BULLISH';
+      }
+
+      // Category derivation
+      let category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight' = 'Macro';
+      if (timing === 'OVERNIGHT' || /gift nifty|wall street|overnight|us market|nasdaq/.test(titleLower)) {
+        category = 'Overnight';
+      } else if (/rbi|fed|inflation|rate|budget|policy|sebi|repo/.test(titleLower)) {
+        category = 'Policy';
+      } else if (/war|iran|conflict|middle east|sanctions|geopolit/.test(titleLower)) {
+        category = 'Geopolitics';
+      } else if (/bank|it|metal|auto|energy|pharma|reliance|hdfc|icici|tcs/.test(titleLower)) {
+        category = 'Sector';
+      } else if (/quarter|result|earnings|profit|revenue/.test(titleLower)) {
+        category = 'Earnings';
+      }
+
+      // Market Impact derivation
+      const isHighImpact = /crash|surge|plunge|rout|bloodbath|rbi|fed|gift nifty|crude|900|1000|war|iran|all-time/.test(titleLower);
+      const impact: 'HIGH' | 'MEDIUM' = isHighImpact ? 'HIGH' : 'MEDIUM';
 
       // Map tickers
-      const rawTickers = n.relatedTickers || [];
       const relatedTickers: string[] = [];
-      for (const t of rawTickers) {
-        if (t === '^NSEI') relatedTickers.push('NIFTY 50');
-        else if (t === '^NSEBANK') relatedTickers.push('BANKNIFTY');
-        else if (['SPY', 'QQQ', 'NVDA', 'TSLA'].includes(t)) relatedTickers.push(t);
+      if (/bank|hdfc|icici|kotak|sbi/.test(titleLower)) relatedTickers.push('BANKNIFTY');
+      if (/fin|bajaj|finance/.test(titleLower)) relatedTickers.push('FINNIFTY');
+      if (/nifty|sensex|market|india/.test(titleLower)) relatedTickers.push('NIFTY 50');
+      if (isUS || /wall street|us|fed|nasdaq|s&p|tech/.test(titleLower)) {
+        if (!relatedTickers.includes('SPY')) relatedTickers.push('SPY');
+        if (!relatedTickers.includes('QQQ')) relatedTickers.push('QQQ');
       }
-      if (relatedTickers.length === 0) relatedTickers.push('SPY');
+      if (relatedTickers.length === 0) {
+        relatedTickers.push(queryKey.includes('BANK') ? 'BANKNIFTY' : 'NIFTY 50');
+      }
 
-      return {
-        id: n.uuid || `live-news-${idx}`,
-        title: n.title,
-        source: n.publisher || 'Financial Wire',
+      const optionTakeaway = deriveOptionTakeaway(rawTitle, sentiment, timing, category);
+
+      items.push({
+        id: `news-${pubTime}-${cleanKey.slice(0, 16)}`,
+        title: rawTitle,
+        source,
         timeAgo,
         timestamp: pubTime,
         sentiment,
-        impact: idx % 2 === 0 ? 'HIGH' : 'MEDIUM',
+        impact,
         relatedTickers,
-        optionTakeaway: `Market catalyst from ${n.publisher || 'live feed'}. Monitor ATM delta and open interest shifts in near-expiry contracts.`,
-        summary: n.title,
-        category: n.type === 'STORY' ? 'Macro' : 'Sector',
-        link: n.link,
-      };
-    });
+        optionTakeaway,
+        summary: rawTitle,
+        category,
+        timing,
+        link,
+      });
+    }
 
-    res.json(formattedNews);
+    // Sort all items descending by timestamp
+    items.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Ensure BOTH Live Intraday news AND Overnight Catalysts are included
+    const liveItems = items.filter(i => i.timing === 'LIVE');
+    const overnightItems = items.filter(i => i.timing === 'OVERNIGHT');
+
+    // Balance feed: top live items + top overnight items (e.g. 18 live + 12 overnight)
+    const balancedNews = [
+      ...liveItems.slice(0, 18),
+      ...overnightItems.slice(0, 12),
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const finalNews = balancedNews.length > 0 ? balancedNews : items.slice(0, 30);
+
+    // Update memory cache
+    if (finalNews.length > 0) {
+      newsCache = {
+        data: finalNews,
+        timestamp: now,
+        queryKey,
+      };
+    }
+
+    res.json(finalNews);
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: errorMsg });
@@ -1001,7 +1201,24 @@ app.get('/api/news', async (req: Request, res: Response) => {
 
 // Setup Vite middleware in dev or static files in production
 async function startServer() {
-  const isDev = process.env.NODE_ENV !== 'production';
+  const distPath = path.resolve(__dirname, 'dist');
+  let hasDist = fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'));
+
+  // Explicitly check for Cloud Run deployment environments
+  const isCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION || process.env.CLOUD_RUN_JOB);
+  const isDevScript = process.env.npm_lifecycle_event === 'dev';
+  const isDev = !isCloudRun && (isDevScript || (!hasDist && process.env.NODE_ENV !== 'production'));
+
+  if (!isDev && !hasDist) {
+    console.warn('Production build dist/index.html not found! Running build on startup...');
+    try {
+      const { execSync } = await import('child_process');
+      execSync('npx vite build', { stdio: 'inherit' });
+      hasDist = fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'));
+    } catch (buildErr) {
+      console.error('On-demand vite build failed:', buildErr);
+    }
+  }
 
   if (isDev) {
     const { createServer: createViteServer } = await import('vite');
@@ -1014,16 +1231,55 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(distPath, 'index.html'));
+    // Production: serve built static files from dist
+    app.use(express.static(distPath, {
+      index: false,
+      maxAge: '1h',
+    }));
+
+    app.get('*', (req: Request, res: Response, next) => {
+      // Don't serve index.html for API requests that were not matched
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: `Not found: ${req.method} ${req.path}` });
+      }
+      const indexPath = path.resolve(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+        res.sendFile(indexPath);
+      } else {
+        next();
+      }
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT} (isDev: ${isDev})`);
+  // Fallback 500 error handler
+  app.use((err: any, _req: Request, res: Response, _next: any) => {
+    console.error('Unhandled server error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
+
+  const HOST = '0.0.0.0';
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Server listening on http://${HOST}:${PORT} (isDev: ${isDev}, hasDist: ${hasDist}, isCloudRun: ${isCloudRun})`);
+  });
+
+  // Graceful shutdown handling for Cloud Run revision rollouts
+  const handleShutdown = (signal: string) => {
+    console.log(`${signal} received, closing HTTP server...`);
+    server.close(() => {
+      console.log('HTTP server closed. Exiting process.');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error('Forced shutdown due to timeout');
+      process.exit(1);
+    }, 5000).unref();
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
 startServer().catch(err => {
