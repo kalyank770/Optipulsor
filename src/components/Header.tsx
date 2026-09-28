@@ -172,25 +172,30 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Symbol Horizontal Strip */}
+      {/* Dedicated NIFTY 50 Benchmark Index Strip */}
       <div className="border-t border-slate-800/80 bg-slate-900/60 px-3 sm:px-6 py-1.5">
-        <div className="max-w-[1600px] mx-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth">
-          {POPULAR_TICKERS.map(t => {
-            const active = t.symbol === selectedTicker.symbol;
-            return (
-              <button
-                key={t.symbol}
-                onClick={() => onSelectTicker(t)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md whitespace-nowrap transition-colors cursor-pointer min-h-[36px] flex items-center ${
-                  active
-                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
-                    : 'bg-slate-950/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                {t.symbol}
-              </button>
-            );
-          })}
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-slate-950 flex items-center gap-1.5 shadow-sm">
+              <span>NIFTY 50</span>
+              <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-slate-950 font-mono font-bold">
+                NSE INDEX
+              </span>
+            </div>
+            <span className="hidden sm:inline-block text-xs font-medium text-slate-400">
+              National Stock Exchange · Live F&O Derivatives
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 sm:gap-3 text-xs font-mono text-slate-400 shrink-0">
+            <span>Lot: <strong className="text-slate-200">{selectedTicker.lotSize}</strong></span>
+            <span className="text-slate-700">·</span>
+            <span>Step: <strong className="text-slate-200">{selectedTicker.strikeStep}</strong></span>
+            <span className="text-slate-700">·</span>
+            <span>ATM: <strong className="text-emerald-400">{selectedTicker.atmStrike}</strong></span>
+            <span className="hidden md:inline text-slate-700">·</span>
+            <span className="hidden md:inline text-slate-400">VIX: <strong className="text-amber-300">{selectedTicker.vix.toFixed(2)}</strong></span>
+          </div>
         </div>
       </div>
 

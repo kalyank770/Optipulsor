@@ -80,9 +80,6 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceChgOI = Math.round((Math.sin(i * 1.5) * 0.08) * ceOI);
     const peChgOI = Math.round((Math.cos(i * 1.2) * 0.09) * peOI);
 
-    const ceBuildup: BuildupType = ceChgOI >= 0 ? 'Long Buildup' : 'Short Covering';
-    const peBuildup: BuildupType = peChgOI >= 0 ? 'Short Buildup' : 'Long Unwinding';
-
     const ceMoneyness = K < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
     const peMoneyness = K > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
 
@@ -113,6 +110,17 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const peChange = Number((peLtp - pePrevClose).toFixed(2));
     const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
     const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
+
+    // Derivative buildup classification based on real Price & OI changes
+    const ceBuildup: BuildupType = 
+      ceChange >= 0 && ceChgOI >= 0 ? 'Long Buildup' :
+      ceChange < 0 && ceChgOI >= 0 ? 'Short Buildup' :
+      ceChange >= 0 && ceChgOI < 0 ? 'Short Covering' : 'Long Unwinding';
+
+    const peBuildup: BuildupType = 
+      peChange >= 0 && peChgOI >= 0 ? 'Long Buildup' :
+      peChange < 0 && peChgOI >= 0 ? 'Short Buildup' :
+      peChange >= 0 && peChgOI < 0 ? 'Short Covering' : 'Long Unwinding';
 
     const ceBidQty = 250;
     const ceAskQty = 250;

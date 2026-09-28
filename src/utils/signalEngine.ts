@@ -12,6 +12,7 @@ import {
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
 import { computeRealtimeIndicators } from './technicalIndicators';
+import { analyzeNiftyConstituents, NIFTY_DERIVATIVE_COMPANIES } from '../data/niftyConstituents';
 
 /**
  * Computes market metrics from an option chain
@@ -215,6 +216,13 @@ export function generateTradeSignal(
   const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
   score += (candlePatterns.confluenceScore * 0.4);
 
+  // 7b. Nifty Derivative Constituent Heavyweights & Sectoral Delta Engine (Indian Markets)
+  const constituentAnalysis = (ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined;
+  if (constituentAnalysis) {
+    score += (constituentAnalysis.breadthScore * 0.45);
+    score += (constituentAnalysis.weightedConstituentDelta * 2.5);
+  }
+
   // =========================================================================
   // REAL-TIME QUANTITATIVE PARAMETERS INTEGRATION & ENGINE TUNING
   // =========================================================================
@@ -279,6 +287,26 @@ export function generateTradeSignal(
   // CAPITAL PROTECTION & QUANT GUARD RAILS (Prevent False Trades & Traps)
   // =========================================================================
   let capitalProtectionReason = '';
+
+  // GUARD RAIL 0: Nifty Derivative Heavyweight Divergence Protection
+  if (constituentAnalysis) {
+    const bankingSector = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking');
+    const itSector = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT');
+    const isHeavyweightBullish = constituentAnalysis.overallHeavyweightBias.includes('BULLISH');
+    const isHeavyweightBearish = constituentAnalysis.overallHeavyweightBias.includes('BEARISH');
+
+    // If top banking heavyweights are actively rallying with Long Buildup, avoid buying PE
+    if (bankingSector && bankingSector.sentiment === 'BULLISH' && constituentAnalysis.netNiftyPointImpact > 15 && score < 0) {
+      score = Math.max(score, -1.0); // Suppress BUY_PE
+      capitalProtectionReason = `Capital Protection: Key banking heavyweights (HDFC Bank, ICICI Bank, SBI) are advancing (+${constituentAnalysis.netNiftyPointImpact} pts). Selling or buying puts against institutional banking accumulation has high risk.`;
+    }
+
+    // If heavyweights are in broad selloff, avoid aggressive CE buying
+    if (isHeavyweightBearish && constituentAnalysis.netNiftyPointImpact < -20 && score > 0) {
+      score = Math.min(score, 1.0); // Suppress BUY_CE
+      capitalProtectionReason = `Capital Protection: Derivative heavyweights are lagging (A/D: ${constituentAnalysis.advances}/${constituentAnalysis.declines}, ${constituentAnalysis.netNiftyPointImpact} pts). Buying calls into broad constituent supply drag has poor probability.`;
+    }
+  }
 
   // GUARD RAIL 1: Intraday Recovery Protection (Do not buy PE into an active bounce off day low)
   if ((recoveryRatio >= 0.50 || (recoveryRatio >= 0.40 && recoveryPoints >= ticker.strikeStep * 0.75)) && score < 0) {
@@ -453,7 +481,7 @@ export function generateTradeSignal(
   const isNearDayHigh = (dayHigh - spotPrice) <= step * 0.4;
   const isNearDayLow = (spotPrice - dayLow) <= step * 0.4;
 
-  // --- 3. LIVE & LAST NIGHT (OVERNIGHT) NEWS SYNTHESIS ---
+  // --- 3. LIVE & LAST NIGHT (OVERNIGHT) NEWS IMPACT MULTIPLIER ENGINE ---
   const overnightNews = relevantNews.filter(n => 
     n.timing === 'OVERNIGHT' || n.category === 'Overnight' || (Date.now() - n.timestamp > 3.5 * 3600 * 1000)
   );
@@ -489,57 +517,82 @@ export function generateTradeSignal(
     newsSentimentFactor = Math.max(-1, newsSentimentFactor - 0.20);
   }
 
+  const overnightMultiplier = Number((1.0 + (overnightScore * 0.15)).toFixed(2));
+  const liveBreakingMultiplier = Number((1.0 + (liveScore * 0.25)).toFixed(2));
+  
+  // Directional News Impact Multiplier for exit targets:
+  // If BUY CE and news is Bullish, net multiplier expands target swing (>1.0x).
+  // If BUY CE and news is Bearish (headwind), multiplier compresses target (<1.0x).
+  const directionalNewsBias = isCE ? newsSentimentFactor : -newsSentimentFactor;
+  const netNewsImpactMultiplier = Number(Math.max(0.70, Math.min(1.42, 1.0 + directionalNewsBias * 0.32)).toFixed(2));
+
+  // Determine catalyst classification
+  let catalystType: 'GEOPOLITICAL' | 'EARNINGS' | 'MACRO' | 'SECTOR' | 'GLOBAL_CUES' | 'EQUILIBRIUM' = 'MACRO';
+  if (relevantNews.some(n => n.category === 'Geopolitics')) catalystType = 'GEOPOLITICAL';
+  else if (relevantNews.some(n => n.category === 'Sector')) catalystType = 'SECTOR';
+  else if (relevantNews.some(n => n.category === 'Earnings')) catalystType = 'EARNINGS';
+  else if (relevantNews.some(n => n.category === 'Overnight')) catalystType = 'GLOBAL_CUES';
+
+  let newsFlowState: 'ACCELERATING_BULLISH' | 'ACCELERATING_BEARISH' | 'CONFLICTING_FLOW' | 'STABLE_BALANCED' = 'STABLE_BALANCED';
+  if (newsSentimentFactor >= 0.25 && liveScore > 0) newsFlowState = 'ACCELERATING_BULLISH';
+  else if (newsSentimentFactor <= -0.25 && liveScore < 0) newsFlowState = 'ACCELERATING_BEARISH';
+  else if ((isCE && newsSentimentFactor < -0.15) || (!isCE && newsSentimentFactor > 0.15)) newsFlowState = 'CONFLICTING_FLOW';
+
   const topOvernightHeadline = overnightNews[0]?.title || 'Overnight Global Markets Balanced';
   const topLiveHeadline = liveNews[0]?.title || 'Live Intraday Flow Stable';
 
-  // --- 4. DERIVE REALISTIC TARGET SPOT PRICES ---
-  // Synthesizes 4 Quantitative Pillars:
-  // 1. Multi-Timeframe Candlestick (2m, 5m, 15m)
-  // 2. Live & Overnight News Momentum
-  // 3. Previous Multi-Session Trend & Day Range
-  // 4. Option Chart OI Walls & Max Pain
+  // --- 4. DERIVE REALISTIC TARGET SPOT PRICES GROUNDED IN 2M/5M/15M MOMENTUM & NEWS ---
+  const m2Score = candlePatterns.m2Score ?? candlePatterns.m2.momentumScore;
+  const m5Score = candlePatterns.m5Score ?? candlePatterns.m5.momentumScore;
+  const m15Score = candlePatterns.m15Score ?? candlePatterns.m15.momentumScore;
+
+  // Candlestick momentum multipliers for tactical swing (Target 1) and structural runner (Target 2)
+  const directionalTacticalMomentum = isCE ? (m2Score * 0.30 + m5Score * 0.70) : -(m2Score * 0.30 + m5Score * 0.70);
+  const tacticalMomentumMult = Math.max(0.82, Math.min(1.30, 1.0 + (directionalTacticalMomentum / 25)));
+
+  const directionalStructuralMomentum = isCE ? m15Score : -m15Score;
+  const structuralMomentumMult = Math.max(0.85, Math.min(1.35, 1.0 + (directionalStructuralMomentum / 20)));
+
   let spotTarget1 = spotPrice;
   let spotTarget2 = spotPrice;
   let spotStopLoss = spotPrice;
   let target1Basis = '';
   let target2Basis = '';
 
-  const newsTargetAdjustment = isCE
-    ? (newsSentimentFactor > 0 ? (newsSentimentFactor * dailyExpectedMove * 0.05) : -(Math.abs(newsSentimentFactor) * dailyExpectedMove * 0.03))
-    : (newsSentimentFactor < 0 ? (Math.abs(newsSentimentFactor) * dailyExpectedMove * 0.05) : -(newsSentimentFactor * dailyExpectedMove * 0.03));
+  const newsPointsAdjustment = Number((directionalNewsBias * dailyExpectedMove * 0.08).toFixed(1));
 
   // Volatility & ATR based technical bounds
   const minMove1 = Math.max(step * 0.40, dailyExpectedMove * 0.16);
-  const maxMove1 = Math.max(step * 1.00, dailyExpectedMove * 0.30);
+  const maxMove1 = Math.max(step * 1.00, dailyExpectedMove * 0.32);
   const minMove2 = Math.max(minMove1 + step * 0.35, dailyExpectedMove * 0.36);
-  const maxMove2 = Math.max(minMove2 + step * 0.70, dailyExpectedMove * 0.60);
+  const maxMove2 = Math.max(minMove2 + step * 0.70, dailyExpectedMove * 0.65);
   const minSL = Math.max(step * 0.25, dailyExpectedMove * 0.10);
   const maxSL = Math.max(step * 0.55, dailyExpectedMove * 0.18);
 
   if (isCE) {
     // BUY CALL:
-    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Call OI hurdle, and VWAP upper band
+    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Call OI hurdle, VWAP upper band, scaled by News Multiplier
     const chartTarget1 = candlePatterns.derivedExitLevel1;
     const vwapTargetDist = rt.vwap.upperBand > spotPrice ? (rt.vwap.upperBand - spotPrice) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (immediateCallHurdle - spotPrice) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, chartTarget1 - spotPrice));
     
     // In Positive Gamma regime, market pins tighter; in Negative Gamma, moves run freer
-    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.88 : maxMove1;
-    const rawSpotMove1 = (patternMove * 0.45 + hurdleDist * 0.35 + vwapTargetDist * 0.20) + newsTargetAdjustment;
+    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.90 : maxMove1;
+    const rawSpotMove1 = ((patternMove * 0.45 + hurdleDist * 0.35 + vwapTargetDist * 0.20) * tacticalMomentumMult * netNewsImpactMultiplier) + (newsPointsAdjustment * 0.4);
     const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
     spotTarget1 = Number((spotPrice + spotMove1).toFixed(2));
-    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} & OI Hurdle (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    target1Basis = `2m/5m Swing (${m5Score > 0 ? '+' : ''}${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary hurdle, and gamma expansion
     const chartTarget2 = candlePatterns.derivedExitLevel2;
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, chartTarget2 - spotPrice));
-    const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (majorCallWall - spotPrice) * 0.40));
+    const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (majorCallWall - spotPrice) * 0.42));
     const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
-    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35) * gammaRunnerMultiplier);
-    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 1.0), rawSpotMove2)).toFixed(2));
+    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, ((patternMove2 * 0.65 + hurdleDist2 * 0.35) * structuralMomentumMult * netNewsImpactMultiplier * gammaRunnerMultiplier));
+    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.18 : 1.05), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice + spotMove2).toFixed(2));
-    target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+    target2Basis = `15m Structure (${m15Score > 0 ? '+' : ''}${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
     // Spot Stop Loss: below 2m/5m swing low and 9 EMA / VWAP floor
     const vwapSupportDist = spotPrice > rt.vwap.value ? (spotPrice - rt.vwap.value) : minSL;
@@ -548,27 +601,27 @@ export function generateTradeSignal(
 
   } else {
     // BUY PUT:
-    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Put OI support, and VWAP lower band
+    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Put OI support, VWAP lower band, scaled by News Multiplier
     const chartTarget1 = candlePatterns.derivedExitLevel1;
     const vwapFloorDist = rt.vwap.lowerBand < spotPrice ? (spotPrice - rt.vwap.lowerBand) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (spotPrice - immediatePutSupport) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, spotPrice - chartTarget1));
 
-    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.88 : maxMove1;
-    const rawSpotMove1 = (patternMove * 0.45 + hurdleDist * 0.35 + vwapFloorDist * 0.20) + newsTargetAdjustment;
+    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.90 : maxMove1;
+    const rawSpotMove1 = ((patternMove * 0.45 + hurdleDist * 0.35 + vwapFloorDist * 0.20) * tacticalMomentumMult * netNewsImpactMultiplier) + (newsPointsAdjustment * 0.4);
     const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
     spotTarget1 = Number((spotPrice - spotMove1).toFixed(2));
-    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} & Floor Test (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    target1Basis = `2m/5m Swing (${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary floor, and gamma acceleration
     const chartTarget2 = candlePatterns.derivedExitLevel2;
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, spotPrice - chartTarget2));
-    const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (spotPrice - majorPutWall) * 0.40));
+    const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (spotPrice - majorPutWall) * 0.42));
     const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
-    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35) * gammaRunnerMultiplier);
-    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 1.0), rawSpotMove2)).toFixed(2));
+    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, ((patternMove2 * 0.65 + hurdleDist2 * 0.35) * structuralMomentumMult * netNewsImpactMultiplier * gammaRunnerMultiplier));
+    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.18 : 1.05), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice - spotMove2).toFixed(2));
-    target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+    target2Basis = `15m Structure (${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
     // Spot Stop Loss: above 2m/5m swing high and 9 EMA / VWAP ceiling
     const vwapCeilDist = spotPrice < rt.vwap.value ? (rt.vwap.value - spotPrice) : minSL;
@@ -610,8 +663,10 @@ export function generateTradeSignal(
   const T_target2 = Math.max(0.0001, T - (2.5 / (252 * 6.25)));
   const bsTarget2 = calculateBlackScholes(spotTarget2, targetStrike, T_target2, r, ivDecimal, recommendedType);
   const bsDeltaGain2 = Math.max(target1Delta + tick * 2, bsTarget2.price - bsCurrent.price);
+  const deltaExpansion2 = delta * deltaSpot2;
+  const gammaAcceleration2 = 0.5 * gamma * Math.pow(deltaSpot2, 2);
   const intradayTheta2 = theta * 0.25;
-  const greekGain2 = Math.max(target1Delta + tick * 2, delta * deltaSpot2 + 0.5 * gamma * Math.pow(deltaSpot2, 2) - intradayTheta2);
+  const greekGain2 = Math.max(target1Delta + tick * 2, deltaExpansion2 + gammaAcceleration2 - intradayTheta2);
   const estGain2 = bsDeltaGain2 * 0.50 + greekGain2 * 0.50;
   const target2 = roundToTick(premium + Math.max(target1Delta + tick * 4, estGain2));
   const target2Delta = roundToTick(Math.max(tick * 2, target2 - premium));
@@ -627,6 +682,15 @@ export function generateTradeSignal(
   const stopLoss = Math.max(tick, roundToTick(premium - estLoss));
   const actualRisk = roundToTick(Math.max(tick, premium - stopLoss));
 
+  // Grounded Entry Range calculation (incorporates 2m micro-pullback buffer and bid-ask spread)
+  const spreadBuffer = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
+  const pullbackBuffer = Math.max(tick, roundToTick(candlePatterns.m2.atr * 0.20 * delta));
+  const entryLow = Math.max(tick, roundToTick(Math.min(premium - spreadBuffer, premium - pullbackBuffer)));
+  const entryHigh = roundToTick(Math.max(premium + spreadBuffer, premium + tick * 2));
+
+  // Probability calculations based on confluence & momentum
+  const target1Probability = Math.min(94, Math.max(65, Math.round(62 + (confidence * 0.25) + (Math.abs(directionalTacticalMomentum) * 1.5))));
+  const target2Probability = Math.min(85, Math.max(48, Math.round(45 + (confidence * 0.22) + (Math.abs(directionalStructuralMomentum) * 1.6))));
 
   // Build 4-Pillar Target Exit Synthesis Model
   const targetExitSynthesis = {
@@ -634,10 +698,15 @@ export function generateTradeSignal(
       confluencePattern: candlePatterns.confluencePattern,
       confluenceScore: candlePatterns.confluenceScore,
       m2Pattern: candlePatterns.m2.pattern,
+      m2Score,
       m5Pattern: candlePatterns.m5.pattern,
+      m5Score,
       m15Pattern: candlePatterns.m15.pattern,
-      swingTarget1: candlePatterns.derivedExitLevel1,
-      swingTarget2: candlePatterns.derivedExitLevel2,
+      m15Score,
+      aggregateMomentumIndex: candlePatterns.aggregateMomentumIndex,
+      momentumAlignment: candlePatterns.momentumAlignment,
+      swingTarget1: spotTarget1,
+      swingTarget2: spotTarget2,
     },
     newsPillar: {
       overnightSentiment: (overnightScore > 0 ? 'BULLISH' : overnightScore < 0 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
@@ -645,8 +714,51 @@ export function generateTradeSignal(
       liveSentiment: (liveScore > 0 ? 'BULLISH' : liveScore < 0 ? 'BEARISH' : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
       liveHeadline: topLiveHeadline,
       netNewsBiasScore: Number((newsSentimentFactor * 10).toFixed(1)),
-      newsTargetImpact: `${newsTargetAdjustment >= 0 ? '+' : ''}${newsTargetAdjustment.toFixed(1)} pts spot momentum adjustment`,
+      newsTargetImpact: `${netNewsImpactMultiplier}x dynamic swing multiplier (${newsPointsAdjustment >= 0 ? '+' : ''}${newsPointsAdjustment} pts)`,
     },
+    newsMultiplierData: {
+      overnightScore: Number(overnightScore.toFixed(2)),
+      overnightMultiplier,
+      overnightHeadline: topOvernightHeadline,
+      liveScore: Number(liveScore.toFixed(2)),
+      liveBreakingMultiplier,
+      liveHeadline: topLiveHeadline,
+      netNewsImpactMultiplier,
+      catalystType,
+      newsFlowState,
+      swingExpansionDescription: `${netNewsImpactMultiplier}x ${netNewsImpactMultiplier >= 1.05 ? 'Expansion' : netNewsImpactMultiplier <= 0.95 ? 'Dampened Buffer' : 'Baseline'} on ${catalystType} catalysts`,
+      pointsAdjustment: newsPointsAdjustment,
+    },
+    entryExitGrounding: {
+      optimalEntryZone: [entryLow, entryHigh] as [number, number],
+      entryBasis: `Live LTP ± spread buffer (${ticker.currency}${entryLow.toFixed(2)} - ${ticker.currency}${entryHigh.toFixed(2)}) with 2m pullback anchor`,
+      slippageBuffer: spreadBuffer,
+      riskPerLot: Number((actualRisk * ticker.lotSize).toFixed(2)),
+      target1SpotLevel: spotTarget1,
+      target1SwingBasis: target1Basis,
+      target1Probability,
+      target1OptionPayoff: target1,
+      target1DeltaContr: Number(deltaExpansion1.toFixed(2)),
+      target1GammaContr: Number(gammaAcceleration1.toFixed(2)),
+      target2SpotLevel: spotTarget2,
+      target2SwingBasis: target2Basis,
+      target2Probability,
+      target2OptionPayoff: target2,
+      target2DeltaContr: Number(deltaExpansion2.toFixed(2)),
+      target2GammaContr: Number(gammaAcceleration2.toFixed(2)),
+      stopLossSpotLevel: spotStopLoss,
+      stopLossBasis: `2m/5m Swing Low Invalidation & VWAP Floor (${ticker.currency}${spotStopLoss.toLocaleString()})`,
+      maxRiskAmount: Number((actualRisk * ticker.lotSize).toFixed(2)),
+    },
+    constituentPillar: constituentAnalysis ? {
+      advancesDeclines: `${constituentAnalysis.advances} Adv / ${constituentAnalysis.declines} Dec`,
+      weightedDelta: constituentAnalysis.weightedConstituentDelta,
+      niftyPointsImpact: constituentAnalysis.netNiftyPointImpact,
+      bankingImpact: constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking')?.sentiment || 'NEUTRAL',
+      relianceImpact: NIFTY_DERIVATIVE_COMPANIES.find(c => c.symbol === 'RELIANCE')?.changePercent ? `${NIFTY_DERIVATIVE_COMPANIES.find(c => c.symbol === 'RELIANCE')?.changePercent}%` : '0%',
+      itImpact: constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT')?.sentiment || 'NEUTRAL',
+      heavyweightVerdict: constituentAnalysis.overallHeavyweightBias,
+    } : undefined,
     trendPillar: {
       prevSessionTrend: spotChangePct >= 0.3 ? 'Uptrend Momentum' : spotChangePct <= -0.3 ? 'Downtrend Pressure' : 'Range Mean-Reversion',
       dayRange: Number(dayRange.toFixed(1)),
@@ -666,9 +778,7 @@ export function generateTradeSignal(
   };
 
   // Real-world execution entry zone:
-  const halfSpread = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
-  const entryLow = Math.max(tick, roundToTick(Math.min(premium - halfSpread, premium * 0.985)));
-  const entryHigh = roundToTick(Math.max(premium + halfSpread, premium * 1.015));
+  const entryRange: [number, number] = [entryLow, entryHigh];
   const rrRatio = `1 : ${(target1Delta / Math.max(actualRisk, tick)).toFixed(1)}`;
 
   // Multi-Factor Quantitative Rationale Points
@@ -772,6 +882,15 @@ export function generateTradeSignal(
     description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence.replace(/_/g, ' ')}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure.regime.replace(/_/g, ' ')} (Net GEX: ${rt.gammaExposure.netGex.toLocaleString()} | Flip Strike: ${ticker.currency}${rt.gammaExposure.flipStrike.toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment.replace(/_/g, ' ')}).`,
   });
 
+  // Rationale 8: Nifty Derivative Constituent Heavyweights & Sectoral Breadth (for Indian Equities & Indices)
+  if (constituentAnalysis) {
+    rationalePoints.push({
+      title: 'Nifty Derivative Heavyweight Breadth & Sectoral Delta',
+      verdict: constituentAnalysis.overallHeavyweightBias.includes('BULLISH') ? 'BULLISH' : constituentAnalysis.overallHeavyweightBias.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
+      description: `Heavyweight Breadth: ${constituentAnalysis.summaryNote} (Breadth Score: ${constituentAnalysis.breadthScore > 0 ? '+' : ''}${constituentAnalysis.breadthScore}/10 | Weighted Delta: ${constituentAnalysis.weightedConstituentDelta > 0 ? '+' : ''}${constituentAnalysis.weightedConstituentDelta}%). Sectoral Contributions: ${constituentAnalysis.sectoralBreakdown.slice(0, 3).map(s => `${s.sector}: ${s.contributionPoints >= 0 ? '+' : ''}${s.contributionPoints} pts (${s.leadingStock})`).join(' | ')}.`,
+    });
+  }
+
   // Add Capital Protection point if activated
   if (capitalProtectionReason) {
     rationalePoints.unshift({
@@ -821,5 +940,6 @@ export function generateTradeSignal(
     candleAnalysis: candlePatterns,
     targetExitSynthesis,
     realtimeIndicators: rt,
+    constituentAnalysis,
   };
 }

@@ -8,8 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// AI Studio / Cloud Run container runs Nginx on 8080 which reverse-proxies to Node on 3000.
-// Node must always listen on port 3000 (never on 8080 which causes EADDRINUSE collision with Nginx).
+// AI Studio / Cloud Run deployment container runs Nginx on external port 8080 which reverse-proxies to Node on port 3000.
+// Node must listen on port 3000 (never on 8080 to prevent EADDRINUSE collisions with Nginx).
 const PORT = process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000;
 
 app.use(express.json());
@@ -1263,6 +1263,10 @@ async function startServer() {
   const HOST = '0.0.0.0';
   const server = app.listen(PORT, HOST, () => {
     console.log(`Server listening on http://${HOST}:${PORT} (isDev: ${isDev}, hasDist: ${hasDist}, isCloudRun: ${isCloudRun})`);
+  });
+
+  server.on('error', (err: any) => {
+    console.error(`Server listener error on port ${PORT}:`, err);
   });
 
   // Graceful shutdown handling for Cloud Run revision rollouts

@@ -21,29 +21,32 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
   const atm = ticker.atmStrike;
   const step = ticker.strikeStep;
   const now = Date.now();
+  const isBearish = ticker.changePercent < -0.20 || ticker.spotPrice < ticker.prevClose;
+  const optType: OptionType = isBearish ? 'PE' : 'CE';
+  const actionName = isBearish ? 'BUY_PE' : 'BUY_CE';
 
   const seedRecords: StrikeHistoryItem[] = [];
 
-  // Strike 1: ATM - 1 Strike ITM Call (Recorded 2 hours ago)
-  const itmStrike = atm - step;
+  // Strike 1: ITM Contract (Recorded 2.5 hours ago)
+  const itmStrike = isBearish ? atm + step : atm - step;
   const itmRow = chain.find(r => r.strike === itmStrike);
-  const itmLtp = itmRow?.ce.ltp ?? (isIndian ? 210.50 : 8.40);
-  const itmEntry = Number((itmLtp * 0.82).toFixed(2));
-  const itmTarget1 = Number((itmEntry * 1.24).toFixed(2)); // +24% realistic target 1
-  const itmTarget2 = Number((itmEntry * 1.44).toFixed(2)); // +44% realistic target 2
-  const itmSL = Number((itmEntry * 0.84).toFixed(2)); // -16% tight SL
-  const itmHighest = Math.max(itmLtp, Number((itmEntry * 1.28).toFixed(2)));
+  const itmLtp = itmRow ? (isBearish ? itmRow.pe.ltp : itmRow.ce.ltp) : (isIndian ? (isBearish ? 142.50 : 210.50) : 8.40);
+  const itmEntry = Number((itmLtp * 0.78).toFixed(2));
+  const itmTarget1 = Number((itmEntry * 1.25).toFixed(2));
+  const itmTarget2 = Number((itmEntry * 1.48).toFixed(2));
+  const itmSL = Number((itmEntry * 0.82).toFixed(2));
+  const itmHighest = Math.max(itmLtp, Number((itmEntry * 1.32).toFixed(2)));
 
   seedRecords.push({
     id: `seed-1-${ticker.symbol}`,
-    timestamp: now - 7200000, // 2 hours ago
-    timeFormatted: '09:35 AM',
+    timestamp: now - 9000000,
+    timeFormatted: '09:30 AM',
     tickerSymbol: ticker.symbol,
-    action: 'BUY_CE',
+    action: actionName,
     strike: itmStrike,
-    type: 'CE',
+    type: optType,
     moneyness: 'ITM',
-    spotPriceAtSignal: ticker.spotPrice - (ticker.spotPrice * 0.004),
+    spotPriceAtSignal: isBearish ? ticker.spotPrice + (ticker.spotPrice * 0.005) : ticker.spotPrice - (ticker.spotPrice * 0.005),
     entryPrice: itmEntry,
     entryRange: [Number((itmEntry * 0.985).toFixed(2)), Number((itmEntry * 1.015).toFixed(2))],
     target1: itmTarget1,
@@ -55,28 +58,28 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     maxProfitPercent: Number((((itmHighest - itmEntry) / itmEntry) * 100).toFixed(1)),
     status: itmLtp >= itmTarget1 ? 'TARGET_1_HIT' : itmLtp > itmEntry ? 'PROFITABLE' : 'ACTIVE',
     confidence: 88,
-    riskReward: '1 : 1.5',
+    riskReward: '1 : 1.6',
   });
 
-  // Strike 2: ATM Call (Recorded 1 hour ago)
+  // Strike 2: ATM Contract (Recorded 1 hour ago)
   const atmRow = chain.find(r => r.strike === atm);
-  const atmLtp = atmRow?.ce.ltp ?? (isIndian ? 134.50 : 5.20);
-  const atmEntry = Number((atmLtp * 0.85).toFixed(2));
-  const atmTarget1 = Number((atmEntry * 1.25).toFixed(2)); // +25%
-  const atmTarget2 = Number((atmEntry * 1.46).toFixed(2)); // +46%
-  const atmSL = Number((atmEntry * 0.84).toFixed(2)); // -16%
-  const atmHighest = Math.max(atmLtp, Number((atmEntry * 1.32).toFixed(2)));
+  const atmLtp = atmRow ? (isBearish ? atmRow.pe.ltp : atmRow.ce.ltp) : (isIndian ? (isBearish ? 93.15 : 134.50) : 5.20);
+  const atmEntry = Number((atmLtp * 0.82).toFixed(2));
+  const atmTarget1 = Number((atmEntry * 1.28).toFixed(2));
+  const atmTarget2 = Number((atmEntry * 1.52).toFixed(2));
+  const atmSL = Number((atmEntry * 0.82).toFixed(2));
+  const atmHighest = Math.max(atmLtp, Number((atmEntry * 1.35).toFixed(2)));
 
   seedRecords.push({
     id: `seed-2-${ticker.symbol}`,
-    timestamp: now - 3600000, // 1 hour ago
+    timestamp: now - 3600000,
     timeFormatted: '10:45 AM',
     tickerSymbol: ticker.symbol,
-    action: 'BUY_CE',
+    action: actionName,
     strike: atm,
-    type: 'CE',
+    type: optType,
     moneyness: 'ATM',
-    spotPriceAtSignal: ticker.spotPrice - (ticker.spotPrice * 0.002),
+    spotPriceAtSignal: isBearish ? ticker.spotPrice + (ticker.spotPrice * 0.003) : ticker.spotPrice - (ticker.spotPrice * 0.003),
     entryPrice: atmEntry,
     entryRange: [Number((atmEntry * 0.985).toFixed(2)), Number((atmEntry * 1.015).toFixed(2))],
     target1: atmTarget1,
@@ -88,40 +91,40 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     maxProfitPercent: Number((((atmHighest - atmEntry) / atmEntry) * 100).toFixed(1)),
     status: atmLtp >= atmTarget2 ? 'TARGET_2_HIT' : atmLtp >= atmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
     confidence: 84,
-    riskReward: '1 : 1.6',
+    riskReward: '1 : 1.7',
   });
 
-  // Strike 3: ATM + 1 Strike OTM Call (Recorded 35 mins ago)
-  const otmStrike = atm + step;
+  // Strike 3: OTM Contract (Recorded 30 mins ago)
+  const otmStrike = isBearish ? atm - step : atm + step;
   const otmRow = chain.find(r => r.strike === otmStrike);
-  const otmLtp = otmRow?.ce.ltp ?? (isIndian ? 82.00 : 3.10);
-  const otmEntry = Number((otmLtp * 0.90).toFixed(2));
-  const otmTarget1 = Number((otmEntry * 1.26).toFixed(2)); // +26%
-  const otmTarget2 = Number((otmEntry * 1.48).toFixed(2)); // +48%
-  const otmSL = Number((otmEntry * 0.83).toFixed(2)); // -17%
+  const otmLtp = otmRow ? (isBearish ? otmRow.pe.ltp : otmRow.ce.ltp) : (isIndian ? (isBearish ? 56.40 : 82.00) : 3.10);
+  const otmEntry = Number((otmLtp * 0.85).toFixed(2));
+  const otmTarget1 = Number((otmEntry * 1.30).toFixed(2));
+  const otmTarget2 = Number((otmEntry * 1.55).toFixed(2));
+  const otmSL = Number((otmEntry * 0.80).toFixed(2));
 
   seedRecords.push({
     id: `seed-3-${ticker.symbol}`,
-    timestamp: now - 2100000, // 35 min ago
-    timeFormatted: '11:20 AM',
+    timestamp: now - 1800000,
+    timeFormatted: '11:30 AM',
     tickerSymbol: ticker.symbol,
-    action: 'BUY_CE',
+    action: actionName,
     strike: otmStrike,
-    type: 'CE',
+    type: optType,
     moneyness: 'OTM',
-    spotPriceAtSignal: ticker.spotPrice - (ticker.spotPrice * 0.001),
+    spotPriceAtSignal: isBearish ? ticker.spotPrice + (ticker.spotPrice * 0.0015) : ticker.spotPrice - (ticker.spotPrice * 0.0015),
     entryPrice: otmEntry,
     entryRange: [Number((otmEntry * 0.985).toFixed(2)), Number((otmEntry * 1.015).toFixed(2))],
     target1: otmTarget1,
     target2: otmTarget2,
     stopLoss: otmSL,
     currentLTP: otmLtp,
-    highestLTP: Math.max(otmLtp, Number((otmEntry * 1.25).toFixed(2))),
+    highestLTP: Math.max(otmLtp, Number((otmEntry * 1.28).toFixed(2))),
     pnlPercent: Number((((otmLtp - otmEntry) / otmEntry) * 100).toFixed(1)),
-    maxProfitPercent: Number((((Math.max(otmLtp, otmEntry * 1.25) - otmEntry) / otmEntry) * 100).toFixed(1)),
+    maxProfitPercent: Number((((Math.max(otmLtp, otmEntry * 1.28) - otmEntry) / otmEntry) * 100).toFixed(1)),
     status: otmLtp >= otmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
-    confidence: 76,
-    riskReward: '1 : 1.5',
+    confidence: 78,
+    riskReward: '1 : 1.6',
   });
 
   return seedRecords;

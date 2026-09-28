@@ -440,99 +440,144 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       </div>
 
-      {/* Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m) */}
+      {/* Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m) with Momentum Scoring */}
       {signal.candleAnalysis && (
         <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
               <BarChart2 className="w-4 h-4 text-emerald-400" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Multi-Timeframe Candlestick & Chart Patterns (2m · 5m · 15m)
+                Multi-Timeframe Candlestick Momentum Engine (2m · 5m · 15m)
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">
-              <span className="text-slate-400">Pattern Confluence:</span>
-              <span className={`font-bold px-2 py-0.5 rounded text-[10px] border ${
+              <span className="text-slate-400">Momentum Confluence:</span>
+              <span className={`font-bold px-2.5 py-0.5 rounded text-[11px] border ${
                 signal.candleAnalysis.confluenceBias === 'BULLISH'
-                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
                   : signal.candleAnalysis.confluenceBias === 'BEARISH'
-                  ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/10'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
               }`}>
-                {signal.candleAnalysis.confluenceBias} ({signal.candleAnalysis.confluenceScore > 0 ? '+' : ''}{signal.candleAnalysis.confluenceScore}/10)
+                {signal.candleAnalysis.momentumAlignment?.replace(/_/g, ' ') || signal.candleAnalysis.confluenceBias} ({signal.candleAnalysis.confluenceScore > 0 ? '+' : ''}{signal.candleAnalysis.confluenceScore}/10)
               </span>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
-            {/* 2-Minute Candle Analysis */}
+            {/* 2-Minute Candle Momentum Analysis */}
             <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-sky-400 font-bold">2-Min Candles (Micro Trigger)</span>
-                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
-                    signal.candleAnalysis.m2.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.candleAnalysis.m2.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                  <span className="text-sky-400 font-bold flex items-center gap-1">
+                    <span>2-Min Micro Trigger</span>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                    (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                    (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
                   }`}>
-                    {signal.candleAnalysis.m2.trend}
+                    {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? '+' : ''}
+                    {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore)}/10
                   </span>
                 </div>
+                
+                {/* Visual Momentum Progress Bar */}
+                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                  <div 
+                    className={`h-full transition-all duration-500 ${
+                      (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) * 10))}%` }}
+                  />
+                </div>
+
                 <div className="font-bold text-slate-200 text-xs mt-0.5">
                   {signal.candleAnalysis.m2.pattern.replace(/2m\s*/, '')}
                 </div>
               </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+              
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
                 <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.support.toLocaleString()}</strong></span>
                 <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.resistance.toLocaleString()}</strong></span>
               </div>
             </div>
 
-            {/* 5-Minute Candle Analysis */}
+            {/* 5-Minute Candle Momentum Analysis */}
             <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-emerald-400 font-bold">5-Min Candles (Tactical Trend)</span>
-                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
-                    signal.candleAnalysis.m5.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.candleAnalysis.m5.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <span>5-Min Tactical Trend</span>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                    (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                    (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
                   }`}>
-                    {signal.candleAnalysis.m5.trend}
+                    {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? '+' : ''}
+                    {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore)}/10
                   </span>
                 </div>
+
+                {/* Visual Momentum Progress Bar */}
+                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                  <div 
+                    className={`h-full transition-all duration-500 ${
+                      (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) * 10))}%` }}
+                  />
+                </div>
+
                 <div className="font-bold text-slate-200 text-xs mt-0.5">
                   {signal.candleAnalysis.m5.pattern.replace(/5m\s*/, '')}
                 </div>
               </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Swing Target 1: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
+
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
                 <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m5.atr}</strong></span>
               </div>
             </div>
 
-            {/* 15-Minute Candle Analysis */}
+            {/* 15-Minute Candle Momentum Analysis */}
             <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-amber-400 font-bold">15-Min Candles (Structure Anchor)</span>
-                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
-                    signal.candleAnalysis.m15.trend === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.candleAnalysis.m15.trend === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                  <span className="text-amber-400 font-bold flex items-center gap-1">
+                    <span>15-Min Structure Anchor</span>
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                    (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                    (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
                   }`}>
-                    {signal.candleAnalysis.m15.trend}
+                    {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? '+' : ''}
+                    {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore)}/10
                   </span>
                 </div>
+
+                {/* Visual Momentum Progress Bar */}
+                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                  <div 
+                    className={`h-full transition-all duration-500 ${
+                      (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) * 10))}%` }}
+                  />
+                </div>
+
                 <div className="font-bold text-slate-200 text-xs mt-0.5">
                   {signal.candleAnalysis.m15.pattern.replace(/15m\s*/, '')}
                 </div>
               </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Runner Target 2: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
+
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
                 <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m15.atr}</strong></span>
               </div>
             </div>
           </div>
 
-          <div className="mt-2 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+          <div className="mt-2.5 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
             <span>Pattern Confluence: <strong className="text-slate-200">{signal.candleAnalysis.confluencePattern}</strong></span>
             <span className="font-mono">
               Pattern Invalidation Stop: <strong className="text-rose-400">{ticker.currency}{signal.candleAnalysis.invalidationLevel.toLocaleString()}</strong>
@@ -541,47 +586,52 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       )}
 
-      {/* 4-Pillar Target Exit Prediction Confluence Architecture */}
+      {/* Real-Time News Impact Multiplier & Grounded Confluence Architecture */}
       {signal.targetExitSynthesis && (
         <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-sky-400" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Target Exit Predictive Confluence Model
+                High-Probability Swing & News Multiplier Engine
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 font-mono">
-              Synthesizing: Candles · News · Trends · Option Chart
-            </div>
+            {signal.targetExitSynthesis.newsMultiplierData && (
+              <div className="flex items-center gap-2 text-[11px] font-mono">
+                <span className="text-slate-400">News Multiplier:</span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  {signal.targetExitSynthesis.newsMultiplierData.netNewsImpactMultiplier}x Swing Factor
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
-            {/* Pillar A: Live & Last Night News Impact */}
+            {/* Pillar A: Live & Last Night News Multiplier */}
             <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
                   <span className="text-amber-400 font-bold flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5" />
-                    Live & Last Night News
+                    Real-Time News Multipliers
                   </span>
                   <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                     signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? 'text-emerald-400 bg-emerald-500/10' :
                     signal.targetExitSynthesis.newsPillar.netNewsBiasScore < 0 ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
                   }`}>
-                    {signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? '+' : ''}{signal.targetExitSynthesis.newsPillar.netNewsBiasScore}
+                    {signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? '+' : ''}{signal.targetExitSynthesis.newsPillar.netNewsBiasScore} Net
                   </span>
                 </div>
                 
                 <div className="space-y-1.5 mt-1.5">
                   <div className="text-[11px] leading-tight">
-                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Last Night / Overnight:</span>
+                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Overnight Anchor ({signal.targetExitSynthesis.newsMultiplierData?.overnightMultiplier ?? 1.0}x):</span>
                     <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.overnightHeadline}>
                       {signal.targetExitSynthesis.newsPillar.overnightHeadline}
                     </span>
                   </div>
                   <div className="text-[11px] leading-tight">
-                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Live Breaking Session:</span>
+                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Live Breaking Catalyst ({signal.targetExitSynthesis.newsMultiplierData?.liveBreakingMultiplier ?? 1.0}x):</span>
                     <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.liveHeadline}>
                       {signal.targetExitSynthesis.newsPillar.liveHeadline}
                     </span>
@@ -600,7 +650,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
                   <span className="text-emerald-400 font-bold flex items-center gap-1.5">
                     <Activity className="w-3.5 h-3.5" />
-                    Previous Trend & Range
+                    Trend & Measured Volatility
                   </span>
                   <span className="text-slate-400 text-[10px] font-mono">
                     {signal.targetExitSynthesis.trendPillar.trendContinuationProb}% Prob
@@ -613,7 +663,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     <strong className="text-slate-200">{signal.targetExitSynthesis.trendPillar.prevSessionTrend}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Day Established Range:</span>
+                    <span className="text-slate-400">Day Range Established:</span>
                     <strong className="text-slate-200 font-mono">{ticker.currency}{signal.targetExitSynthesis.trendPillar.dayRange} pts</strong>
                   </div>
                   <div className="flex justify-between">
@@ -866,6 +916,210 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 {signal.realtimeIndicators.vixVelocity.impactOnOptions}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grounded High-Probability Entry & Exit Grounding Analytics */}
+      {signal.targetExitSynthesis?.entryExitGrounding && (
+        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <Compass className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Grounded Target Entry & Exit Payoff Derivation
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+              <span>Risk Per Lot:</span>
+              <strong className="text-rose-400">{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.riskPerLot.toLocaleString()}</strong>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs font-mono">
+            {/* Target 1 Payoff */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-emerald-400 font-sans font-bold mb-1">
+                  <span>Target 1 (Tactical Swing)</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-300 font-mono">
+                    {signal.targetExitSynthesis.entryExitGrounding.target1Probability}% Prob
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-white mb-1">
+                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1SpotLevel.toLocaleString()}
+                </div>
+                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
+                  {signal.targetExitSynthesis.entryExitGrounding.target1SwingBasis}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
+                <span>Δ Payoff: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1DeltaContr}</strong></span>
+                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1GammaContr}</strong></span>
+              </div>
+            </div>
+
+            {/* Target 2 Payoff */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-sky-500/20 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-sky-400 font-sans font-bold mb-1">
+                  <span>Target 2 (Structural Runner)</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 font-mono">
+                    {signal.targetExitSynthesis.entryExitGrounding.target2Probability}% Prob
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-white mb-1">
+                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2SpotLevel.toLocaleString()}
+                </div>
+                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
+                  {signal.targetExitSynthesis.entryExitGrounding.target2SwingBasis}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
+                <span>Δ Payoff: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2DeltaContr}</strong></span>
+                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2GammaContr}</strong></span>
+              </div>
+            </div>
+
+            {/* Invalidation Stop Loss */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-rose-500/20 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-rose-400 font-sans font-bold mb-1">
+                  <span>Structural Invalidation SL</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-300 font-mono">
+                    Risk Limit
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-rose-400 mb-1">
+                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.stopLossSpotLevel.toLocaleString()}
+                </div>
+                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
+                  {signal.targetExitSynthesis.entryExitGrounding.stopLossBasis}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
+                <span>Max Drawdown:</span>
+                <strong className="text-rose-400">-{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.maxRiskAmount.toLocaleString()}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nifty Derivative Heavyweight Companies & Sectoral Breadth (Indian Markets) */}
+      {signal.constituentAnalysis && (
+        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <BarChart2 className="w-4 h-4 text-sky-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Nifty 50 Derivative Heavyweights & Sectoral Breadth
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="text-slate-400">Heavyweight Bias:</span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                signal.constituentAnalysis.overallHeavyweightBias.includes('BULLISH') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                signal.constituentAnalysis.overallHeavyweightBias.includes('BEARISH') ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
+                'bg-amber-500/15 text-amber-300 border-amber-500/30'
+              }`}>
+                {signal.constituentAnalysis.overallHeavyweightBias.replace(/_/g, ' ')} ({signal.constituentAnalysis.breadthScore > 0 ? '+' : ''}{signal.constituentAnalysis.breadthScore}/10)
+              </span>
+            </div>
+          </div>
+
+          {/* Heavyweight Breadth Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2.5 text-xs font-mono">
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase block font-sans">Constituent A/D</span>
+              <span className="text-xs font-bold text-emerald-400">
+                {signal.constituentAnalysis.advances} Adv <span className="text-slate-500">/</span> <span className="text-rose-400">{signal.constituentAnalysis.declines} Dec</span>
+              </span>
+            </div>
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase block font-sans">Weighted Delta</span>
+              <span className={`text-xs font-bold ${signal.constituentAnalysis.weightedConstituentDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {signal.constituentAnalysis.weightedConstituentDelta >= 0 ? '+' : ''}{signal.constituentAnalysis.weightedConstituentDelta}%
+              </span>
+            </div>
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase block font-sans">Net Point Impact</span>
+              <span className={`text-xs font-bold ${signal.constituentAnalysis.netNiftyPointImpact >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {signal.constituentAnalysis.netNiftyPointImpact >= 0 ? '+' : ''}{signal.constituentAnalysis.netNiftyPointImpact} pts
+              </span>
+            </div>
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase block font-sans">Advance Ratio</span>
+              <span className="text-xs font-bold text-sky-400">
+                {signal.constituentAnalysis.advancesDeclinesRatio}x
+              </span>
+            </div>
+          </div>
+
+          {/* Top Gainers and Draggers */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            {/* Top Leaders */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20">
+              <span className="text-[10.5px] font-bold text-emerald-400 flex items-center justify-between mb-1.5 font-sans">
+                <span className="flex items-center gap-1">
+                  <ArrowUpRight className="w-3.5 h-3.5" /> Top Index Leaders (Heavyweights)
+                </span>
+                <span className="text-[10px] font-mono text-emerald-400/80">Support Pillars</span>
+              </span>
+              <div className="space-y-1 font-mono text-[11px]">
+                {signal.constituentAnalysis.topGainers.map(g => (
+                  <div key={g.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
+                    <span className="text-slate-200 font-bold">{g.symbol}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-400 font-semibold">+{g.changePercent}%</span>
+                      <span className="text-[10px] px-1 rounded bg-emerald-500/10 text-emerald-300">+{g.points} pts</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Top Laggards */}
+            <div className="p-2.5 rounded bg-slate-900/90 border border-rose-500/20">
+              <span className="text-[10.5px] font-bold text-rose-400 flex items-center justify-between mb-1.5 font-sans">
+                <span className="flex items-center gap-1">
+                  <ArrowDownRight className="w-3.5 h-3.5" /> Index Laggards & Resistance
+                </span>
+                <span className="text-[10px] font-mono text-rose-400/80">Draggers</span>
+              </span>
+              <div className="space-y-1 font-mono text-[11px]">
+                {signal.constituentAnalysis.topDraggers.map(d => (
+                  <div key={d.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
+                    <span className="text-slate-200 font-bold">{d.symbol}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-400 font-semibold">{d.changePercent}%</span>
+                      <span className="text-[10px] px-1 rounded bg-rose-500/10 text-rose-300">{d.points} pts</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Sectoral Breakdown Corridor */}
+          <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[10.5px] font-mono">
+            <span className="text-slate-400 font-sans mr-1">Sector Contributions:</span>
+            {signal.constituentAnalysis.sectoralBreakdown.slice(0, 5).map(s => (
+              <span 
+                key={s.sector}
+                className={`px-2 py-0.5 rounded border text-[10px] flex items-center gap-1 ${
+                  s.sentiment === 'BULLISH' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' :
+                  s.sentiment === 'BEARISH' ? 'bg-rose-950/40 text-rose-300 border-rose-500/30' :
+                  'bg-slate-900 text-slate-300 border-slate-700'
+                }`}
+              >
+                <strong>{s.sector}</strong> ({s.weight}%): {s.contributionPoints >= 0 ? '+' : ''}{s.contributionPoints} pts ({s.leadingStock})
+              </span>
+            ))}
           </div>
         </div>
       )}

@@ -187,7 +187,12 @@ export interface TimeframeCandleAnalysis {
   resistance: number;
   support: number;
   atr: number;
-  momentumScore: number; // -10 to +10
+  momentumScore: number; // -10.0 to +10.0
+  candleVelocity?: number;
+  bodyWickRatio?: number;
+  swingRange?: number;
+  vwapProximity?: number;
+  breakoutStatus?: 'BULLISH_BREAKOUT' | 'BEARISH_BREAKOUT' | 'PULLBACK_RETEST' | 'CONSOLIDATION';
   measuredMoveTarget: number;
 }
 
@@ -195,6 +200,14 @@ export interface MultiTimeframeChartPatterns {
   m2: TimeframeCandleAnalysis;
   m5: TimeframeCandleAnalysis;
   m15: TimeframeCandleAnalysis;
+  m2Score?: number;
+  m5Score?: number;
+  m15Score?: number;
+  aggregateMomentumIndex?: number;
+  momentumAlignment?: 'FULL_BULLISH_CONFLUENCE' | 'MODERATE_BULLISH' | 'NEUTRAL_MIXED' | 'MODERATE_BEARISH' | 'FULL_BEARISH_CONFLUENCE';
+  tacticalSwingPoints?: number;
+  structuralSwingPoints?: number;
+  invalidationPoints?: number;
   confluencePattern: string;
   confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   confluenceScore: number;
@@ -203,13 +216,97 @@ export interface MultiTimeframeChartPatterns {
   invalidationLevel: number;
 }
 
+export interface NewsMultiplierData {
+  overnightScore: number;
+  overnightMultiplier: number;
+  overnightHeadline: string;
+  liveScore: number;
+  liveBreakingMultiplier: number;
+  liveHeadline: string;
+  netNewsImpactMultiplier: number; // e.g. 1.25x
+  catalystType: 'GEOPOLITICAL' | 'EARNINGS' | 'MACRO' | 'SECTOR' | 'GLOBAL_CUES' | 'EQUILIBRIUM';
+  newsFlowState: 'ACCELERATING_BULLISH' | 'ACCELERATING_BEARISH' | 'CONFLICTING_FLOW' | 'STABLE_BALANCED';
+  swingExpansionDescription: string;
+  pointsAdjustment: number;
+}
+
+export interface EntryExitGrounding {
+  optimalEntryZone: [number, number];
+  entryBasis: string;
+  slippageBuffer: number;
+  riskPerLot: number;
+  target1SpotLevel: number;
+  target1SwingBasis: string;
+  target1Probability: number;
+  target1OptionPayoff: number;
+  target1DeltaContr: number;
+  target1GammaContr: number;
+  target2SpotLevel: number;
+  target2SwingBasis: string;
+  target2Probability: number;
+  target2OptionPayoff: number;
+  target2DeltaContr: number;
+  target2GammaContr: number;
+  stopLossSpotLevel: number;
+  stopLossBasis: string;
+  maxRiskAmount: number;
+}
+
+export interface NiftyConstituent {
+  symbol: string;
+  name: string;
+  sector: 'Banking' | 'Energy' | 'IT' | 'FMCG' | 'Auto' | 'Infra' | 'Telecom' | 'Pharma' | 'Financials';
+  niftyWeight: number; // e.g. 11.5 for 11.5%
+  bankNiftyWeight?: number; // e.g. 28.5%
+  spotPrice: number;
+  change: number;
+  changePercent: number;
+  dayHigh: number;
+  dayLow: number;
+  prevClose: number;
+  buildup: BuildupType;
+  pcr: number;
+  volume: number;
+  deliveryPercent: number;
+  niftyContributionPoints: number;
+}
+
+export interface SectoralContribution {
+  sector: string;
+  weight: number;
+  netChangePercent: number;
+  contributionPoints: number;
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  leadingStock: string;
+}
+
+export interface NiftyConstituentAnalysis {
+  advances: number;
+  declines: number;
+  unchanged: number;
+  advancesDeclinesRatio: number;
+  weightedConstituentDelta: number; // % contribution to index
+  netNiftyPointImpact: number;
+  overallHeavyweightBias: 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH';
+  breadthScore: number; // -10 to +10
+  topGainers: { symbol: string; changePercent: number; points: number }[];
+  topDraggers: { symbol: string; changePercent: number; points: number }[];
+  sectoralBreakdown: SectoralContribution[];
+  summaryNote: string;
+}
+
 export interface TargetExitSynthesis {
   candlestickPillar: {
     confluencePattern: string;
     confluenceScore: number;
     m2Pattern: string;
+    m2Score?: number;
     m5Pattern: string;
+    m5Score?: number;
     m15Pattern: string;
+    m15Score?: number;
+    aggregateMomentumIndex?: number;
+    momentumAlignment?: string;
     swingTarget1: number;
     swingTarget2: number;
   };
@@ -220,6 +317,17 @@ export interface TargetExitSynthesis {
     liveHeadline: string;
     netNewsBiasScore: number;
     newsTargetImpact: string;
+  };
+  newsMultiplierData?: NewsMultiplierData;
+  entryExitGrounding?: EntryExitGrounding;
+  constituentPillar?: {
+    advancesDeclines: string;
+    weightedDelta: number;
+    niftyPointsImpact: number;
+    bankingImpact: string;
+    relianceImpact: string;
+    itImpact: string;
+    heavyweightVerdict: string;
   };
   trendPillar: {
     prevSessionTrend: string;
@@ -263,6 +371,7 @@ export interface TradeSignal {
   candleAnalysis?: MultiTimeframeChartPatterns;
   targetExitSynthesis?: TargetExitSynthesis;
   realtimeIndicators?: RealtimePredictionIndicators;
+  constituentAnalysis?: NiftyConstituentAnalysis;
 }
 
 export interface NewsItem {

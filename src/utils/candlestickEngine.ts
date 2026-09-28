@@ -152,94 +152,110 @@ export function analyzeTimeframeCandles(
   const isRed = latest.close < latest.open;
   const upperWick = latest.high - Math.max(latest.open, latest.close);
   const lowerWick = Math.min(latest.open, latest.close) - latest.low;
+  const bodyWickRatio = Number((body / Math.max(0.01, upperWick + lowerWick)).toFixed(2));
+  const swingRange = Number((highestRecent - lowestRecent).toFixed(2));
 
   const prevBody = Math.abs(prev.close - prev.open);
   const prevIsRed = prev.close < prev.open;
   const prevIsGreen = prev.close >= prev.open;
 
-  // Determine trend by comparing latest close with 5-period VWAP/SMA
+  // Determine trend by comparing latest close with 5-period VWAP/SMA and EMA9
   const smaPeriod = Math.min(5, candles.length);
   const sma = candles.slice(-smaPeriod).reduce((acc, c) => acc + c.close, 0) / smaPeriod;
   
+  // Rate of displacement (points per candle / ATR)
+  const candleVelocity = Number(((latest.close - prev.close) / Math.max(0.1, atr)).toFixed(2));
+  const vwapProximity = Number(((latest.close - sma) / ticker.strikeStep).toFixed(2));
+
   let trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' = 'SIDEWAYS';
-  if (latest.close > sma + atr * 0.2) {
+  if (latest.close > sma + atr * 0.15) {
     trend = 'BULLISH';
-  } else if (latest.close < sma - atr * 0.2) {
+  } else if (latest.close < sma - atr * 0.15) {
     trend = 'BEARISH';
+  }
+
+  // Breakout detection
+  let breakoutStatus: TimeframeCandleAnalysis['breakoutStatus'] = 'CONSOLIDATION';
+  if (latest.close >= resistance - atr * 0.1 && isGreen) {
+    breakoutStatus = 'BULLISH_BREAKOUT';
+  } else if (latest.close <= support + atr * 0.1 && isRed) {
+    breakoutStatus = 'BEARISH_BREAKOUT';
+  } else if (Math.abs(latest.low - sma) <= atr * 0.25 && trend === 'BULLISH') {
+    breakoutStatus = 'PULLBACK_RETEST';
   }
 
   // Pattern detection logic
   let pattern = 'Consolidation';
   let patternBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  let momentumScore = 0; // -10 to +10
+  let momentumScore = 0; // -10.0 to +10.0
 
   // 1. Hammer / Pin Bar Rejection at Support
-  if (lowerWick >= body * 2 && upperWick <= body * 0.5 && latest.low <= support + atr * 0.3) {
+  if (lowerWick >= body * 1.8 && upperWick <= body * 0.6 && latest.low <= support + atr * 0.35) {
     pattern = `${timeframe} Bullish Pin Bar (Support Rejection)`;
     patternBias = 'BULLISH';
-    momentumScore = 7;
+    momentumScore = 7.5;
   }
   // 2. Shooting Star / Rejection at Resistance
-  else if (upperWick >= body * 2 && lowerWick <= body * 0.5 && latest.high >= resistance - atr * 0.3) {
+  else if (upperWick >= body * 1.8 && lowerWick <= body * 0.6 && latest.high >= resistance - atr * 0.35) {
     pattern = `${timeframe} Bearish Pin Bar (Resistance Rejection)`;
     patternBias = 'BEARISH';
-    momentumScore = -7;
+    momentumScore = -7.5;
   }
-  // 3. Bullish Engulfing
-  else if (isGreen && prevIsRed && latest.close > prev.open && latest.open < prev.close && body > prevBody) {
-    pattern = `${timeframe} Bullish Engulfing (Demand Surge)`;
+  // 3. Bullish Engulfing / High Momentum Thrust
+  else if (isGreen && prevIsRed && latest.close > prev.open && latest.open < prev.close && body > prevBody * 1.1) {
+    pattern = `${timeframe} Bullish Engulfing (Demand Expansion)`;
     patternBias = 'BULLISH';
-    momentumScore = 8;
+    momentumScore = 8.5;
   }
-  // 4. Bearish Engulfing
-  else if (isRed && prevIsGreen && latest.close < prev.open && latest.open > prev.close && body > prevBody) {
-    pattern = `${timeframe} Bearish Engulfing (Supply Overhang)`;
+  // 4. Bearish Engulfing / Heavy Supply Thrust
+  else if (isRed && prevIsGreen && latest.close < prev.open && latest.open > prev.close && body > prevBody * 1.1) {
+    pattern = `${timeframe} Bearish Engulfing (Supply Expansion)`;
     patternBias = 'BEARISH';
-    momentumScore = -8;
+    momentumScore = -8.5;
   }
-  // 5. Higher Highs & Higher Lows (HH-HL)
+  // 5. Higher Highs & Higher Lows (HH-HL Structure)
   else if (latest.high > prev.high && latest.low > prev.low && prev.high > prev2.high) {
-    pattern = `${timeframe} Higher Highs & Higher Lows (Ascending Structure)`;
+    pattern = `${timeframe} Higher Highs & Lows (Ascending Impulse)`;
     patternBias = 'BULLISH';
-    momentumScore = 6;
+    momentumScore = 6.8;
   }
-  // 6. Lower Highs & Lower Lows (LH-LL)
+  // 6. Lower Highs & Lower Lows (LH-LL Structure)
   else if (latest.high < prev.high && latest.low < prev.low && prev.low < prev2.low) {
-    pattern = `${timeframe} Lower Highs & Lower Lows (Descending Structure)`;
+    pattern = `${timeframe} Lower Highs & Lows (Descending Drift)`;
     patternBias = 'BEARISH';
-    momentumScore = -6;
+    momentumScore = -6.8;
   }
   // 7. Bull Flag or Micro Pullback Continuation
-  else if (trend === 'BULLISH' && isGreen && body > atr * 0.6) {
+  else if (trend === 'BULLISH' && isGreen && body > atr * 0.5) {
     pattern = `${timeframe} Bull Flag Breakout (Momentum Continuation)`;
     patternBias = 'BULLISH';
-    momentumScore = 7;
+    momentumScore = 7.2;
   }
   // 8. Bear Flag or Micro Pullback Continuation
-  else if (trend === 'BEARISH' && isRed && body > atr * 0.6) {
+  else if (trend === 'BEARISH' && isRed && body > atr * 0.5) {
     pattern = `${timeframe} Bear Flag Breakdown (Downward Continuation)`;
     patternBias = 'BEARISH';
-    momentumScore = -7;
+    momentumScore = -7.2;
   }
-  // 9. Morning Star
-  else if (prev2.close < prev2.open && Math.abs(prev.close - prev.open) < atr * 0.3 && isGreen && latest.close > (prev2.open + prev2.close) / 2) {
+  // 9. Morning Star Reversal
+  else if (prev2.close < prev2.open && Math.abs(prev.close - prev.open) < atr * 0.35 && isGreen && latest.close > (prev2.open + prev2.close) / 2) {
     pattern = `${timeframe} Morning Star Reversal`;
     patternBias = 'BULLISH';
-    momentumScore = 8;
+    momentumScore = 8.0;
   }
-  // 10. Default Trend Alignment
+  // 10. Default Trend Alignment with Velocity Scaling
   else if (trend === 'BULLISH') {
     pattern = `${timeframe} Ascending Channel Continuation`;
     patternBias = 'BULLISH';
-    momentumScore = 4;
+    momentumScore = Math.min(6.0, Math.max(2.5, 3.5 + candleVelocity * 1.5));
   } else if (trend === 'BEARISH') {
     pattern = `${timeframe} Descending Channel Continuation`;
     patternBias = 'BEARISH';
-    momentumScore = -4;
+    momentumScore = Math.max(-6.0, Math.min(-2.5, -3.5 + candleVelocity * 1.5));
   } else {
     pattern = `${timeframe} Range Bound Oscillation`;
     patternBias = 'NEUTRAL';
-    momentumScore = 0;
+    momentumScore = Number((candleVelocity * 1.2).toFixed(1));
   }
 
   // Calculate Measured Move Target based on pattern and timeframe swing
@@ -266,7 +282,12 @@ export function analyzeTimeframeCandles(
     resistance,
     support,
     atr,
-    momentumScore,
+    momentumScore: Number(momentumScore.toFixed(1)),
+    candleVelocity,
+    bodyWickRatio,
+    swingRange,
+    vwapProximity,
+    breakoutStatus,
     measuredMoveTarget,
   };
 }
@@ -286,25 +307,47 @@ export function computeMultiTimeframeChartPatterns(
   const m5 = analyzeTimeframeCandles(c5m, '5m', ticker);
   const m15 = analyzeTimeframeCandles(c15m, '15m', ticker);
 
-  // Compute aggregate confluence score: weighted combination (15m: 45%, 5m: 35%, 2m: 20%)
-  const confluenceScore = Number((
-    m15.momentumScore * 0.45 +
-    m5.momentumScore * 0.35 +
-    m2.momentumScore * 0.20
+  const m2Score = m2.momentumScore;
+  const m5Score = m5.momentumScore;
+  const m15Score = m15.momentumScore;
+
+  // Compute aggregate momentum index: weighted combination (15m: 40%, 5m: 40%, 2m: 20%)
+  const aggregateMomentumIndex = Number((
+    m15Score * 0.40 +
+    m5Score * 0.40 +
+    m2Score * 0.20
   ).toFixed(1));
 
+  const confluenceScore = aggregateMomentumIndex;
+
   let confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-  if (confluenceScore >= 2.5) confluenceBias = 'BULLISH';
-  else if (confluenceScore <= -2.5) confluenceBias = 'BEARISH';
+  let momentumAlignment: MultiTimeframeChartPatterns['momentumAlignment'] = 'NEUTRAL_MIXED';
+
+  if (confluenceScore >= 5.0 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
+    confluenceBias = 'BULLISH';
+    momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
+  } else if (confluenceScore >= 2.2) {
+    confluenceBias = 'BULLISH';
+    momentumAlignment = 'MODERATE_BULLISH';
+  } else if (confluenceScore <= -5.0 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
+    confluenceBias = 'BEARISH';
+    momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
+  } else if (confluenceScore <= -2.2) {
+    confluenceBias = 'BEARISH';
+    momentumAlignment = 'MODERATE_BEARISH';
+  } else {
+    confluenceBias = 'NEUTRAL';
+    momentumAlignment = 'NEUTRAL_MIXED';
+  }
 
   // Build descriptive confluence pattern headline
   let confluencePattern = '';
   if (confluenceBias === 'BULLISH') {
-    confluencePattern = `15m ${m15.trend} Structure + 5m ${m5.pattern.replace(/5m\s*/, '')} + 2m Trigger`;
+    confluencePattern = `15m ${m15.trend} Structure (${m15Score > 0 ? '+' : ''}${m15Score}) + 5m ${m5.pattern.replace(/5m\s*/, '')} (${m5Score > 0 ? '+' : ''}${m5Score}) + 2m Trigger (${m2Score > 0 ? '+' : ''}${m2Score})`;
   } else if (confluenceBias === 'BEARISH') {
-    confluencePattern = `15m ${m15.trend} Pressure + 5m ${m5.pattern.replace(/5m\s*/, '')} + 2m Breakdown`;
+    confluencePattern = `15m ${m15.trend} Pressure (${m15Score}) + 5m ${m5.pattern.replace(/5m\s*/, '')} (${m5Score}) + 2m Breakdown (${m2Score})`;
   } else {
-    confluencePattern = `Multi-Timeframe Equilibrium (${m15.trend} 15m / ${m5.trend} 5m)`;
+    confluencePattern = `Multi-Timeframe Equilibrium (2m: ${m2Score > 0 ? '+' : ''}${m2Score} | 5m: ${m5Score > 0 ? '+' : ''}${m5Score} | 15m: ${m15Score > 0 ? '+' : ''}${m15Score})`;
   }
 
   const S = ticker.spotPrice;
@@ -312,49 +355,63 @@ export function computeMultiTimeframeChartPatterns(
   const vix = Math.max(9, ticker.vix || 13);
   const dailyExpectedMove = S * (vix / 100) / 15.87;
 
-  // Derived Exit Level 1 (Tactical Target based on 2m & 5m measured swing move: 0.18x to 0.28x daily ATR)
+  // Tactical Swing Points (2m + 5m measured move)
+  const tacticalSwingPoints = Number(Math.max(step * 0.40, Math.min(dailyExpectedMove * 0.32, Math.max(m5.atr * 1.35, m2.atr * 2.1))).toFixed(2));
+  
+  // Structural Runner Points (15m measured move + Fibonacci extension)
+  const structuralSwingPoints = Number(Math.max(tacticalSwingPoints + step * 0.35, Math.min(dailyExpectedMove * 0.60, Math.max(m15.atr * 2.4, dailyExpectedMove * 0.44))).toFixed(2));
+
+  // Invalidation SL Points (2m/5m swing low/high cushion)
+  const invalidationPoints = Number(Math.max(step * 0.25, Math.min(dailyExpectedMove * 0.18, Math.max(m5.atr * 0.75, dailyExpectedMove * 0.12))).toFixed(2));
+
+  // Derived Exit Level 1 (Tactical Target based on 2m & 5m measured swing move)
   let derivedExitLevel1 = S;
-  const tacticalMove = Math.max(step * 0.40, Math.min(dailyExpectedMove * 0.28, Math.max(m5.atr * 1.2, dailyExpectedMove * 0.20)));
   if (confluenceBias === 'BULLISH') {
-    derivedExitLevel1 = Number((S + tacticalMove).toFixed(2));
+    derivedExitLevel1 = Number((S + tacticalSwingPoints).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    derivedExitLevel1 = Number((S - tacticalMove).toFixed(2));
+    derivedExitLevel1 = Number((S - tacticalSwingPoints).toFixed(2));
   } else {
     derivedExitLevel1 = ticker.changePercent >= 0 
-      ? Number((S + tacticalMove).toFixed(2)) 
-      : Number((S - tacticalMove).toFixed(2));
+      ? Number((S + tacticalSwingPoints).toFixed(2)) 
+      : Number((S - tacticalSwingPoints).toFixed(2));
   }
 
-  // Derived Exit Level 2 (Extended Runner Target based on 15m range expansion: 0.38x to 0.55x daily ATR)
+  // Derived Exit Level 2 (Extended Runner Target based on 15m range expansion)
   let derivedExitLevel2 = S;
-  const runnerMove = Math.max(tacticalMove + step * 0.35, Math.min(dailyExpectedMove * 0.55, Math.max(m15.atr * 2.2, dailyExpectedMove * 0.42)));
   if (confluenceBias === 'BULLISH') {
-    derivedExitLevel2 = Number((S + runnerMove).toFixed(2));
+    derivedExitLevel2 = Number((S + structuralSwingPoints).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    derivedExitLevel2 = Number((S - runnerMove).toFixed(2));
+    derivedExitLevel2 = Number((S - structuralSwingPoints).toFixed(2));
   } else {
     derivedExitLevel2 = ticker.changePercent >= 0 
-      ? Number((S + runnerMove).toFixed(2)) 
-      : Number((S - runnerMove).toFixed(2));
+      ? Number((S + structuralSwingPoints).toFixed(2)) 
+      : Number((S - structuralSwingPoints).toFixed(2));
   }
 
-  // Invalidation Level (Technical Stop Loss level: 0.11x to 0.17x daily ATR)
+  // Invalidation Level (Technical Stop Loss level)
   let invalidationLevel = S;
-  const slDist = Math.max(step * 0.25, Math.min(dailyExpectedMove * 0.17, Math.max(m5.atr * 0.7, dailyExpectedMove * 0.12)));
   if (confluenceBias === 'BULLISH') {
-    invalidationLevel = Number((S - slDist).toFixed(2));
+    invalidationLevel = Number((S - invalidationPoints).toFixed(2));
   } else if (confluenceBias === 'BEARISH') {
-    invalidationLevel = Number((S + slDist).toFixed(2));
+    invalidationLevel = Number((S + invalidationPoints).toFixed(2));
   } else {
     invalidationLevel = ticker.changePercent >= 0 
-      ? Number((S - slDist).toFixed(2)) 
-      : Number((S + slDist).toFixed(2));
+      ? Number((S - invalidationPoints).toFixed(2)) 
+      : Number((S + invalidationPoints).toFixed(2));
   }
 
   return {
     m2,
     m5,
     m15,
+    m2Score,
+    m5Score,
+    m15Score,
+    aggregateMomentumIndex,
+    momentumAlignment,
+    tacticalSwingPoints,
+    structuralSwingPoints,
+    invalidationPoints,
     confluencePattern,
     confluenceBias,
     confluenceScore,
