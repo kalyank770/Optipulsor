@@ -27,7 +27,9 @@ import {
   SlidersHorizontal,
   Compass,
   Target,
-  Percent
+  Percent,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -51,6 +53,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [lots, setLots] = useState<number>(1);
   const [priceFlash, setPriceFlash] = useState<'UP' | 'DOWN' | null>(null);
+
+  // Sub-sections accordion state (all collapsed by default)
+  type SubSectionKey = 'multiTimeframe' | 'highProb' | 'quantParams' | 'groundedPayoff' | 'heavyweights';
+
+  const [expandedSubSections, setExpandedSubSections] = useState<Record<SubSectionKey, boolean>>({
+    multiTimeframe: false,
+    highProb: false,
+    quantParams: false,
+    groundedPayoff: false,
+    heavyweights: false,
+  });
+
+  const toggleSubSection = (key: SubSectionKey) => {
+    setExpandedSubSections(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   const isCE = signal.action === 'BUY_CE';
   const isPE = signal.action === 'BUY_PE';
@@ -140,6 +160,17 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
               <span className="uppercase font-semibold tracking-wider text-[11px]">Trade Recommendation</span>
+              
+              {/* Compact Copy Icon Button beside header */}
+              <button
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+                title="Copy Trade Recommendation Details"
+              >
+                {copied ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                <span className="text-[10.5px]">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+
               <span className="text-slate-600">·</span>
               <span className="font-mono text-slate-300">
                 Spot: <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
@@ -184,56 +215,147 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 }`}>
                   {signal.tradeStage === 'POST_TARGET_RETRACEMENT' && '⚠️ TARGET 1 HIT · RETRACED'}
                   {signal.tradeStage === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
-                  {signal.tradeStage === 'TARGET_2_HIT' && '🚀 TARGET 2 RUNNER HIT'}
-                  {signal.tradeStage === 'EXPANDING_IN_PROFIT' && '📈 EXPANDING TOWARDS T1'}
-                  {signal.tradeStage === 'FRESH_ENTRY' && '⚡ FRESH ENTRY ZONE'}
+                  {signal.tradeStage === 'TARGET_2_HIT' && '🚀 TARGET 2 HIT'}
+                  {signal.tradeStage === 'EXPANDING_IN_PROFIT' && '📈 IN PROFIT'}
+                  {signal.tradeStage === 'FRESH_ENTRY' && '⚡ ENTRY ZONE'}
                   {signal.tradeStage === 'STOP_LOSS_HIT' && '🛑 STOP LOSS HIT'}
-                  {signal.tradeStage === 'NEUTRAL_WAIT' && '⏸️ CONSOLIDATING'}
+                  {signal.tradeStage === 'NEUTRAL_WAIT' && '⏸️ WAIT'}
                 </span>
               )}
             </div>
           </div>
         </div>
-
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
-          <button
-            onClick={handleCopy}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors cursor-pointer min-h-[40px]"
-            title="Copy trade details"
-          >
-            {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
-
-          <button
-            onClick={() => onSelectContractForSimulation(signal.recommendedStrike, signal.recommendedType)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg transition-colors cursor-pointer shadow-sm min-h-[40px]"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>Payoff Simulator</span>
-          </button>
-        </div>
       </div>
 
-      {/* Post-Target Retracement / Completed Prediction Warning Banner */}
-      {signal.tradeStage === 'POST_TARGET_RETRACEMENT' && (
-        <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-          <div className="flex items-start sm:items-center gap-2.5">
-            <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0">
-              <AlertTriangle className="w-4 h-4" />
+      {/* Dynamic Trade Lifecycle & Simple Execution Guidance Banner */}
+      {(() => {
+        const stage = signal.tradeStage || 'FRESH_ENTRY';
+
+        if (stage === 'POST_TARGET_RETRACEMENT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-amber-500/20 text-amber-400 shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-amber-300 text-xs">
+                  Target 1 Hit Earlier (Retracing @ {ticker.currency}{currentLTP.toFixed(2)})
+                </div>
+                <p className="text-amber-200/90 text-xs mt-0.5">
+                  Do not enter new trades now. Existing traders should hold trailing stop loss.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        if (stage === 'TARGET_1_HIT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-emerald-300 text-xs">
+                  🎯 Target 1 Hit @ {ticker.currency}{currentLTP.toFixed(2)} (+{t1ProfitPct}%)
+                </div>
+                <p className="text-emerald-200/90 text-xs mt-0.5">
+                  Book 50%–75% profit now and move Stop Loss to entry price ({ticker.currency}{signal.entryRange[0].toFixed(2)}) for Target 2 ({ticker.currency}{target2.toFixed(2)}).
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        if (stage === 'TARGET_2_HIT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-sky-500/20 text-sky-400 shrink-0">
+                <Maximize2 className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-sky-300 text-xs">
+                  🚀 Target 2 Hit @ {ticker.currency}{currentLTP.toFixed(2)} (+{t2ProfitPct}%)
+                </div>
+                <p className="text-sky-200/90 text-xs mt-0.5">
+                  Full target reached! Exit remaining lots now to lock in total profits.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        if (stage === 'EXPANDING_IN_PROFIT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-emerald-300 text-xs">
+                  📈 Trade In Profit @ {ticker.currency}{currentLTP.toFixed(2)}
+                </div>
+                <p className="text-emerald-200/90 text-xs mt-0.5">
+                  Price is moving towards Target 1 ({ticker.currency}{target1.toFixed(2)}). Move Stop Loss to entry price ({ticker.currency}{signal.entryRange[0].toFixed(2)}) for a risk-free trade.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        if (stage === 'STOP_LOSS_HIT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-rose-500/20 text-rose-400 shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-rose-300 text-xs">
+                  🛑 Stop Loss Hit @ {ticker.currency}{currentLTP.toFixed(2)}
+                </div>
+                <p className="text-rose-200/90 text-xs mt-0.5">
+                  Price reached Stop Loss ({ticker.currency}{stopLoss.toFixed(2)}). Exit now to protect your capital.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        if (stage === 'NEUTRAL_WAIT') {
+          return (
+            <div className="mt-3 p-2.5 px-3 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 text-xs flex items-center gap-2.5">
+              <div className="p-1 rounded bg-amber-500/20 text-amber-400 shrink-0">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-slate-200 text-xs">
+                  ⏸️ Market Consolidating (Wait)
+                </div>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  No clear directional trend right now. Wait on the sidelines until a clear breakout occurs.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        // Default: FRESH_ENTRY
+        return (
+          <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-center gap-2.5">
+            <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+              <Zap className="w-4 h-4" />
             </div>
             <div>
-              <div className="font-bold text-amber-300 text-xs sm:text-sm">
-                Target 1 Reached Earlier · Currently Retracing @ {ticker.currency}{currentLTP.toFixed(2)}
+              <div className="font-bold text-emerald-300 text-xs">
+                ⚡ Entry Zone Active @ {ticker.currency}{currentLTP.toFixed(2)}
               </div>
-              <p className="text-amber-200/90 text-[11.5px] mt-0.5 leading-relaxed">
-                This contract already reached Target 1 and has now pulled back into profit-booking. <strong className="text-amber-100">Avoid fresh market entry at {ticker.currency}{currentLTP.toFixed(2)}</strong>. Existing positions should hold trailing stop loss; new buyers should wait for a fresh base or next cycle breakout.
+              <p className="text-emerald-200/90 text-xs mt-0.5">
+                Buy range: {ticker.currency}{signal.entryRange[0].toFixed(2)} – {ticker.currency}{signal.entryRange[1].toFixed(2)} | Stop Loss: {ticker.currency}{stopLoss.toFixed(2)} | Target 1: {ticker.currency}{target1.toFixed(2)}.
               </p>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Live Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -575,8 +697,13 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
       {/* Multi-Timeframe Candlestick & Chart Patterns (2m | 5m | 15m) with Momentum Scoring */}
       {signal.candleAnalysis && (
-        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-800/80">
+        <div className="mt-3 rounded-lg bg-slate-950/80 border border-slate-800 overflow-hidden">
+          <div 
+            onClick={() => toggleSubSection('multiTimeframe')}
+            className={`flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-900/90 hover:bg-slate-900 cursor-pointer select-none transition-colors ${
+              expandedSubSections.multiTimeframe ? 'border-b border-slate-800' : ''
+            }`}
+          >
             <div className="flex items-center gap-2">
               <BarChart2 className="w-4 h-4 text-emerald-400" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
@@ -584,7 +711,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">
-              <span className="text-slate-400">Momentum Confluence:</span>
+              <span className="text-slate-400 hidden sm:inline">Momentum Confluence:</span>
               <span className={`font-bold px-2.5 py-0.5 rounded text-[11px] border ${
                 signal.candleAnalysis.confluenceBias === 'BULLISH'
                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
@@ -594,555 +721,290 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               }`}>
                 {signal.candleAnalysis.momentumAlignment?.replace(/_/g, ' ') || signal.candleAnalysis.confluenceBias} ({signal.candleAnalysis.confluenceScore > 0 ? '+' : ''}{signal.candleAnalysis.confluenceScore}/10)
               </span>
+              <button className="p-1 text-slate-400 hover:text-white" title={expandedSubSections.multiTimeframe ? "Collapse section" : "Expand section"}>
+                {expandedSubSections.multiTimeframe ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
-            {/* 2-Minute Candle Momentum Analysis */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                  <span className="text-sky-400 font-bold flex items-center gap-1">
-                    <span>2-Min Micro Trigger</span>
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                    (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                    (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? '+' : ''}
-                    {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore)}/10
-                  </span>
-                </div>
-                
-                {/* Visual Momentum Progress Bar */}
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                  <div 
-                    className={`h-full transition-all duration-500 ${
-                      (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) * 10))}%` }}
-                  />
+          {expandedSubSections.multiTimeframe && (
+            <div className="p-3 pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+                {/* 2-Minute Candle Momentum Analysis */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                      <span className="text-sky-400 font-bold flex items-center gap-1">
+                        <span>2-Min Micro Trigger</span>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                      }`}>
+                        {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? '+' : ''}
+                        {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore)}/10
+                      </span>
+                    </div>
+                    
+                    {/* Visual Momentum Progress Bar */}
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) * 10))}%` }}
+                      />
+                    </div>
+
+                    <div className="font-bold text-slate-200 text-xs mt-0.5">
+                      {signal.candleAnalysis.m2.pattern.replace(/2m\s*/, '')}
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                    <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.support.toLocaleString()}</strong></span>
+                    <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.resistance.toLocaleString()}</strong></span>
+                  </div>
                 </div>
 
-                <div className="font-bold text-slate-200 text-xs mt-0.5">
-                  {signal.candleAnalysis.m2.pattern.replace(/2m\s*/, '')}
+                {/* 5-Minute Candle Momentum Analysis */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                      <span className="text-emerald-400 font-bold flex items-center gap-1">
+                        <span>5-Min Tactical Trend</span>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                      }`}>
+                        {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? '+' : ''}
+                        {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore)}/10
+                      </span>
+                    </div>
+
+                    {/* Visual Momentum Progress Bar */}
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) * 10))}%` }}
+                      />
+                    </div>
+
+                    <div className="font-bold text-slate-200 text-xs mt-0.5">
+                      {signal.candleAnalysis.m5.pattern.replace(/5m\s*/, '')}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                    <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
+                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m5.atr}</strong></span>
+                  </div>
+                </div>
+
+                {/* 15-Minute Candle Momentum Analysis */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
+                      <span className="text-amber-400 font-bold flex items-center gap-1">
+                        <span>15-Min Structure Anchor</span>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                      }`}>
+                        {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? '+' : ''}
+                        {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore)}/10
+                      </span>
+                    </div>
+
+                    {/* Visual Momentum Progress Bar */}
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) * 10))}%` }}
+                      />
+                    </div>
+
+                    <div className="font-bold text-slate-200 text-xs mt-0.5">
+                      {signal.candleAnalysis.m15.pattern.replace(/15m\s*/, '')}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
+                    <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
+                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m15.atr}</strong></span>
+                  </div>
                 </div>
               </div>
-              
-              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.support.toLocaleString()}</strong></span>
-                <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.resistance.toLocaleString()}</strong></span>
+
+              <div className="mt-2.5 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                <span>Pattern Confluence: <strong className="text-slate-200">{signal.candleAnalysis.confluencePattern}</strong></span>
+                <span className="font-mono">
+                  Pattern Invalidation Stop: <strong className="text-rose-400">{ticker.currency}{signal.candleAnalysis.invalidationLevel.toLocaleString()}</strong>
+                </span>
               </div>
             </div>
-
-            {/* 5-Minute Candle Momentum Analysis */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                    <span>5-Min Tactical Trend</span>
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                    (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                    (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? '+' : ''}
-                    {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore)}/10
-                  </span>
-                </div>
-
-                {/* Visual Momentum Progress Bar */}
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                  <div 
-                    className={`h-full transition-all duration-500 ${
-                      (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) * 10))}%` }}
-                  />
-                </div>
-
-                <div className="font-bold text-slate-200 text-xs mt-0.5">
-                  {signal.candleAnalysis.m5.pattern.replace(/5m\s*/, '')}
-                </div>
-              </div>
-
-              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
-                <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m5.atr}</strong></span>
-              </div>
-            </div>
-
-            {/* 15-Minute Candle Momentum Analysis */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                  <span className="text-amber-400 font-bold flex items-center gap-1">
-                    <span>15-Min Structure Anchor</span>
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                    (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                    (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? '+' : ''}
-                    {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore)}/10
-                  </span>
-                </div>
-
-                {/* Visual Momentum Progress Bar */}
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                  <div 
-                    className={`h-full transition-all duration-500 ${
-                      (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) * 10))}%` }}
-                  />
-                </div>
-
-                <div className="font-bold text-slate-200 text-xs mt-0.5">
-                  {signal.candleAnalysis.m15.pattern.replace(/15m\s*/, '')}
-                </div>
-              </div>
-
-              <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
-                <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m15.atr}</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-2.5 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
-            <span>Pattern Confluence: <strong className="text-slate-200">{signal.candleAnalysis.confluencePattern}</strong></span>
-            <span className="font-mono">
-              Pattern Invalidation Stop: <strong className="text-rose-400">{ticker.currency}{signal.candleAnalysis.invalidationLevel.toLocaleString()}</strong>
-            </span>
-          </div>
+          )}
         </div>
       )}
 
       {/* Real-Time News Impact Multiplier & Grounded Confluence Architecture */}
       {signal.targetExitSynthesis && (
-        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+        <div className="mt-3 rounded-lg bg-slate-950/80 border border-slate-800 overflow-hidden">
+          <div 
+            onClick={() => toggleSubSection('highProb')}
+            className={`flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-900/90 hover:bg-slate-900 cursor-pointer select-none transition-colors ${
+              expandedSubSections.highProb ? 'border-b border-slate-800' : ''
+            }`}
+          >
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-sky-400" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
                 High-Probability Swing & News Multiplier Engine
               </span>
             </div>
-            {signal.targetExitSynthesis.newsMultiplierData && (
-              <div className="flex items-center gap-2 text-[11px] font-mono">
-                <span className="text-slate-400">News Multiplier:</span>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              {signal.targetExitSynthesis.newsMultiplierData && (
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
                   {signal.targetExitSynthesis.newsMultiplierData.netNewsImpactMultiplier}x Swing Factor
                 </span>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
-            {/* Pillar A: Live & Last Night News Multiplier */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-amber-400 font-bold flex items-center gap-1.5">
-                    <Globe className="w-3.5 h-3.5" />
-                    Real-Time News Multipliers
-                  </span>
-                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                    signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.targetExitSynthesis.newsPillar.netNewsBiasScore < 0 ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? '+' : ''}{signal.targetExitSynthesis.newsPillar.netNewsBiasScore} Net
-                  </span>
-                </div>
-                
-                <div className="space-y-1.5 mt-1.5">
-                  <div className="text-[11px] leading-tight">
-                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Overnight Anchor ({signal.targetExitSynthesis.newsMultiplierData?.overnightMultiplier ?? 1.0}x):</span>
-                    <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.overnightHeadline}>
-                      {signal.targetExitSynthesis.newsPillar.overnightHeadline}
-                    </span>
-                  </div>
-                  <div className="text-[11px] leading-tight">
-                    <span className="text-slate-500 font-mono block text-[10px] uppercase">Live Breaking Catalyst ({signal.targetExitSynthesis.newsMultiplierData?.liveBreakingMultiplier ?? 1.0}x):</span>
-                    <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.liveHeadline}>
-                      {signal.targetExitSynthesis.newsPillar.liveHeadline}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-emerald-400">
-                {signal.targetExitSynthesis.newsPillar.newsTargetImpact}
-              </div>
-            </div>
-
-            {/* Pillar B: Previous Multi-Session Trend & Volatility */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5" />
-                    Trend & Measured Volatility
-                  </span>
-                  <span className="text-slate-400 text-[10px] font-mono">
-                    {signal.targetExitSynthesis.trendPillar.trendContinuationProb}% Prob
-                  </span>
-                </div>
-
-                <div className="space-y-1 mt-1 text-[11px]">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Session Drift:</span>
-                    <strong className="text-slate-200">{signal.targetExitSynthesis.trendPillar.prevSessionTrend}</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Day Range Established:</span>
-                    <strong className="text-slate-200 font-mono">{ticker.currency}{signal.targetExitSynthesis.trendPillar.dayRange} pts</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Daily Expected Move (ATR):</span>
-                    <strong className="text-slate-200 font-mono">±{ticker.currency}{signal.targetExitSynthesis.trendPillar.atrDaily} pts</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-300">
-                Velocity: <span className="text-emerald-400 font-semibold">{signal.targetExitSynthesis.trendPillar.momentumVerdict}</span>
-              </div>
-            </div>
-
-            {/* Pillar C: Option Chart Data & Greeks Engine */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
-                  <span className="text-sky-400 font-bold flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5" />
-                    Option Chart Data & Greeks
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    PCR {signal.targetExitSynthesis.optionChartPillar.pcrTotalOI.toFixed(2)}
-                  </span>
-                </div>
-
-                <div className="space-y-1 mt-1 text-[11px] font-mono">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">Institutional Call Wall:</span>
-                    <strong className="text-rose-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.callWall.toLocaleString()}</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">Institutional Put Wall:</span>
-                    <strong className="text-emerald-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.putWall.toLocaleString()}</strong>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 font-sans">Max Pain Anchor:</span>
-                    <strong className="text-sky-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.maxPain.toLocaleString()}</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex justify-between">
-                <span>Δ Gain: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.deltaExpansion}</strong></span>
-                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.gammaAcceleration}</strong></span>
-              </div>
+              )}
+              <button className="p-1 text-slate-400 hover:text-white" title={expandedSubSections.highProb ? "Collapse section" : "Expand section"}>
+                {expandedSubSections.highProb ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
             </div>
           </div>
+
+          {expandedSubSections.highProb && (
+            <div className="p-3 pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+                {/* Pillar A: Live & Last Night News Multiplier */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                      <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5" />
+                        Real-Time News Multipliers
+                      </span>
+                      <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                        signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? 'text-emerald-400 bg-emerald-500/10' :
+                        signal.targetExitSynthesis.newsPillar.netNewsBiasScore < 0 ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                      }`}>
+                        {signal.targetExitSynthesis.newsPillar.netNewsBiasScore > 0 ? '+' : ''}{signal.targetExitSynthesis.newsPillar.netNewsBiasScore} Net
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-1.5 mt-1.5">
+                      <div className="text-[11px] leading-tight">
+                        <span className="text-slate-500 font-mono block text-[10px] uppercase">Overnight Anchor ({signal.targetExitSynthesis.newsMultiplierData?.overnightMultiplier ?? 1.0}x):</span>
+                        <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.overnightHeadline}>
+                          {signal.targetExitSynthesis.newsPillar.overnightHeadline}
+                        </span>
+                      </div>
+                      <div className="text-[11px] leading-tight">
+                        <span className="text-slate-500 font-mono block text-[10px] uppercase">Live Breaking Catalyst ({signal.targetExitSynthesis.newsMultiplierData?.liveBreakingMultiplier ?? 1.0}x):</span>
+                        <span className="text-slate-300 font-medium line-clamp-1" title={signal.targetExitSynthesis.newsPillar.liveHeadline}>
+                          {signal.targetExitSynthesis.newsPillar.liveHeadline}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-emerald-400">
+                    {signal.targetExitSynthesis.newsPillar.newsTargetImpact}
+                  </div>
+                </div>
+
+                {/* Pillar B: Previous Multi-Session Trend & Volatility */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                      <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5" />
+                        Trend & Measured Volatility
+                      </span>
+                      <span className="text-slate-400 text-[10px] font-mono">
+                        {signal.targetExitSynthesis.trendPillar.trendContinuationProb}% Prob
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 mt-1 text-[11px]">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Session Drift:</span>
+                        <strong className="text-slate-200">{signal.targetExitSynthesis.trendPillar.prevSessionTrend}</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Day Range Established:</span>
+                        <strong className="text-slate-200 font-mono">{ticker.currency}{signal.targetExitSynthesis.trendPillar.dayRange} pts</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Daily Expected Move (ATR):</span>
+                        <strong className="text-slate-200 font-mono">±{ticker.currency}{signal.targetExitSynthesis.trendPillar.atrDaily} pts</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-300">
+                    Velocity: <span className="text-emerald-400 font-semibold">{signal.targetExitSynthesis.trendPillar.momentumVerdict}</span>
+                  </div>
+                </div>
+
+                {/* Pillar C: Option Chart Data & Greeks Engine */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
+                      <span className="text-sky-400 font-bold flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5" />
+                        Option Chart Data & Greeks
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        PCR {signal.targetExitSynthesis.optionChartPillar.pcrTotalOI.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 mt-1 text-[11px] font-mono">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 font-sans">Institutional Call Wall:</span>
+                        <strong className="text-rose-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.callWall.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 font-sans">Institutional Put Wall:</span>
+                        <strong className="text-emerald-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.putWall.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 font-sans">Max Pain Anchor:</span>
+                        <strong className="text-sky-400">{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.maxPain.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex justify-between">
+                    <span>Δ Gain: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.deltaExpansion}</strong></span>
+                    <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.gammaAcceleration}</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Real-Time Quantitative Parameters & Engine Tuning */}
-      {signal.realtimeIndicators && (
-        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Real-Time Quantitative Parameters & Predictive Tuning
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
-              <span className="text-slate-500">Confluence Engine:</span>
-              <span className="text-emerald-400 font-bold">7-Pillar Live Alignment</span>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-            {/* 1. Intraday VWAP & Bands */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-sky-400 flex items-center gap-1 font-bold">
-                    <Compass className="w-3 h-3" /> Intraday VWAP
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.vwap.bias === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.realtimeIndicators.vwap.bias === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.realtimeIndicators.vwap.distancePercent > 0 ? '+' : ''}{signal.realtimeIndicators.vwap.distancePercent}%
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs">
-                  {ticker.currency}{signal.realtimeIndicators.vwap.value.toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] text-slate-400 truncate" title={signal.realtimeIndicators.vwap.statusLabel}>
-                {signal.realtimeIndicators.vwap.statusLabel}
-              </div>
-            </div>
-
-            {/* 2. 5m RSI (14) & Divergence */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                    <Activity className="w-3 h-3" /> 5m RSI (14)
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.rsi.condition === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.realtimeIndicators.rsi.condition === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' :
-                    signal.realtimeIndicators.rsi.condition === 'OVERBOUGHT' ? 'text-amber-400 bg-amber-500/10' :
-                    signal.realtimeIndicators.rsi.condition === 'OVERSOLD' ? 'text-purple-400 bg-purple-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.realtimeIndicators.rsi.condition}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between font-mono">
-                  <span className="font-bold text-slate-100 text-xs">{signal.realtimeIndicators.rsi.value.toFixed(1)}</span>
-                  {signal.realtimeIndicators.rsi.divergence !== 'NONE' && (
-                    <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/30">
-                      {signal.realtimeIndicators.rsi.divergence.replace(/_/g, ' ')}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                <div 
-                  className={`h-full ${
-                    signal.realtimeIndicators.rsi.value >= 60 ? 'bg-emerald-500' :
-                    signal.realtimeIndicators.rsi.value <= 40 ? 'bg-rose-500' : 'bg-sky-500'
-                  }`}
-                  style={{ width: `${Math.min(100, Math.max(0, signal.realtimeIndicators.rsi.value))}%` }}
-                />
-              </div>
-            </div>
-
-            {/* 3. 5m MACD (12, 26, 9) */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-purple-400 flex items-center gap-1 font-bold">
-                    <BarChart2 className="w-3 h-3" /> 5m MACD (12,26,9)
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.macd.histogram >= 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'
-                  }`}>
-                    {signal.realtimeIndicators.macd.histogram >= 0 ? '+' : ''}{signal.realtimeIndicators.macd.histogram}
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs truncate">
-                  {signal.realtimeIndicators.macd.label}
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
-                <span>Line: {signal.realtimeIndicators.macd.macdLine}</span>
-                <span>Sig: {signal.realtimeIndicators.macd.signalLine}</span>
-              </div>
-            </div>
-
-            {/* 4. 9/21 EMA Institutional Stack */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-amber-400 flex items-center gap-1 font-bold">
-                    <Zap className="w-3 h-3" /> 9/21 EMA Stack
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.ema.alignment === 'BULLISH_STACK' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.realtimeIndicators.ema.alignment === 'BEARISH_STACK' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.realtimeIndicators.ema.spread > 0 ? '+' : ''}{signal.realtimeIndicators.ema.spread}
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs truncate">
-                  {signal.realtimeIndicators.ema.label}
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
-                <span>9 EMA: {signal.realtimeIndicators.ema.ema9.toLocaleString()}</span>
-                <span>21: {signal.realtimeIndicators.ema.ema21.toLocaleString()}</span>
-              </div>
-            </div>
-
-            {/* 5. Option Gamma Exposure (GEX) */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-cyan-400 flex items-center gap-1 font-bold">
-                    <Gauge className="w-3 h-3" /> Gamma (GEX) Regime
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.gammaExposure.regime === 'POSITIVE_GAMMA' 
-                      ? 'text-emerald-400 bg-emerald-500/10' 
-                      : 'text-amber-400 bg-amber-500/10'
-                  }`}>
-                    {signal.realtimeIndicators.gammaExposure.regime.replace(/_GAMMA/, '')}
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs">
-                  Net: {signal.realtimeIndicators.gammaExposure.netGex.toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400">
-                Flip Strike: <strong className="text-slate-200">{ticker.currency}{signal.realtimeIndicators.gammaExposure.flipStrike.toLocaleString()}</strong>
-              </div>
-            </div>
-
-            {/* 6. Order Flow Delta & Imbalance */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-indigo-400 flex items-center gap-1 font-bold">
-                    <Activity className="w-3 h-3" /> Order Flow Delta
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.orderFlow.sentiment === 'BUYER_DOMINANCE' ? 'text-emerald-400 bg-emerald-500/10' :
-                    signal.realtimeIndicators.orderFlow.sentiment === 'SELLER_DOMINANCE' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.realtimeIndicators.orderFlow.volumeImbalancePercent > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.volumeImbalancePercent}%
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs">
-                  Δ {signal.realtimeIndicators.orderFlow.orderFlowDelta > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.orderFlowDelta.toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
-                <span>PCR Vol-OI Div:</span>
-                <strong className={signal.realtimeIndicators.orderFlow.pcrDivergence > 0 ? 'text-rose-400' : 'text-emerald-400'}>
-                  {signal.realtimeIndicators.orderFlow.pcrDivergence > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.pcrDivergence}
-                </strong>
-              </div>
-            </div>
-
-            {/* 7. VIX Volatility Velocity */}
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between col-span-2 sm:col-span-1">
-              <div>
-                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
-                  <span className="text-rose-400 flex items-center gap-1 font-bold">
-                    <Radio className="w-3 h-3" /> VIX Velocity
-                  </span>
-                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
-                    signal.realtimeIndicators.vixVelocity.velocityState === 'SURGING' ? 'text-rose-400 bg-rose-500/10' :
-                    signal.realtimeIndicators.vixVelocity.velocityState === 'EXPANDING' ? 'text-amber-400 bg-amber-500/10' :
-                    signal.realtimeIndicators.vixVelocity.velocityState === 'COMPRESSING' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 bg-slate-800'
-                  }`}>
-                    {signal.realtimeIndicators.vixVelocity.velocityState}
-                  </span>
-                </div>
-                <div className="font-mono font-bold text-slate-100 text-xs">
-                  {signal.realtimeIndicators.vixVelocity.vix} ({signal.realtimeIndicators.vixVelocity.vixPercentChange > 0 ? '+' : ''}{signal.realtimeIndicators.vixVelocity.vixPercentChange}%)
-                </div>
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] text-slate-400 truncate" title={signal.realtimeIndicators.vixVelocity.impactOnOptions}>
-                {signal.realtimeIndicators.vixVelocity.impactOnOptions}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Grounded High-Probability Entry & Exit Grounding Analytics */}
-      {signal.targetExitSynthesis?.entryExitGrounding && (
-        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
-            <div className="flex items-center gap-2">
-              <Compass className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Grounded Target Entry & Exit Payoff Derivation
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
-              <span>Risk Per Lot:</span>
-              <strong className="text-rose-400">{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.riskPerLot.toLocaleString()}</strong>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs font-mono">
-            {/* Target 1 Payoff */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] text-emerald-400 font-sans font-bold mb-1">
-                  <span>Target 1 (Tactical Swing)</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-300 font-mono">
-                    {signal.targetExitSynthesis.entryExitGrounding.target1Probability}% Prob
-                  </span>
-                </div>
-                <div className="text-sm font-bold text-white mb-1">
-                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1SpotLevel.toLocaleString()}
-                </div>
-                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
-                  {signal.targetExitSynthesis.entryExitGrounding.target1SwingBasis}
-                </div>
-              </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
-                <span>Δ Payoff: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1DeltaContr}</strong></span>
-                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target1GammaContr}</strong></span>
-              </div>
-            </div>
-
-            {/* Target 2 Payoff */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-sky-500/20 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] text-sky-400 font-sans font-bold mb-1">
-                  <span>Target 2 (Structural Runner)</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 font-mono">
-                    {signal.targetExitSynthesis.entryExitGrounding.target2Probability}% Prob
-                  </span>
-                </div>
-                <div className="text-sm font-bold text-white mb-1">
-                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2SpotLevel.toLocaleString()}
-                </div>
-                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
-                  {signal.targetExitSynthesis.entryExitGrounding.target2SwingBasis}
-                </div>
-              </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
-                <span>Δ Payoff: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2DeltaContr}</strong></span>
-                <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.target2GammaContr}</strong></span>
-              </div>
-            </div>
-
-            {/* Invalidation Stop Loss */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-rose-500/20 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-[11px] text-rose-400 font-sans font-bold mb-1">
-                  <span>Structural Invalidation SL</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-300 font-mono">
-                    Risk Limit
-                  </span>
-                </div>
-                <div className="text-sm font-bold text-rose-400 mb-1">
-                  Spot: {ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.stopLossSpotLevel.toLocaleString()}
-                </div>
-                <div className="text-[10.5px] text-slate-400 font-sans leading-tight">
-                  {signal.targetExitSynthesis.entryExitGrounding.stopLossBasis}
-                </div>
-              </div>
-              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 flex justify-between">
-                <span>Max Drawdown:</span>
-                <strong className="text-rose-400">-{ticker.currency}{signal.targetExitSynthesis.entryExitGrounding.maxRiskAmount.toLocaleString()}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Nifty Derivative Heavyweight Companies & Sectoral Breadth (Indian Markets) */}
       {signal.constituentAnalysis && (
-        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+        <div className="mt-3 rounded-lg bg-slate-950/80 border border-slate-800 overflow-hidden">
+          <div 
+            onClick={() => toggleSubSection('heavyweights')}
+            className={`flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-900/90 hover:bg-slate-900 cursor-pointer select-none transition-colors ${
+              expandedSubSections.heavyweights ? 'border-b border-slate-800' : ''
+            }`}
+          >
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1154,7 +1016,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">
-              <span className="text-slate-400">Heavyweight Bias:</span>
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                 signal.constituentAnalysis.overallHeavyweightBias.includes('BULLISH') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
                 signal.constituentAnalysis.overallHeavyweightBias.includes('BEARISH') ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
@@ -1162,98 +1023,105 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               }`}>
                 {signal.constituentAnalysis.overallHeavyweightBias.replace(/_/g, ' ')} ({signal.constituentAnalysis.breadthScore > 0 ? '+' : ''}{signal.constituentAnalysis.breadthScore}/10)
               </span>
+              <button className="p-1 text-slate-400 hover:text-white" title={expandedSubSections.heavyweights ? "Collapse section" : "Expand section"}>
+                {expandedSubSections.heavyweights ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
             </div>
           </div>
 
-          {/* Heavyweight Breadth Metrics Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2.5 text-xs font-mono">
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase block font-sans">Constituent A/D</span>
-              <span className="text-xs font-bold text-emerald-400">
-                {signal.constituentAnalysis.advances} Adv <span className="text-slate-500">/</span> <span className="text-rose-400">{signal.constituentAnalysis.declines} Dec</span>
-              </span>
-            </div>
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase block font-sans">Weighted Delta</span>
-              <span className={`text-xs font-bold ${signal.constituentAnalysis.weightedConstituentDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {signal.constituentAnalysis.weightedConstituentDelta >= 0 ? '+' : ''}{signal.constituentAnalysis.weightedConstituentDelta}%
-              </span>
-            </div>
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase block font-sans">Net Point Impact</span>
-              <span className={`text-xs font-bold ${signal.constituentAnalysis.netNiftyPointImpact >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {signal.constituentAnalysis.netNiftyPointImpact >= 0 ? '+' : ''}{signal.constituentAnalysis.netNiftyPointImpact} pts
-              </span>
-            </div>
-            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase block font-sans">Advance Ratio</span>
-              <span className="text-xs font-bold text-sky-400">
-                {signal.constituentAnalysis.advancesDeclinesRatio}x
-              </span>
-            </div>
-          </div>
+          {expandedSubSections.heavyweights && (
+            <div className="p-3 pt-2">
+              {/* Heavyweight Breadth Metrics Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2.5 text-xs font-mono">
+                <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Constituent A/D</span>
+                  <span className="text-xs font-bold text-emerald-400">
+                    {signal.constituentAnalysis.advances} Adv <span className="text-slate-500">/</span> <span className="text-rose-400">{signal.constituentAnalysis.declines} Dec</span>
+                  </span>
+                </div>
+                <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Weighted Delta</span>
+                  <span className={`text-xs font-bold ${signal.constituentAnalysis.weightedConstituentDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {signal.constituentAnalysis.weightedConstituentDelta >= 0 ? '+' : ''}{signal.constituentAnalysis.weightedConstituentDelta}%
+                  </span>
+                </div>
+                <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Net Point Impact</span>
+                  <span className={`text-xs font-bold ${signal.constituentAnalysis.netNiftyPointImpact >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {signal.constituentAnalysis.netNiftyPointImpact >= 0 ? '+' : ''}{signal.constituentAnalysis.netNiftyPointImpact} pts
+                  </span>
+                </div>
+                <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block font-sans">Advance Ratio</span>
+                  <span className="text-xs font-bold text-sky-400">
+                    {signal.constituentAnalysis.advancesDeclinesRatio}x
+                  </span>
+                </div>
+              </div>
 
-          {/* Top Gainers and Draggers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-            {/* Top Leaders */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20">
-              <span className="text-[10.5px] font-bold text-emerald-400 flex items-center justify-between mb-1.5 font-sans">
-                <span className="flex items-center gap-1">
-                  <ArrowUpRight className="w-3.5 h-3.5" /> Top Index Leaders (Heavyweights)
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400/80">Support Pillars</span>
-              </span>
-              <div className="space-y-1 font-mono text-[11px]">
-                {signal.constituentAnalysis.topGainers.map(g => (
-                  <div key={g.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
-                    <span className="text-slate-200 font-bold">{g.symbol}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-400 font-semibold">+{g.changePercent}%</span>
-                      <span className="text-[10px] px-1 rounded bg-emerald-500/10 text-emerald-300">+{g.points} pts</span>
-                    </div>
+              {/* Top Gainers and Draggers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                {/* Top Leaders */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20">
+                  <span className="text-[10.5px] font-bold text-emerald-400 flex items-center justify-between mb-1.5 font-sans">
+                    <span className="flex items-center gap-1">
+                      <ArrowUpRight className="w-3.5 h-3.5" /> Top Index Leaders (Heavyweights)
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-400/80">Support Pillars</span>
+                  </span>
+                  <div className="space-y-1 font-mono text-[11px]">
+                    {signal.constituentAnalysis.topGainers.map(g => (
+                      <div key={g.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
+                        <span className="text-slate-200 font-bold">{g.symbol}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 font-semibold">+{g.changePercent}%</span>
+                          <span className="text-[10px] px-1 rounded bg-emerald-500/10 text-emerald-300">+{g.points} pts</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                </div>
+
+                {/* Top Laggards */}
+                <div className="p-2.5 rounded bg-slate-900/90 border border-rose-500/20">
+                  <span className="text-[10.5px] font-bold text-rose-400 flex items-center justify-between mb-1.5 font-sans">
+                    <span className="flex items-center gap-1">
+                      <ArrowDownRight className="w-3.5 h-3.5" /> Index Laggards & Resistance
+                    </span>
+                    <span className="text-[10px] font-mono text-rose-400/80">Draggers</span>
+                  </span>
+                  <div className="space-y-1 font-mono text-[11px]">
+                    {signal.constituentAnalysis.topDraggers.map(d => (
+                      <div key={d.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
+                        <span className="text-slate-200 font-bold">{d.symbol}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-rose-400 font-semibold">{d.changePercent}%</span>
+                          <span className="text-[10px] px-1 rounded bg-rose-500/10 text-rose-300">{d.points} pts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Sectoral Breakdown Corridor */}
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[10.5px] font-mono">
+                <span className="text-slate-400 font-sans mr-1">Sector Contributions:</span>
+                {signal.constituentAnalysis.sectoralBreakdown.slice(0, 5).map(s => (
+                  <span 
+                    key={s.sector}
+                    className={`px-2 py-0.5 rounded border text-[10px] flex items-center gap-1 ${
+                      s.sentiment === 'BULLISH' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' :
+                      s.sentiment === 'BEARISH' ? 'bg-rose-950/40 text-rose-300 border-rose-500/30' :
+                      'bg-slate-900 text-slate-300 border-slate-700'
+                    }`}
+                  >
+                    <strong>{s.sector}</strong> ({s.weight}%): {s.contributionPoints >= 0 ? '+' : ''}{s.contributionPoints} pts ({s.leadingStock})
+                  </span>
                 ))}
               </div>
             </div>
-
-            {/* Top Laggards */}
-            <div className="p-2.5 rounded bg-slate-900/90 border border-rose-500/20">
-              <span className="text-[10.5px] font-bold text-rose-400 flex items-center justify-between mb-1.5 font-sans">
-                <span className="flex items-center gap-1">
-                  <ArrowDownRight className="w-3.5 h-3.5" /> Index Laggards & Resistance
-                </span>
-                <span className="text-[10px] font-mono text-rose-400/80">Draggers</span>
-              </span>
-              <div className="space-y-1 font-mono text-[11px]">
-                {signal.constituentAnalysis.topDraggers.map(d => (
-                  <div key={d.symbol} className="flex justify-between items-center py-0.5 border-b border-slate-800/50 last:border-0">
-                    <span className="text-slate-200 font-bold">{d.symbol}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-rose-400 font-semibold">{d.changePercent}%</span>
-                      <span className="text-[10px] px-1 rounded bg-rose-500/10 text-rose-300">{d.points} pts</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Sectoral Breakdown Corridor */}
-          <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[10.5px] font-mono">
-            <span className="text-slate-400 font-sans mr-1">Sector Contributions:</span>
-            {signal.constituentAnalysis.sectoralBreakdown.slice(0, 5).map(s => (
-              <span 
-                key={s.sector}
-                className={`px-2 py-0.5 rounded border text-[10px] flex items-center gap-1 ${
-                  s.sentiment === 'BULLISH' ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30' :
-                  s.sentiment === 'BEARISH' ? 'bg-rose-950/40 text-rose-300 border-rose-500/30' :
-                  'bg-slate-900 text-slate-300 border-slate-700'
-                }`}
-              >
-                <strong>{s.sector}</strong> ({s.weight}%): {s.contributionPoints >= 0 ? '+' : ''}{s.contributionPoints} pts ({s.leadingStock})
-              </span>
-            ))}
-          </div>
+          )}
         </div>
       )}
 

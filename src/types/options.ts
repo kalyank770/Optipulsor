@@ -418,6 +418,7 @@ export interface NewsItem {
   source: string;
   timeAgo: string;
   timestamp: number;
+  formattedPubTime?: string;
   sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   impact: 'HIGH' | 'MEDIUM' | 'LOW';
   relatedTickers: string[];

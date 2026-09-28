@@ -28,6 +28,10 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
   const liveCount = news.filter(n => n.timing === 'LIVE').length;
   const overnightCount = news.filter(n => n.timing === 'OVERNIGHT').length;
 
+  const bullCount = news.filter(n => n.sentiment === 'BULLISH').length;
+  const bearCount = news.filter(n => n.sentiment === 'BEARISH').length;
+  const overallSentiment = bullCount > bearCount ? 'BULLISH' : bearCount > bullCount ? 'BEARISH' : 'NEUTRAL';
+
   const filteredNews = news.filter(item => {
     if (filterTiming !== 'ALL') {
       if (filterTiming === 'LIVE' && item.timing !== 'LIVE') return false;
@@ -51,13 +55,21 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
       {/* Header */}
       <div className={`flex flex-wrap items-center justify-between gap-3 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Newspaper className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
             <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
               Options Market News & Macro Catalysts
             </h3>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
               <Sparkles className="w-3 h-3 text-emerald-400" /> Last Night to Current Live Session
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase border tracking-wider ${
+              overallSentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+              overallSentiment === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+              'bg-slate-800 text-slate-300 border-slate-700'
+            }`}>
+              {overallSentiment === 'BULLISH' ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : overallSentiment === 'BEARISH' ? <TrendingDown className="w-3 h-3 text-rose-400" /> : <Clock className="w-3 h-3 text-slate-400" />}
+              <span>Overall: {overallSentiment}</span>
             </span>
           </div>
           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -88,10 +100,10 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
       {/* Filter Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 pb-1 text-xs">
         {/* Timing Scope Tabs: ALL vs LIVE vs OVERNIGHT */}
-        <div className={`flex items-center gap-1 p-1 rounded border ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
+        <div className={`flex items-center gap-1 p-1 rounded border overflow-x-auto no-scrollbar max-w-full ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
           <button
             onClick={() => setFilterTiming('ALL')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium whitespace-nowrap transition-colors cursor-pointer min-h-[30px] ${
               filterTiming === 'ALL'
                 ? isLight ? 'bg-white text-slate-900 font-bold shadow-xs' : 'bg-slate-800 text-white font-bold'
                 : 'text-slate-400 hover:text-slate-200'
@@ -103,7 +115,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
 
           <button
             onClick={() => setFilterTiming('LIVE')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium whitespace-nowrap transition-colors cursor-pointer min-h-[30px] ${
               filterTiming === 'LIVE'
                 ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-bold'
                 : 'text-slate-400 hover:text-emerald-300'
@@ -115,7 +127,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
 
           <button
             onClick={() => setFilterTiming('OVERNIGHT')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium whitespace-nowrap transition-colors cursor-pointer min-h-[30px] ${
               filterTiming === 'OVERNIGHT'
                 ? 'bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-bold'
                 : 'text-slate-400 hover:text-indigo-300'
@@ -127,11 +139,11 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
         </div>
 
         {/* Secondary Filters */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 overflow-x-auto no-scrollbar max-w-full">
           {/* Ticker specific toggle */}
           <button
             onClick={() => setFilterTickerOnly(!filterTickerOnly)}
-            className={`px-2.5 py-1 rounded font-medium border transition-colors cursor-pointer ${
+            className={`px-2.5 py-1 rounded font-medium border whitespace-nowrap transition-colors cursor-pointer min-h-[30px] ${
               filterTickerOnly
                 ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-300 font-semibold'
                 : isLight ? 'bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -141,7 +153,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
           </button>
 
           {/* Sentiment Filter */}
-          <div className={`flex items-center gap-1 p-1 rounded border ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
+          <div className={`flex items-center gap-1 p-1 rounded border overflow-x-auto no-scrollbar ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
             {(['ALL', 'BULLISH', 'BEARISH', 'NEUTRAL'] as const).map(sentiment => (
               <button
                 key={sentiment}
@@ -172,6 +184,15 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
             const isHighImpact = item.impact === 'HIGH';
             const isOvernight = item.timing === 'OVERNIGHT';
 
+            const exactTimeStr = item.formattedPubTime || (item.timestamp ? (new Date(item.timestamp).toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              month: 'short',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            }) + ' IST') : '');
+
             return (
               <div key={item.id} className="py-4 first:pt-2 last:pb-2">
                 {/* Meta Header */}
@@ -180,7 +201,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
                     {/* Timing Badge: LIVE vs OVERNIGHT */}
                     {isOvernight ? (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-indigo-950/80 text-indigo-300 border border-indigo-700/60">
-                        <Moon className="w-2.5 h-2.5 text-indigo-400" /> Last Night
+                        <Moon className="w-2.5 h-2.5 text-indigo-400" /> Overnight Cue
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 animate-pulse">
@@ -190,6 +211,15 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
 
                     <span className="font-semibold text-slate-300">{item.source}</span>
                     <span aria-hidden="true">·</span>
+                    {exactTimeStr && (
+                      <>
+                        <span className="font-mono text-slate-200 font-medium flex items-center gap-1 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700/60">
+                          <Clock className="w-3 h-3 text-emerald-400 inline" />
+                          <span>{exactTimeStr}</span>
+                        </span>
+                        <span aria-hidden="true">·</span>
+                      </>
+                    )}
                     <span className="font-mono text-emerald-400 font-semibold">{item.timeAgo}</span>
                     <span aria-hidden="true">·</span>
                     <span className="text-slate-400">{item.category}</span>

@@ -954,6 +954,40 @@ function cleanRssText(raw: string): string {
     .trim();
 }
 
+// Helper: Parse complex RSS pubDate strings (including CDATA, Livemint Sept/June/July formatting, etc.)
+function parseRssDate(raw: string): { timestamp: number; formattedPubTime: string } | null {
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/Sept\b/gi, 'Sep')
+    .replace(/June\b/gi, 'Jun')
+    .replace(/July\b/gi, 'Jul')
+    .trim();
+
+  let d = new Date(cleaned);
+  if (isNaN(d.getTime())) {
+    const num = Number(cleaned);
+    if (!isNaN(num) && num > 1000000000) {
+      d = new Date(num > 10000000000 ? num : num * 1000);
+    }
+  }
+
+  if (isNaN(d.getTime())) return null;
+
+  const timestamp = d.getTime();
+  const formattedPubTime = d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }) + ' IST';
+
+  return { timestamp, formattedPubTime };
+}
+
 // Derive intelligent Option Trading Takeaway specifically analyzing CE vs PE, IV and OI
 function deriveOptionTakeaway(
   title: string,
@@ -1020,153 +1054,204 @@ app.get('/api/news', async (req: Request, res: Response) => {
     }
 
     const isUS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT'].includes(queryKey);
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-    const queries: string[] = [];
-    if (isUS) {
-      queries.push(`"${queryKey}" options OR market OR stock when:1d`);
-      queries.push(`"Wall Street" OR "S&P 500" OR "Nasdaq" OR "Federal Reserve" when:1d`);
-    } else {
-      // Indian Index derivatives: 1. Live market & options news, 2. Overnight cues (Gift Nifty, Crude, Wall Street, FII)
-      queries.push(`Nifty OR "Bank Nifty" OR "Sensex" options OR derivatives OR "stock market" when:1d`);
-      queries.push(`"Gift Nifty" OR "crude oil" OR "Wall Street" OR "FII" OR "stock market crash" when:1d`);
-      if (queryKey.includes('BANK')) {
-        queries.push(`"Bank Nifty" OR "banking stocks" OR "HDFC Bank" when:1d`);
-      }
-    }
-
-    // Fetch RSS feeds concurrently
-    const feedPromises = queries.map(q => {
-      const gl = isUS ? 'US' : 'IN';
-      const hl = isUS ? 'en-US' : 'en-IN';
-      const ceid = isUS ? 'US:en' : 'IN:en';
-      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${hl}&gl=${gl}&ceid=${ceid}`;
-      return fetch(url, { headers: { 'User-Agent': userAgent } })
-        .then(r => r.ok ? r.text() : '')
-        .catch(() => '');
-    });
-
-    const xmlResults = await Promise.all(feedPromises);
-    const combinedXml = xmlResults.join('\n');
-
-    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
     const items: any[] = [];
     const seenTitles = new Set<string>();
-    let match: RegExpExecArray | null;
 
-    while ((match = itemRegex.exec(combinedXml)) !== null) {
-      const content = match[1];
-      const titleM = content.match(/<title>([\s\S]*?)<\/title>/i);
-      const linkM = content.match(/<link>([\s\S]*?)<\/link>/i);
-      const pubDateM = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
-      const sourceM = content.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+    const rssSources = isUS ? [
+      { name: 'Yahoo Finance', url: `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(queryKey)}&newsCount=15`, type: 'yahoo' },
+      { name: 'Google News', url: `https://news.google.com/rss/search?q=${encodeURIComponent(queryKey)}&hl=en-US&gl=US&ceid=US:en`, type: 'rss' },
+    ] : [
+      { name: 'ET Markets', url: 'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms', type: 'rss' },
+      { name: 'ET Stocks', url: 'https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms', type: 'rss' },
+      { name: 'Livemint Markets', url: 'https://www.livemint.com/rss/markets', type: 'rss' },
+      { name: 'Business Standard', url: 'https://www.business-standard.com/rss/markets-106.rss', type: 'rss' },
+      { name: 'Google News', url: `https://news.google.com/rss/search?q=${encodeURIComponent('Nifty OR "Bank Nifty" OR "stock market" when:1d')}&hl=en-IN&gl=IN&ceid=IN:en`, type: 'rss' },
+    ];
 
-      if (!titleM || !pubDateM) continue;
+    const fetchPromises = rssSources.map(async (src) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500); // 3.5s strict timeout per feed
+        const res = await fetch(src.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': userAgent },
+        });
+        clearTimeout(timeout);
 
-      let rawTitle = cleanRssText(titleM[1]);
-      let source = sourceM ? cleanRssText(sourceM[1]) : 'Financial Wire';
-      const link = linkM ? cleanRssText(linkM[1]) : undefined;
+        if (!res.ok) return;
 
-      // Extract publisher suffix from title if formatted as "Headline - Source"
-      if (rawTitle.includes(' - ')) {
-        const parts = rawTitle.split(' - ');
-        if (!source || source === 'Financial Wire') {
-          source = parts.pop()?.trim() || 'Financial Wire';
+        if (src.type === 'yahoo') {
+          const json = await res.json();
+          const newsList = json?.news || [];
+          for (const n of newsList) {
+            if (!n.title || !n.providerPublishTime) continue;
+            const rawTitle = cleanRssText(n.title);
+            const cleanKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanKey.length < 10 || seenTitles.has(cleanKey)) continue;
+            seenTitles.add(cleanKey);
+
+            const pubTime = n.providerPublishTime * 1000;
+            const formattedPubTime = new Date(pubTime).toLocaleString('en-US', {
+              timeZone: 'America/New_York',
+              month: 'short',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            }) + ' EDT';
+
+            const diffMs = now - pubTime;
+            const diffMins = Math.max(1, Math.round(diffMs / 60000));
+            const hoursAgo = diffMins / 60;
+            if (hoursAgo > 36) continue;
+
+            const timing: 'LIVE' | 'OVERNIGHT' = hoursAgo <= 12 ? 'LIVE' : 'OVERNIGHT';
+            let timeAgo = '';
+            if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+            else if (diffMins < 120) timeAgo = `1h ${diffMins % 60}m ago`;
+            else if (hoursAgo <= 12) timeAgo = `${Math.floor(hoursAgo)}h ago`;
+            else timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
+
+            items.push({
+              id: `news-yahoo-${pubTime}-${cleanKey.slice(0, 16)}`,
+              title: rawTitle,
+              source: n.publisher || src.name,
+              timeAgo,
+              timestamp: pubTime,
+              formattedPubTime,
+              sentiment: 'NEUTRAL',
+              impact: 'MEDIUM',
+              relatedTickers: [queryKey],
+              optionTakeaway: deriveOptionTakeaway(rawTitle, 'NEUTRAL', timing, 'Macro'),
+              summary: rawTitle,
+              category: 'Macro',
+              timing,
+              link: n.link,
+            });
+          }
         } else {
-          parts.pop();
+          const xml = await res.text();
+          const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+          let match: RegExpExecArray | null;
+
+          while ((match = itemRegex.exec(xml)) !== null) {
+            const content = match[1];
+            const titleM = content.match(/<title>([\s\S]*?)<\/title>/i);
+            const linkM = content.match(/<link>([\s\S]*?)<\/link>/i);
+            const pubDateM = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || content.match(/<dc:date>([\s\S]*?)<\/dc:date>/i);
+            const sourceM = content.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+
+            if (!titleM || !pubDateM) continue;
+
+            let rawTitle = cleanRssText(titleM[1]);
+            let source = sourceM ? cleanRssText(sourceM[1]) : src.name;
+            const link = linkM ? cleanRssText(linkM[1]) : undefined;
+
+            if (rawTitle.includes(' - ')) {
+              const parts = rawTitle.split(' - ');
+              if (!source || source === src.name) {
+                source = parts.pop()?.trim() || src.name;
+              } else {
+                parts.pop();
+              }
+              rawTitle = parts.join(' - ').trim();
+            }
+
+            const cleanKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanKey.length < 10 || seenTitles.has(cleanKey)) continue;
+
+            const parsedDate = parseRssDate(pubDateM[1]);
+            if (!parsedDate) continue;
+
+            seenTitles.add(cleanKey);
+
+            const pubTime = parsedDate.timestamp;
+            const diffMs = now - pubTime;
+            const diffMins = Math.max(1, Math.round(diffMs / 60000));
+            const hoursAgo = diffMins / 60;
+            if (hoursAgo > 36 || hoursAgo < -0.5) continue;
+
+            const timing: 'LIVE' | 'OVERNIGHT' = hoursAgo <= 12 ? 'LIVE' : 'OVERNIGHT';
+
+            let timeAgo = '';
+            if (diffMins < 60) {
+              timeAgo = `${diffMins}m ago`;
+            } else if (diffMins < 120) {
+              timeAgo = `1h ${diffMins % 60}m ago`;
+            } else if (hoursAgo <= 12) {
+              timeAgo = `${Math.floor(hoursAgo)}h ago`;
+            } else {
+              timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
+            }
+
+            const titleLower = rawTitle.toLowerCase();
+            let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+            const isCrudeOrWarSpike = /crude|oil|brent|war|inflation|vix/.test(titleLower) && /spike|jump|rise|surge|soar|cross/.test(titleLower);
+
+            if (isCrudeOrWarSpike) {
+              sentiment = 'BEARISH';
+            } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|low|crash|bloodbath|rout|selloff|weakness|slide|recession|deficit/.test(titleLower)) {
+              sentiment = 'BEARISH';
+            } else if (/surge|jump|gain|record|boost|bull|rise|high|profit|rally|up|breakout|soar|bounce|outperform|climb|stimulus|recovery|positive/.test(titleLower)) {
+              sentiment = 'BULLISH';
+            }
+
+            let category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight' = 'Macro';
+            if (timing === 'OVERNIGHT' || /gift nifty|wall street|overnight|us market|nasdaq/.test(titleLower)) {
+              category = 'Overnight';
+            } else if (/rbi|fed|inflation|rate|budget|policy|sebi|repo/.test(titleLower)) {
+              category = 'Policy';
+            } else if (/war|iran|conflict|middle east|sanctions|geopolit/.test(titleLower)) {
+              category = 'Geopolitics';
+            } else if (/bank|it|metal|auto|energy|pharma|reliance|hdfc|icici|tcs/.test(titleLower)) {
+              category = 'Sector';
+            } else if (/quarter|result|earnings|profit|revenue/.test(titleLower)) {
+              category = 'Earnings';
+            }
+
+            const isHighImpact = /crash|surge|plunge|rout|bloodbath|rbi|fed|gift nifty|crude|900|1000|war|iran|all-time/.test(titleLower);
+            const impact: 'HIGH' | 'MEDIUM' = isHighImpact ? 'HIGH' : 'MEDIUM';
+
+            const relatedTickers: string[] = [];
+            if (/bank|hdfc|icici|kotak|sbi/.test(titleLower)) relatedTickers.push('BANKNIFTY');
+            if (/fin|bajaj|finance/.test(titleLower)) relatedTickers.push('FINNIFTY');
+            if (/nifty|sensex|market|india/.test(titleLower)) relatedTickers.push('NIFTY 50');
+            if (isUS || /wall street|us|fed|nasdaq|s&p|tech/.test(titleLower)) {
+              if (!relatedTickers.includes('SPY')) relatedTickers.push('SPY');
+              if (!relatedTickers.includes('QQQ')) relatedTickers.push('QQQ');
+            }
+            if (relatedTickers.length === 0) {
+              relatedTickers.push(queryKey.includes('BANK') ? 'BANKNIFTY' : 'NIFTY 50');
+            }
+
+            const optionTakeaway = deriveOptionTakeaway(rawTitle, sentiment, timing, category);
+
+            items.push({
+              id: `news-${pubTime}-${cleanKey.slice(0, 16)}`,
+              title: rawTitle,
+              source,
+              timeAgo,
+              timestamp: pubTime,
+              formattedPubTime: parsedDate.formattedPubTime,
+              sentiment,
+              impact,
+              relatedTickers,
+              optionTakeaway,
+              summary: rawTitle,
+              category,
+              timing,
+              link,
+            });
+          }
         }
-        rawTitle = parts.join(' - ').trim();
+      } catch (err) {
+        // Individual feed error ignored
       }
+    });
 
-      // Title deduplication
-      const cleanKey = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (cleanKey.length < 10 || seenTitles.has(cleanKey)) continue;
-      seenTitles.add(cleanKey);
-
-      const pubTime = new Date(pubDateM[1]).getTime();
-      if (isNaN(pubTime)) continue;
-
-      // STRICT FILTER: Keep only news from the last 26 hours (strictly last night to current live session)
-      const diffMs = now - pubTime;
-      const diffMins = Math.max(1, Math.round(diffMs / 60000));
-      const hoursAgo = diffMins / 60;
-      if (hoursAgo > 26 || hoursAgo < -0.5) continue; // discard stale (>26h) or bogus future dates
-
-      // Distinguish LIVE (within current trading day/session <= 3.5h) vs OVERNIGHT (last night 3.5h - 26h)
-      const isOvernight = hoursAgo >= 3.5;
-      const timing: 'LIVE' | 'OVERNIGHT' = isOvernight ? 'OVERNIGHT' : 'LIVE';
-
-      let timeAgo = '';
-      if (diffMins < 60) {
-        timeAgo = `${diffMins}m ago`;
-      } else if (hoursAgo < 4) {
-        timeAgo = `${Math.round(hoursAgo)}h ago`;
-      } else {
-        timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
-      }
-
-      // Sentiment derivation from headline terminology
-      const titleLower = rawTitle.toLowerCase();
-      let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-      const isCrudeOrWarSpike = /crude|oil|brent|war|inflation|vix/.test(titleLower) && /spike|jump|rise|surge|soar|cross/.test(titleLower);
-
-      if (isCrudeOrWarSpike) {
-        sentiment = 'BEARISH';
-      } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|low|crash|bloodbath|rout|selloff|weakness|slide|recession|deficit/.test(titleLower)) {
-        sentiment = 'BEARISH';
-      } else if (/surge|jump|gain|record|boost|bull|rise|high|profit|rally|up|breakout|soar|bounce|outperform|climb|stimulus|recovery|positive/.test(titleLower)) {
-        sentiment = 'BULLISH';
-      }
-
-      // Category derivation
-      let category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight' = 'Macro';
-      if (timing === 'OVERNIGHT' || /gift nifty|wall street|overnight|us market|nasdaq/.test(titleLower)) {
-        category = 'Overnight';
-      } else if (/rbi|fed|inflation|rate|budget|policy|sebi|repo/.test(titleLower)) {
-        category = 'Policy';
-      } else if (/war|iran|conflict|middle east|sanctions|geopolit/.test(titleLower)) {
-        category = 'Geopolitics';
-      } else if (/bank|it|metal|auto|energy|pharma|reliance|hdfc|icici|tcs/.test(titleLower)) {
-        category = 'Sector';
-      } else if (/quarter|result|earnings|profit|revenue/.test(titleLower)) {
-        category = 'Earnings';
-      }
-
-      // Market Impact derivation
-      const isHighImpact = /crash|surge|plunge|rout|bloodbath|rbi|fed|gift nifty|crude|900|1000|war|iran|all-time/.test(titleLower);
-      const impact: 'HIGH' | 'MEDIUM' = isHighImpact ? 'HIGH' : 'MEDIUM';
-
-      // Map tickers
-      const relatedTickers: string[] = [];
-      if (/bank|hdfc|icici|kotak|sbi/.test(titleLower)) relatedTickers.push('BANKNIFTY');
-      if (/fin|bajaj|finance/.test(titleLower)) relatedTickers.push('FINNIFTY');
-      if (/nifty|sensex|market|india/.test(titleLower)) relatedTickers.push('NIFTY 50');
-      if (isUS || /wall street|us|fed|nasdaq|s&p|tech/.test(titleLower)) {
-        if (!relatedTickers.includes('SPY')) relatedTickers.push('SPY');
-        if (!relatedTickers.includes('QQQ')) relatedTickers.push('QQQ');
-      }
-      if (relatedTickers.length === 0) {
-        relatedTickers.push(queryKey.includes('BANK') ? 'BANKNIFTY' : 'NIFTY 50');
-      }
-
-      const optionTakeaway = deriveOptionTakeaway(rawTitle, sentiment, timing, category);
-
-      items.push({
-        id: `news-${pubTime}-${cleanKey.slice(0, 16)}`,
-        title: rawTitle,
-        source,
-        timeAgo,
-        timestamp: pubTime,
-        sentiment,
-        impact,
-        relatedTickers,
-        optionTakeaway,
-        summary: rawTitle,
-        category,
-        timing,
-        link,
-      });
-    }
+    await Promise.all(fetchPromises);
 
     // Sort all items descending by timestamp
     items.sort((a, b) => b.timestamp - a.timestamp);
@@ -1175,10 +1260,10 @@ app.get('/api/news', async (req: Request, res: Response) => {
     const liveItems = items.filter(i => i.timing === 'LIVE');
     const overnightItems = items.filter(i => i.timing === 'OVERNIGHT');
 
-    // Balance feed: top live items + top overnight items (e.g. 18 live + 12 overnight)
+    // Balance feed: top live items + top overnight items (e.g. 20 live + 10 overnight)
     const balancedNews = [
-      ...liveItems.slice(0, 18),
-      ...overnightItems.slice(0, 12),
+      ...liveItems.slice(0, 20),
+      ...overnightItems.slice(0, 10),
     ].sort((a, b) => b.timestamp - a.timestamp);
 
     const finalNews = balancedNews.length > 0 ? balancedNews : items.slice(0, 30);
