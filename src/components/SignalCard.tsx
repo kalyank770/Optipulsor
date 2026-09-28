@@ -21,7 +21,11 @@ import {
   Moon,
   Zap,
   Layers,
-  Activity
+  Activity,
+  Gauge,
+  Radio,
+  SlidersHorizontal,
+  Compass
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -656,6 +660,210 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex justify-between">
                 <span>Δ Gain: <strong className="text-emerald-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.deltaExpansion}</strong></span>
                 <span>Γ Accel: <strong className="text-sky-400">+{ticker.currency}{signal.targetExitSynthesis.optionChartPillar.gammaAcceleration}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-Time Quantitative Parameters & Engine Tuning */}
+      {signal.realtimeIndicators && (
+        <div className="mt-3 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Real-Time Quantitative Parameters & Predictive Tuning
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+              <span className="text-slate-500">Confluence Engine:</span>
+              <span className="text-emerald-400 font-bold">7-Pillar Live Alignment</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
+            {/* 1. Intraday VWAP & Bands */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-sky-400 flex items-center gap-1 font-bold">
+                    <Compass className="w-3 h-3" /> Intraday VWAP
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.vwap.bias === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.realtimeIndicators.vwap.bias === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.realtimeIndicators.vwap.distancePercent > 0 ? '+' : ''}{signal.realtimeIndicators.vwap.distancePercent}%
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs">
+                  {ticker.currency}{signal.realtimeIndicators.vwap.value.toLocaleString()}
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] text-slate-400 truncate" title={signal.realtimeIndicators.vwap.statusLabel}>
+                {signal.realtimeIndicators.vwap.statusLabel}
+              </div>
+            </div>
+
+            {/* 2. 5m RSI (14) & Divergence */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-emerald-400 flex items-center gap-1 font-bold">
+                    <Activity className="w-3 h-3" /> 5m RSI (14)
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.rsi.condition === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.realtimeIndicators.rsi.condition === 'BEARISH' ? 'text-rose-400 bg-rose-500/10' :
+                    signal.realtimeIndicators.rsi.condition === 'OVERBOUGHT' ? 'text-amber-400 bg-amber-500/10' :
+                    signal.realtimeIndicators.rsi.condition === 'OVERSOLD' ? 'text-purple-400 bg-purple-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.realtimeIndicators.rsi.condition}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between font-mono">
+                  <span className="font-bold text-slate-100 text-xs">{signal.realtimeIndicators.rsi.value.toFixed(1)}</span>
+                  {signal.realtimeIndicators.rsi.divergence !== 'NONE' && (
+                    <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/30">
+                      {signal.realtimeIndicators.rsi.divergence.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                <div 
+                  className={`h-full ${
+                    signal.realtimeIndicators.rsi.value >= 60 ? 'bg-emerald-500' :
+                    signal.realtimeIndicators.rsi.value <= 40 ? 'bg-rose-500' : 'bg-sky-500'
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(0, signal.realtimeIndicators.rsi.value))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 3. 5m MACD (12, 26, 9) */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-purple-400 flex items-center gap-1 font-bold">
+                    <BarChart2 className="w-3 h-3" /> 5m MACD (12,26,9)
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.macd.histogram >= 0 ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'
+                  }`}>
+                    {signal.realtimeIndicators.macd.histogram >= 0 ? '+' : ''}{signal.realtimeIndicators.macd.histogram}
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs truncate">
+                  {signal.realtimeIndicators.macd.label}
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
+                <span>Line: {signal.realtimeIndicators.macd.macdLine}</span>
+                <span>Sig: {signal.realtimeIndicators.macd.signalLine}</span>
+              </div>
+            </div>
+
+            {/* 4. 9/21 EMA Institutional Stack */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-amber-400 flex items-center gap-1 font-bold">
+                    <Zap className="w-3 h-3" /> 9/21 EMA Stack
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.ema.alignment === 'BULLISH_STACK' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.realtimeIndicators.ema.alignment === 'BEARISH_STACK' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.realtimeIndicators.ema.spread > 0 ? '+' : ''}{signal.realtimeIndicators.ema.spread}
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs truncate">
+                  {signal.realtimeIndicators.ema.label}
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
+                <span>9 EMA: {signal.realtimeIndicators.ema.ema9.toLocaleString()}</span>
+                <span>21: {signal.realtimeIndicators.ema.ema21.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* 5. Option Gamma Exposure (GEX) */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-cyan-400 flex items-center gap-1 font-bold">
+                    <Gauge className="w-3 h-3" /> Gamma (GEX) Regime
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.gammaExposure.regime === 'POSITIVE_GAMMA' 
+                      ? 'text-emerald-400 bg-emerald-500/10' 
+                      : 'text-amber-400 bg-amber-500/10'
+                  }`}>
+                    {signal.realtimeIndicators.gammaExposure.regime.replace(/_GAMMA/, '')}
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs">
+                  Net: {signal.realtimeIndicators.gammaExposure.netGex.toLocaleString()}
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400">
+                Flip Strike: <strong className="text-slate-200">{ticker.currency}{signal.realtimeIndicators.gammaExposure.flipStrike.toLocaleString()}</strong>
+              </div>
+            </div>
+
+            {/* 6. Order Flow Delta & Imbalance */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-indigo-400 flex items-center gap-1 font-bold">
+                    <Activity className="w-3 h-3" /> Order Flow Delta
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.orderFlow.sentiment === 'BUYER_DOMINANCE' ? 'text-emerald-400 bg-emerald-500/10' :
+                    signal.realtimeIndicators.orderFlow.sentiment === 'SELLER_DOMINANCE' ? 'text-rose-400 bg-rose-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.realtimeIndicators.orderFlow.volumeImbalancePercent > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.volumeImbalancePercent}%
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs">
+                  Δ {signal.realtimeIndicators.orderFlow.orderFlowDelta > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.orderFlowDelta.toLocaleString()}
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] font-mono text-slate-400 flex justify-between">
+                <span>PCR Vol-OI Div:</span>
+                <strong className={signal.realtimeIndicators.orderFlow.pcrDivergence > 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                  {signal.realtimeIndicators.orderFlow.pcrDivergence > 0 ? '+' : ''}{signal.realtimeIndicators.orderFlow.pcrDivergence}
+                </strong>
+              </div>
+            </div>
+
+            {/* 7. VIX Volatility Velocity */}
+            <div className="p-2 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between col-span-2 sm:col-span-1">
+              <div>
+                <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-semibold mb-0.5">
+                  <span className="text-rose-400 flex items-center gap-1 font-bold">
+                    <Radio className="w-3 h-3" /> VIX Velocity
+                  </span>
+                  <span className={`px-1 py-0.2 rounded text-[9.5px] font-mono font-bold ${
+                    signal.realtimeIndicators.vixVelocity.velocityState === 'SURGING' ? 'text-rose-400 bg-rose-500/10' :
+                    signal.realtimeIndicators.vixVelocity.velocityState === 'EXPANDING' ? 'text-amber-400 bg-amber-500/10' :
+                    signal.realtimeIndicators.vixVelocity.velocityState === 'COMPRESSING' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 bg-slate-800'
+                  }`}>
+                    {signal.realtimeIndicators.vixVelocity.velocityState}
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-100 text-xs">
+                  {signal.realtimeIndicators.vixVelocity.vix} ({signal.realtimeIndicators.vixVelocity.vixPercentChange > 0 ? '+' : ''}{signal.realtimeIndicators.vixVelocity.vixPercentChange}%)
+                </div>
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800 text-[9.5px] text-slate-400 truncate" title={signal.realtimeIndicators.vixVelocity.impactOnOptions}>
+                {signal.realtimeIndicators.vixVelocity.impactOnOptions}
               </div>
             </div>
           </div>

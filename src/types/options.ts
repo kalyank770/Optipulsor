@@ -87,6 +87,62 @@ export interface TickerConfig {
   isUsingPreMarket?: boolean;
 }
 
+export interface RealtimePredictionIndicators {
+  vwap: {
+    value: number;
+    upperBand: number;
+    lowerBand: number;
+    distancePercent: number;
+    bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    statusLabel: string;
+  };
+  rsi: {
+    value: number;
+    condition: 'OVERSOLD' | 'BEARISH' | 'NEUTRAL' | 'BULLISH' | 'OVERBOUGHT';
+    divergence: 'BULLISH_DIVERGENCE' | 'BEARISH_DIVERGENCE' | 'NONE';
+    label: string;
+    zoneColor: string;
+  };
+  macd: {
+    macdLine: number;
+    signalLine: number;
+    histogram: number;
+    trend: 'BULLISH_EXPANSION' | 'BULLISH_DECELERATION' | 'BEARISH_EXPANSION' | 'BEARISH_DECELERATION';
+    label: string;
+    histogramColor: string;
+  };
+  ema: {
+    ema9: number;
+    ema21: number;
+    spread: number;
+    alignment: 'BULLISH_STACK' | 'BEARISH_STACK' | 'COMPRESSION';
+    label: string;
+  };
+  gammaExposure: {
+    netGex: number; // In currency units or contracts
+    regime: 'POSITIVE_GAMMA' | 'NEGATIVE_GAMMA';
+    flipStrike: number;
+    callGex: number;
+    putGex: number;
+    implication: string;
+  };
+  orderFlow: {
+    callBuyVol: number;
+    putBuyVol: number;
+    orderFlowDelta: number;
+    volumeImbalancePercent: number;
+    pcrDivergence: number; // Volume PCR - OI PCR
+    sentiment: 'BUYER_DOMINANCE' | 'SELLER_DOMINANCE' | 'BALANCED_FLOW';
+  };
+  vixVelocity: {
+    vix: number;
+    vixChange: number;
+    vixPercentChange: number;
+    velocityState: 'SURGING' | 'EXPANDING' | 'STABLE' | 'COMPRESSING';
+    impactOnOptions: string;
+  };
+}
+
 export interface MarketMetrics {
   spotPrice: number;
   atmStrike: number;
@@ -99,6 +155,7 @@ export interface MarketMetrics {
   majorResistanceStrike: number; // Highest CE OI
   ivRank: number; // 0 - 100%
   marketTrend: 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH';
+  realtimeIndicators?: RealtimePredictionIndicators;
 }
 
 export type SignalAction = 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL';
@@ -205,6 +262,7 @@ export interface TradeSignal {
   spotStopLoss?: number;
   candleAnalysis?: MultiTimeframeChartPatterns;
   targetExitSynthesis?: TargetExitSynthesis;
+  realtimeIndicators?: RealtimePredictionIndicators;
 }
 
 export interface NewsItem {

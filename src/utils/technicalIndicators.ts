@@ -1,4 +1,4 @@
-import { OptionContract, TickerConfig, TradeSignal } from '../types/options';
+import { OptionContract, OptionChainRow, TickerConfig, TradeSignal, RealtimePredictionIndicators } from '../types/options';
 import { generateRollingCandles } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
 
@@ -338,5 +338,272 @@ export function deriveExitLogicPlan(
     levels,
     summaryGuidance,
     momentumVerdict,
+  };
+}
+
+/**
+ * Computes comprehensive real-time indicators for algorithmic prediction & tuning:
+ * 1. Intraday VWAP & Standard Deviation Bands (±1.28σ)
+ * 2. 5m RSI (14) with Bullish/Bearish Divergence Detection
+ * 3. 5m MACD (12, 26, 9) Histogram & Velocity
+ * 4. 5m EMA Stack (9 EMA vs 21 EMA)
+ * 5. Option Chain Net Gamma Exposure (GEX) & Market Regime
+ * 6. Order Flow Imbalance & PCR Divergence
+ * 7. VIX Volatility Velocity & IV Impact
+ */
+export function computeRealtimeIndicators(
+  ticker: TickerConfig,
+  chain: OptionChainRow[]
+): RealtimePredictionIndicators {
+  const S = ticker.spotPrice;
+  const candles = generateRollingCandles(ticker, 5, 28);
+  const closes = candles.map(c => c.close);
+
+  // 1. INTRADAY VWAP & VOLATILITY BANDS
+  let cumulativeTypicalVol = 0;
+  let cumulativeVol = 0;
+  for (const c of candles) {
+    const typical = (c.high + c.low + c.close) / 3;
+    cumulativeTypicalVol += typical * c.volume;
+    cumulativeVol += c.volume;
+  }
+  const rawVwap = cumulativeVol > 0 ? cumulativeTypicalVol / cumulativeVol : S;
+  const vwap = Number(rawVwap.toFixed(2));
+
+  // VWAP Variance & Standard Deviation Bands
+  let sumSquaredDiff = 0;
+  for (const c of candles) {
+    const typical = (c.high + c.low + c.close) / 3;
+    sumSquaredDiff += c.volume * Math.pow(typical - vwap, 2);
+  }
+  const variance = cumulativeVol > 0 ? sumSquaredDiff / cumulativeVol : Math.pow(ticker.strikeStep * 0.25, 2);
+  const stdDev = Math.max(ticker.strikeStep * 0.15, Math.sqrt(variance));
+  const upperBand = Number((vwap + 1.28 * stdDev).toFixed(2));
+  const lowerBand = Number((vwap - 1.28 * stdDev).toFixed(2));
+  const distancePercent = Number((((S - vwap) / vwap) * 100).toFixed(2));
+
+  let vwapBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+  let vwapStatusLabel = 'At VWAP Pivot (Equilibrium)';
+  if (S > upperBand) {
+    vwapBias = 'BULLISH';
+    vwapStatusLabel = 'Above Upper Band (+1.28σ Stretched)';
+  } else if (S > vwap + 0.15 * stdDev) {
+    vwapBias = 'BULLISH';
+    vwapStatusLabel = 'Above VWAP (Institutional Bullish Control)';
+  } else if (S < lowerBand) {
+    vwapBias = 'BEARISH';
+    vwapStatusLabel = 'Below Lower Band (-1.28σ Stretched)';
+  } else if (S < vwap - 0.15 * stdDev) {
+    vwapBias = 'BEARISH';
+    vwapStatusLabel = 'Below VWAP (Institutional Bearish Control)';
+  } else {
+    vwapBias = 'NEUTRAL';
+    vwapStatusLabel = 'At VWAP Pivot (Equilibrium Test)';
+  }
+
+  // 2. RSI (14) & DIVERGENCE DETECTION
+  const rsi = computeRSI(closes, 14);
+  let divergence: RealtimePredictionIndicators['rsi']['divergence'] = 'NONE';
+  if (candles.length >= 8) {
+    const recent = candles.slice(-4);
+    const older = candles.slice(-8, -4);
+    const recentMinPrice = Math.min(...recent.map(c => c.low));
+    const olderMinPrice = Math.min(...older.map(c => c.low));
+    const recentMaxPrice = Math.max(...recent.map(c => c.high));
+    const olderMaxPrice = Math.max(...older.map(c => c.high));
+
+    // Bullish Divergence: Price made lower low, but RSI is higher
+    if (recentMinPrice < olderMinPrice && rsi.value > 38 && rsi.value < 55) {
+      divergence = 'BULLISH_DIVERGENCE';
+    }
+    // Bearish Divergence: Price made higher high, but RSI is lower
+    else if (recentMaxPrice > olderMaxPrice && rsi.value < 62 && rsi.value > 45) {
+      divergence = 'BEARISH_DIVERGENCE';
+    }
+  }
+
+  // 3. MACD (12, 26, 9)
+  const macd = computeMACD(closes);
+
+  // 4. 5m EMA STACK (9 EMA vs 21 EMA)
+  const calcEMA = (data: number[], p: number) => {
+    const k = 2 / (p + 1);
+    let ema = data[0];
+    for (let i = 1; i < data.length; i++) {
+      ema = data[i] * k + ema * (1 - k);
+    }
+    return ema;
+  };
+  const ema9 = Number(calcEMA(closes, 9).toFixed(2));
+  const ema21 = Number(calcEMA(closes, 21).toFixed(2));
+  const emaSpread = Number((ema9 - ema21).toFixed(2));
+  const emaSpreadPercent = (emaSpread / S) * 100;
+
+  let emaAlignment: RealtimePredictionIndicators['ema']['alignment'] = 'COMPRESSION';
+  let emaLabel = 'EMA Pinch / Compression';
+  if (emaSpreadPercent >= 0.04) {
+    emaAlignment = 'BULLISH_STACK';
+    emaLabel = 'Bullish 9/21 EMA Stack (Fast > Slow)';
+  } else if (emaSpreadPercent <= -0.04) {
+    emaAlignment = 'BEARISH_STACK';
+    emaLabel = 'Bearish 9/21 EMA Stack (Fast < Slow)';
+  } else {
+    emaAlignment = 'COMPRESSION';
+    emaLabel = 'EMA Pinch / Neutral Squeeze';
+  }
+
+  // 5. OPTION GAMMA EXPOSURE (NET GEX & MARKET REGIME)
+  let totalCallGex = 0;
+  let totalPutGex = 0;
+  let gexPoints: { strike: number; netGex: number }[] = [];
+
+  for (const row of chain) {
+    const strike = row.strike;
+    const callGamma = Math.abs(row.ce.greeks?.gamma || 0.001);
+    const putGamma = Math.abs(row.pe.greeks?.gamma || 0.001);
+    // Dealer Net Gamma: Long call open interest creates positive dealer gamma when unhedged,
+    // or standard exchange market-maker net exposure convention:
+    const cGex = row.ce.openInterest * callGamma * S * (ticker.lotSize || 1) * 0.01;
+    const pGex = row.pe.openInterest * putGamma * S * (ticker.lotSize || 1) * 0.01 * (-1);
+    totalCallGex += cGex;
+    totalPutGex += pGex;
+    gexPoints.push({ strike, netGex: cGex + pGex });
+  }
+
+  const netGex = Number((totalCallGex + totalPutGex).toFixed(1));
+  const gammaRegime: 'POSITIVE_GAMMA' | 'NEGATIVE_GAMMA' = netGex >= 0 ? 'POSITIVE_GAMMA' : 'NEGATIVE_GAMMA';
+  
+  // Find Gamma Flip Strike where cumulative GEX crosses 0
+  gexPoints.sort((a, b) => a.strike - b.strike);
+  let cumGex = 0;
+  let flipStrike = ticker.atmStrike;
+  for (const gp of gexPoints) {
+    cumGex += gp.netGex;
+    if (cumGex >= 0) {
+      flipStrike = gp.strike;
+      break;
+    }
+  }
+
+  const gammaImplication = gammaRegime === 'POSITIVE_GAMMA'
+    ? 'Positive Gamma (Dealers long gamma): Volatility dampened; mean-reverting pin near hurdles.'
+    : 'Negative Gamma (Dealers short gamma): Volatility amplified; directional moves accelerate.';
+
+  // 6. ORDER FLOW & VOLUME IMBALANCE
+  const atm = ticker.atmStrike;
+  const step = ticker.strikeStep;
+  const nearbyRows = chain.filter(r => Math.abs(r.strike - atm) <= step * 3);
+
+  let callBuyVol = 0;
+  let putBuyVol = 0;
+  let totalNearbyVol = 0;
+
+  for (const r of nearbyRows) {
+    const ceWeight = r.ce.change >= 0 ? 0.65 : 0.35;
+    const peWeight = r.pe.change >= 0 ? 0.65 : 0.35;
+    const ceBuyerFlow = Math.round(r.ce.volume * ceWeight);
+    const peBuyerFlow = Math.round(r.pe.volume * peWeight);
+    callBuyVol += ceBuyerFlow;
+    putBuyVol += peBuyerFlow;
+    totalNearbyVol += (r.ce.volume + r.pe.volume);
+  }
+
+  const orderFlowDelta = callBuyVol - putBuyVol;
+  const totalFlow = Math.max(1, callBuyVol + putBuyVol);
+  const volumeImbalancePercent = Number(((orderFlowDelta / totalFlow) * 100).toFixed(1));
+
+  let orderFlowSentiment: RealtimePredictionIndicators['orderFlow']['sentiment'] = 'BALANCED_FLOW';
+  if (volumeImbalancePercent >= 15) orderFlowSentiment = 'BUYER_DOMINANCE';
+  else if (volumeImbalancePercent <= -15) orderFlowSentiment = 'SELLER_DOMINANCE';
+
+  // Volume PCR vs OI PCR Divergence
+  let totalPeVol = 0;
+  let totalCeVol = 0;
+  let totalPeOI = 0;
+  let totalCeOI = 0;
+  for (const r of chain) {
+    totalPeVol += r.pe.volume;
+    totalCeVol += r.ce.volume;
+    totalPeOI += r.pe.openInterest;
+    totalCeOI += r.ce.openInterest;
+  }
+  const pcrVol = totalCeVol > 0 ? totalPeVol / totalCeVol : 1.0;
+  const pcrOI = totalCeOI > 0 ? totalPeOI / totalCeOI : 1.0;
+  const pcrDivergence = Number((pcrVol - pcrOI).toFixed(2));
+
+  // 7. VIX VOLATILITY VELOCITY
+  const vix = Math.max(8, ticker.vix || 13);
+  const vixChange = ticker.vixChange || 0;
+  const prevVix = Math.max(8, vix - vixChange);
+  const vixPercentChange = Number(((vixChange / prevVix) * 100).toFixed(2));
+
+  let velocityState: RealtimePredictionIndicators['vixVelocity']['velocityState'] = 'STABLE';
+  let impactOnOptions = 'Stable volatility environment; premium pricing normal.';
+
+  if (vixPercentChange >= 3.5) {
+    velocityState = 'SURGING';
+    impactOnOptions = 'Vol spike expanding Vega; favors Put buying & fast momentum exits.';
+  } else if (vixPercentChange >= 0.8) {
+    velocityState = 'EXPANDING';
+    impactOnOptions = 'Mild volatility expansion; supporting directional options follow-through.';
+  } else if (vixPercentChange <= -1.5) {
+    velocityState = 'COMPRESSING';
+    impactOnOptions = 'IV crush active; favors ATM/ITM contracts over OTM decay traps.';
+  }
+
+  return {
+    vwap: {
+      value: vwap,
+      upperBand,
+      lowerBand,
+      distancePercent,
+      bias: vwapBias,
+      statusLabel: vwapStatusLabel,
+    },
+    rsi: {
+      value: rsi.value,
+      condition: rsi.condition,
+      divergence,
+      label: rsi.label,
+      zoneColor: rsi.zoneColor,
+    },
+    macd: {
+      macdLine: macd.macdLine,
+      signalLine: macd.signalLine,
+      histogram: macd.histogram,
+      trend: macd.trend,
+      label: macd.label,
+      histogramColor: macd.histogramColor,
+    },
+    ema: {
+      ema9,
+      ema21,
+      spread: emaSpread,
+      alignment: emaAlignment,
+      label: emaLabel,
+    },
+    gammaExposure: {
+      netGex,
+      regime: gammaRegime,
+      flipStrike,
+      callGex: Number(totalCallGex.toFixed(1)),
+      putGex: Number(totalPutGex.toFixed(1)),
+      implication: gammaImplication,
+    },
+    orderFlow: {
+      callBuyVol,
+      putBuyVol,
+      orderFlowDelta,
+      volumeImbalancePercent,
+      pcrDivergence,
+      sentiment: orderFlowSentiment,
+    },
+    vixVelocity: {
+      vix,
+      vixChange,
+      vixPercentChange,
+      velocityState,
+      impactOnOptions,
+    },
   };
 }

@@ -11,6 +11,7 @@ import {
 } from '../types/options';
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
+import { computeRealtimeIndicators } from './technicalIndicators';
 
 /**
  * Computes market metrics from an option chain
@@ -89,6 +90,8 @@ export function computeMarketMetrics(
     marketTrend = 'BEARISH';
   }
 
+  const realtimeIndicators = computeRealtimeIndicators(ticker, chain);
+
   return {
     spotPrice: ticker.spotPrice,
     atmStrike: ticker.atmStrike,
@@ -101,6 +104,7 @@ export function computeMarketMetrics(
     majorResistanceStrike: maxCeStrike,
     ivRank,
     marketTrend,
+    realtimeIndicators,
   };
 }
 
@@ -115,6 +119,7 @@ export function generateTradeSignal(
   newsItems: NewsItem[]
 ): TradeSignal {
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
+  const rt = metrics.realtimeIndicators || computeRealtimeIndicators(ticker, chain);
   
   // Nearby strikes around current spot
   const nearbyRows = chain.filter(r => Math.abs(r.strike - atmStrike) <= ticker.strikeStep * 3);
@@ -153,11 +158,11 @@ export function generateTradeSignal(
   const recoveryPoints = Math.max(0, spotPrice - dayLow);
 
   let intradayRecoveryScore = 0;
-  if (recoveryRatio >= 0.65 || recoveryPoints >= ticker.strikeStep * 0.75) {
+  if (recoveryRatio >= 0.65 || (recoveryRatio >= 0.45 && recoveryPoints >= ticker.strikeStep * 0.75)) {
     // Strong intraday recovery: buyers / short coverers lifting index off lows
     intradayRecoveryScore = 2.5;
-  } else if (recoveryRatio >= 0.50 || recoveryPoints >= ticker.strikeStep * 0.4) {
-    // Moderate recovery: trading above day midpoint
+  } else if (recoveryRatio >= 0.45) {
+    // Moderate recovery: trading near or above day midpoint
     intradayRecoveryScore = 1.2;
   } else if (recoveryRatio <= 0.20) {
     // Sticking to day low / breakdown
@@ -211,12 +216,72 @@ export function generateTradeSignal(
   score += (candlePatterns.confluenceScore * 0.4);
 
   // =========================================================================
+  // REAL-TIME QUANTITATIVE PARAMETERS INTEGRATION & ENGINE TUNING
+  // =========================================================================
+
+  // 8. Intraday VWAP & Volatility Bands
+  if (rt.vwap.bias === 'BULLISH') {
+    score += rt.vwap.distancePercent >= 0.20 ? 1.5 : 1.0;
+  } else if (rt.vwap.bias === 'BEARISH') {
+    score -= rt.vwap.distancePercent <= -0.20 ? 1.5 : 1.0;
+  }
+
+  // 9. 5-Minute 9/21 EMA Trend Stack
+  if (rt.ema.alignment === 'BULLISH_STACK') {
+    score += 1.1;
+  } else if (rt.ema.alignment === 'BEARISH_STACK') {
+    score -= 1.1;
+  }
+
+  // 10. 5-Minute RSI (14) & Divergence
+  if (rt.rsi.condition === 'BULLISH') {
+    score += 1.2;
+  } else if (rt.rsi.condition === 'BEARISH') {
+    score -= 1.2;
+  }
+  if (rt.rsi.divergence === 'BULLISH_DIVERGENCE') {
+    score += 1.5;
+  } else if (rt.rsi.divergence === 'BEARISH_DIVERGENCE') {
+    score -= 1.5;
+  }
+
+  // 11. 5-Minute MACD (12, 26, 9) Histogram & Velocity
+  if (rt.macd.trend === 'BULLISH_EXPANSION') {
+    score += 1.2;
+  } else if (rt.macd.trend === 'BEARISH_EXPANSION') {
+    score -= 1.2;
+  } else if (rt.macd.trend === 'BULLISH_DECELERATION') {
+    score -= 0.4;
+  } else if (rt.macd.trend === 'BEARISH_DECELERATION') {
+    score += 0.4;
+  }
+
+  // 12. Option Order Flow Delta & Volume Imbalance
+  if (rt.orderFlow.sentiment === 'BUYER_DOMINANCE') {
+    score += 1.0;
+  } else if (rt.orderFlow.sentiment === 'SELLER_DOMINANCE') {
+    score -= 1.0;
+  }
+  if (rt.orderFlow.pcrDivergence >= 0.20) {
+    score -= 0.7; // Fast intraday put accumulation
+  } else if (rt.orderFlow.pcrDivergence <= -0.20) {
+    score += 0.7; // Fast intraday call accumulation
+  }
+
+  // 13. VIX Volatility Velocity
+  if (rt.vixVelocity.velocityState === 'SURGING' && score < 0) {
+    score -= 1.0; // Volatility surge accelerates downside momentum
+  } else if (rt.vixVelocity.velocityState === 'COMPRESSING' && score > 0) {
+    score += 0.6; // Volatility crush supports steady grind up
+  }
+
+  // =========================================================================
   // CAPITAL PROTECTION & QUANT GUARD RAILS (Prevent False Trades & Traps)
   // =========================================================================
   let capitalProtectionReason = '';
 
   // GUARD RAIL 1: Intraday Recovery Protection (Do not buy PE into an active bounce off day low)
-  if ((recoveryRatio >= 0.50 || recoveryPoints >= ticker.strikeStep * 0.4) && score < 0) {
+  if ((recoveryRatio >= 0.50 || (recoveryRatio >= 0.40 && recoveryPoints >= ticker.strikeStep * 0.75)) && score < 0) {
     if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 2.5) {
       score = Math.max(score, 2.2); // Trigger BUY_CE for short-covering continuation
     } else {
@@ -257,19 +322,59 @@ export function generateTradeSignal(
     capitalProtectionReason = `Capital Protection: Spot is trading at session day low (${ticker.currency}${dayLow.toLocaleString()}). Avoid breakdown selling into the absolute floor.`;
   }
 
-  // Action Decision
+  // GUARD RAIL 5: 5m RSI Overbought / Oversold Trap
+  if (score >= 2.0 && rt.rsi.value >= 72) {
+    score = 1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: 5m RSI is overbought at ${rt.rsi.value.toFixed(1)} (>70). High risk of bull trap / exhaustion stall; wait for pullback to VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) or 9 EMA.`;
+  }
+  if (score <= -2.0 && rt.rsi.value <= 28) {
+    score = -1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: 5m RSI is deeply oversold at ${rt.rsi.value.toFixed(1)} (<30). High risk of violent short-covering snapback; avoid shorting the climax floor.`;
+  }
+
+  // GUARD RAIL 6: VWAP & EMA Alignment Trap
+  if (score >= 2.0 && spotPrice < rt.vwap.value - ticker.strikeStep * 0.15 && rt.ema.alignment === 'BEARISH_STACK') {
+    score = 1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading below Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) under a Bearish 9/21 EMA Stack. Wait for confirmed VWAP reclaim before entering calls.`;
+  }
+  if (score <= -2.0 && spotPrice > rt.vwap.value + ticker.strikeStep * 0.15 && rt.ema.alignment === 'BULLISH_STACK') {
+    score = -1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding firmly above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) with Bullish EMA Stack. Avoid buying puts against institutional VWAP support floor.`;
+  }
+
+  // Action Decision & 7-Pillar Confluence Matching
   let action: SignalAction = 'WAIT_NEUTRAL';
   let strength: SignalStrength = 'MODERATE';
   let confidence = 50;
 
-  if (score >= 2.0) {
+  const isBullCandidate = score >= 2.0;
+  const isBearCandidate = score <= -2.0;
+
+  let matchCount = 0;
+  if (isBullCandidate) {
+    if (recoveryRatio >= 0.50 || spotChangePct >= 0.05) matchCount++;
+    if (candlePatterns.confluenceBias === 'BULLISH') matchCount++;
+    if (rt.vwap.bias === 'BULLISH') matchCount++;
+    if (rt.ema.alignment === 'BULLISH_STACK') matchCount++;
+    if (rt.rsi.value >= 50 || rt.macd.trend.includes('BULLISH') || rt.rsi.divergence === 'BULLISH_DIVERGENCE') matchCount++;
+    if (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' || rt.orderFlow.pcrDivergence <= 0) matchCount++;
+    if (giftNiftyBias >= 0) matchCount++;
+
     action = 'BUY_CE';
-    confidence = Math.min(94, Math.round(62 + Math.abs(score) * 4));
-    strength = score >= 4.0 ? 'STRONG' : 'MODERATE';
-  } else if (score <= -2.0) {
+    confidence = Math.min(94, Math.max(62, Math.round(56 + (matchCount / 7) * 38)));
+    strength = matchCount >= 5 && score >= 4.0 ? 'STRONG' : 'MODERATE';
+  } else if (isBearCandidate) {
+    if (recoveryRatio <= 0.35 || spotChangePct <= -0.05) matchCount++;
+    if (candlePatterns.confluenceBias === 'BEARISH') matchCount++;
+    if (rt.vwap.bias === 'BEARISH') matchCount++;
+    if (rt.ema.alignment === 'BEARISH_STACK') matchCount++;
+    if (rt.rsi.value <= 50 || rt.macd.trend.includes('BEARISH') || rt.rsi.divergence === 'BEARISH_DIVERGENCE') matchCount++;
+    if (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' || rt.orderFlow.pcrDivergence >= 0) matchCount++;
+    if (giftNiftyBias <= 0) matchCount++;
+
     action = 'BUY_PE';
-    confidence = Math.min(94, Math.round(62 + Math.abs(score) * 4));
-    strength = Math.abs(score) >= 4.0 ? 'STRONG' : 'MODERATE';
+    confidence = Math.min(94, Math.max(62, Math.round(56 + (matchCount / 7) * 38)));
+    strength = matchCount >= 5 && Math.abs(score) >= 4.0 ? 'STRONG' : 'MODERATE';
   } else {
     action = 'WAIT_NEUTRAL';
     confidence = 52;
@@ -413,50 +518,61 @@ export function generateTradeSignal(
 
   if (isCE) {
     // BUY CALL:
-    // Target 1: Tactical swing move based on 2m/5m pattern and immediate Call OI hurdle
+    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Call OI hurdle, and VWAP upper band
     const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const vwapTargetDist = rt.vwap.upperBand > spotPrice ? (rt.vwap.upperBand - spotPrice) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (immediateCallHurdle - spotPrice) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, chartTarget1 - spotPrice));
-    const rawSpotMove1 = (patternMove * 0.55 + hurdleDist * 0.45) + newsTargetAdjustment;
-    const spotMove1 = Number(Math.max(minMove1, Math.min(maxMove1, rawSpotMove1)).toFixed(2));
+    
+    // In Positive Gamma regime, market pins tighter; in Negative Gamma, moves run freer
+    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.88 : maxMove1;
+    const rawSpotMove1 = (patternMove * 0.45 + hurdleDist * 0.35 + vwapTargetDist * 0.20) + newsTargetAdjustment;
+    const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
     spotTarget1 = Number((spotPrice + spotMove1).toFixed(2));
-    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} Hurdle (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} & OI Hurdle (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
-    // Target 2: Extended runner move based on 15m structure and secondary hurdle
+    // Target 2: Extended runner move based on 15m structure, secondary hurdle, and gamma expansion
     const chartTarget2 = candlePatterns.derivedExitLevel2;
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, chartTarget2 - spotPrice));
     const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (majorCallWall - spotPrice) * 0.40));
-    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35));
-    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2, rawSpotMove2)).toFixed(2));
+    const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
+    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35) * gammaRunnerMultiplier);
+    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 1.0), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice + spotMove2).toFixed(2));
     target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
-    // Spot Stop Loss: below 2m/5m swing low
-    const rawSLDist = Math.max(minSL, Math.min(maxSL, spotPrice - candlePatterns.invalidationLevel));
+    // Spot Stop Loss: below 2m/5m swing low and 9 EMA / VWAP floor
+    const vwapSupportDist = spotPrice > rt.vwap.value ? (spotPrice - rt.vwap.value) : minSL;
+    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(spotPrice - candlePatterns.invalidationLevel, vwapSupportDist * 1.1)));
     spotStopLoss = Number((spotPrice - rawSLDist).toFixed(2));
 
   } else {
     // BUY PUT:
-    // Target 1: Tactical swing move based on 2m/5m pattern and immediate Put OI support
+    // Target 1: Tactical swing move based on 2m/5m pattern, immediate Put OI support, and VWAP lower band
     const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const vwapFloorDist = rt.vwap.lowerBand < spotPrice ? (spotPrice - rt.vwap.lowerBand) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (spotPrice - immediatePutSupport) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, spotPrice - chartTarget1));
-    const rawSpotMove1 = (patternMove * 0.55 + hurdleDist * 0.45) + newsTargetAdjustment;
-    const spotMove1 = Number(Math.max(minMove1, Math.min(maxMove1, rawSpotMove1)).toFixed(2));
-    spotTarget1 = Number((spotPrice - spotMove1).toFixed(2));
-    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} Support (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
-    // Target 2: Extended runner move based on 15m structure and secondary floor
+    const gammaTunedMax1 = rt.gammaExposure.regime === 'POSITIVE_GAMMA' ? maxMove1 * 0.88 : maxMove1;
+    const rawSpotMove1 = (patternMove * 0.45 + hurdleDist * 0.35 + vwapFloorDist * 0.20) + newsTargetAdjustment;
+    const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
+    spotTarget1 = Number((spotPrice - spotMove1).toFixed(2));
+    target1Basis = `2m/5m ${candlePatterns.m5.pattern.replace(/5m\s*/, '')} & Floor Test (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+
+    // Target 2: Extended runner move based on 15m structure, secondary floor, and gamma acceleration
     const chartTarget2 = candlePatterns.derivedExitLevel2;
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, spotPrice - chartTarget2));
     const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (spotPrice - majorPutWall) * 0.40));
-    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35));
-    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2, rawSpotMove2)).toFixed(2));
+    const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
+    const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, (patternMove2 * 0.65 + hurdleDist2 * 0.35) * gammaRunnerMultiplier);
+    const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 1.0), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice - spotMove2).toFixed(2));
     target2Basis = `15m ${candlePatterns.m15.pattern.replace(/15m\s*/, '')} Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
-    // Spot Stop Loss: above 2m/5m swing high
-    const rawSLDist = Math.max(minSL, Math.min(maxSL, candlePatterns.invalidationLevel - spotPrice));
+    // Spot Stop Loss: above 2m/5m swing high and 9 EMA / VWAP ceiling
+    const vwapCeilDist = spotPrice < rt.vwap.value ? (rt.vwap.value - spotPrice) : minSL;
+    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candlePatterns.invalidationLevel - spotPrice, vwapCeilDist * 1.1)));
     spotStopLoss = Number((spotPrice + rawSLDist).toFixed(2));
   }
 
@@ -642,6 +758,20 @@ export function generateTradeSignal(
     description: `Targets are algorithmically anchored to live market premium (${ticker.currency}${premium.toFixed(2)}): 1. Tactical Target 1 (+${((target1Delta / premium) * 100).toFixed(1)}%) captures 2m/5m measured move to spot ${ticker.currency}${spotTarget1.toLocaleString()}. 2. Runner Target 2 (+${((target2Delta / premium) * 100).toFixed(1)}%) captures 15m trend extension to spot ${ticker.currency}${spotTarget2.toLocaleString()}. 3. Stop Loss (-${((actualRisk / premium) * 100).toFixed(1)}%) guards against invalidation at spot ${ticker.currency}${spotStopLoss.toLocaleString()}. Pricing synthesized via anchored Black-Scholes Delta (${delta.toFixed(2)}) & Gamma to eliminate unrealistic overshoots.`,
   });
 
+  // Rationale 6: Intraday VWAP & 9/21 EMA Trend Stack
+  rationalePoints.push({
+    title: 'Intraday VWAP & 9/21 EMA Institutional Stack',
+    verdict: rt.vwap.bias === 'BULLISH' ? 'BULLISH' : rt.vwap.bias === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
+    description: `VWAP: ${ticker.currency}${rt.vwap.value.toLocaleString()} (${rt.vwap.statusLabel}, distance: ${rt.vwap.distancePercent > 0 ? '+' : ''}${rt.vwap.distancePercent}%). Bands: [${ticker.currency}${rt.vwap.lowerBand.toLocaleString()} - ${ticker.currency}${rt.vwap.upperBand.toLocaleString()}]. 5m EMA Stack: ${rt.ema.label} (9 EMA: ${ticker.currency}${rt.ema.ema9.toLocaleString()} vs 21 EMA: ${ticker.currency}${rt.ema.ema21.toLocaleString()}).`,
+  });
+
+  // Rationale 7: Real-Time RSI, MACD & Gamma Exposure (GEX) Regime
+  rationalePoints.push({
+    title: 'RSI, MACD Momentum & Option Gamma (GEX) Regime',
+    verdict: rt.macd.trend.includes('BULLISH') ? 'BULLISH' : rt.macd.trend.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
+    description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence.replace(/_/g, ' ')}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure.regime.replace(/_/g, ' ')} (Net GEX: ${rt.gammaExposure.netGex.toLocaleString()} | Flip Strike: ${ticker.currency}${rt.gammaExposure.flipStrike.toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment.replace(/_/g, ' ')}).`,
+  });
+
   // Add Capital Protection point if activated
   if (capitalProtectionReason) {
     rationalePoints.unshift({
@@ -658,9 +788,9 @@ export function generateTradeSignal(
 
   let summaryNote = '';
   if (action === 'BUY_CE') {
-    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlestick patterns & OI hurdles.`;
+    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.`;
   } else if (action === 'BUY_PE') {
-    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlestick patterns & OI hurdles.`;
+    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.`;
   } else {
     summaryNote = capitalProtectionReason
       ? `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`
@@ -690,5 +820,6 @@ export function generateTradeSignal(
     spotStopLoss,
     candleAnalysis: candlePatterns,
     targetExitSynthesis,
+    realtimeIndicators: rt,
   };
 }

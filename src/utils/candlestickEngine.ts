@@ -32,28 +32,26 @@ export function generateRollingCandles(
   const recoveryRatio = (S - dayLow) / dayRange; // 0 = at low, 1.0 = at high
   const recoveryFromLow = S - dayLow;
 
-  const isIntradayRecovery = recoveryRatio >= 0.50 || recoveryFromLow >= step * 0.5;
-  const isIntradayBreakdown = recoveryRatio <= 0.30;
-  const isUptrend = isIntradayRecovery ? true : (isIntradayBreakdown ? false : changePct >= 0);
+  const isIntradayBreakdown = recoveryRatio <= 0.32;
+  const isIntradayRecovery = !isIntradayBreakdown && (recoveryRatio >= 0.50 || (recoveryRatio >= 0.38 && recoveryFromLow >= step * 0.75));
+  const isUptrend = isIntradayBreakdown ? false : (isIntradayRecovery ? true : changePct >= 0);
 
   // Typical candle volatility scaled to timeframe
   const candleVolatility = Math.max(step * 0.08, (S * (Math.max(10, ticker.vix || 13) / 100) / 15.87) * Math.sqrt(timeframeMinutes / 375));
 
   const candles: Candle[] = [];
-  
-  // Build backwards from current live spot
   let currentClose = S;
 
   for (let i = 0; i < count; i++) {
     const candleTs = now - (i * tfMs);
     const timeStr = formatTime(candleTs);
 
-    // If i === 0, this is the current active/forming candle
     if (i === 0) {
-      const openOffset = (isUptrend ? -1 : 1) * candleVolatility * 0.45;
-      const open = Number((currentClose + openOffset).toFixed(2));
-      const high = Number((Math.max(currentClose, open) + candleVolatility * 0.35).toFixed(2));
-      const low = Number((Math.min(currentClose, open) - candleVolatility * 0.25).toFixed(2));
+      // Current forming candle at live spot
+      const openOffset = (isUptrend ? -1 : 1) * candleVolatility * 0.25;
+      const open = Number((S + openOffset).toFixed(2));
+      const high = Number((Math.max(S, open) + candleVolatility * 0.20 + 0.02).toFixed(2));
+      const low = Number((Math.min(S, open) - candleVolatility * 0.20 - 0.02).toFixed(2));
       const volume = Math.round(15000 + Math.random() * 25000);
 
       candles.unshift({
@@ -61,18 +59,23 @@ export function generateRollingCandles(
         open,
         high,
         low,
-        close: currentClose,
+        close: S,
         volume,
         timestamp: candleTs,
       });
-      currentClose = open;
     } else {
-      // Historical candles leading up to the current spot
-      const drift = (isUptrend ? -1 : 1) * (candleVolatility * 0.3);
-      const noise = (Math.sin(i * 1.7) * 0.6) * candleVolatility;
-      const open = Number((currentClose + drift + noise).toFixed(2));
-      const high = Number((Math.max(currentClose, open) + Math.abs(noise) * 0.7 + candleVolatility * 0.25).toFixed(2));
-      const low = Number((Math.min(currentClose, open) - Math.abs(noise) * 0.7 - candleVolatility * 0.25).toFixed(2));
+      // Realistic balanced multi-wave price action: 2-step forward, 1-step back
+      const isOdd = (i % 2 === 1);
+      const unit = candleVolatility * 0.45;
+      const delta = isOdd
+        ? (isUptrend ? -unit * (0.65 + Math.abs(Math.sin(i * 1.3)) * 0.4) : unit * (0.65 + Math.abs(Math.sin(i * 1.3)) * 0.4))
+        : (isUptrend ? unit * (0.40 + Math.abs(Math.cos(i * 1.7)) * 0.3) : -unit * (0.40 + Math.abs(Math.cos(i * 1.7)) * 0.3));
+
+      const targetPrice = Math.max(dayLow, Math.min(dayHigh, currentClose + delta));
+      const close = Number(targetPrice.toFixed(2));
+      const open = Number((close + (isUptrend ? -1 : 1) * candleVolatility * 0.20 + Math.sin(i * 2.1) * candleVolatility * 0.10).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.abs(Math.cos(i)) * candleVolatility * 0.20 + 0.02).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.abs(Math.sin(i)) * candleVolatility * 0.20 - 0.02).toFixed(2));
       const volume = Math.round(10000 + Math.abs(Math.sin(i)) * 30000);
 
       candles.unshift({
@@ -80,13 +83,16 @@ export function generateRollingCandles(
         open,
         high,
         low,
-        close: currentClose,
+        close,
         volume,
         timestamp: candleTs,
       });
-      currentClose = open;
+      currentClose = close;
     }
   }
+
+  // Ensure latest candle close matches live spot S exactly
+  candles[candles.length - 1].close = S;
 
   return candles;
 }
