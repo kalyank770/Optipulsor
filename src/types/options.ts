@@ -404,6 +404,12 @@ export interface TradeSignal {
   realtimeIndicators?: RealtimePredictionIndicators;
   constituentAnalysis?: NiftyConstituentAnalysis;
   adjacentStrikes?: AdjacentStrikeAnalysis[];
+  tradeStage?: TradeLifecycleStage;
+  sessionHighLTP?: number;
+  sessionLowLTP?: number;
+  isTargetAlreadyAchieved?: boolean;
+  targetAchievedNote?: string;
+  peakGainPercent?: number;
 }
 
 export interface NewsItem {
@@ -422,7 +428,23 @@ export interface NewsItem {
   link?: string;
 }
 
-export type StrikeOutcomeStatus = 'ACTIVE' | 'TARGET_1_HIT' | 'TARGET_2_HIT' | 'STOP_LOSS_HIT' | 'PROFITABLE' | 'IN_LOSS';
+export type TradeLifecycleStage = 
+  | 'FRESH_ENTRY'           // In entry zone, target not reached yet
+  | 'EXPANDING_IN_PROFIT'   // Above entry, moving towards Target 1
+  | 'TARGET_1_HIT'          // Target 1 reached at high of move
+  | 'TARGET_2_HIT'          // Target 2 runner reached
+  | 'POST_TARGET_RETRACEMENT' // Target was hit (e.g. 95), now pulled back (e.g. 70) - DO NOT CHASE
+  | 'STOP_LOSS_HIT'         // SL invalidated
+  | 'NEUTRAL_WAIT';
+
+export type StrikeOutcomeStatus = 
+  | 'ACTIVE' 
+  | 'TARGET_1_HIT' 
+  | 'TARGET_2_HIT' 
+  | 'TARGET_1_RETRACED'
+  | 'STOP_LOSS_HIT' 
+  | 'PROFITABLE' 
+  | 'IN_LOSS';
 
 export interface StrikeHistoryItem {
   id: string;
@@ -441,9 +463,11 @@ export interface StrikeHistoryItem {
   stopLoss: number;
   currentLTP: number;
   highestLTP: number;
+  lowestLTP?: number;
   pnlPercent: number;
   maxProfitPercent: number;
   status: StrikeOutcomeStatus;
+  lifecycleStage?: TradeLifecycleStage;
   confidence: number;
   riskReward: string;
 }

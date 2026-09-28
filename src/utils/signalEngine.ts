@@ -8,7 +8,8 @@ import {
   Moneyness, 
   NewsItem,
   OptionType,
-  AdjacentStrikeAnalysis
+  AdjacentStrikeAnalysis,
+  TradeLifecycleStage
 } from '../types/options';
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
@@ -121,6 +122,7 @@ export function generateTradeSignal(
   newsItems: NewsItem[]
 ): TradeSignal {
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
+  const vix = Math.max(9, ticker.vix || 13);
   const rt = metrics.realtimeIndicators || computeRealtimeIndicators(ticker, chain);
   
   // Nearby strikes around current spot
@@ -371,6 +373,25 @@ export function generateTradeSignal(
     capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding firmly above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) with Bullish EMA Stack. Avoid buying puts against institutional VWAP support floor.`;
   }
 
+  // GUARD RAIL 7: Rejection Wick Shadow Trap (Upper Shadow Rejection for CE / Lower Shadow Rejection for PE)
+  if (score >= 2.0 && candlePatterns.m5.pattern.toLowerCase().includes('upper shadow')) {
+    score = 1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: 5m candle shows Upper Wick Rejection near resistance. Sellers are capping upside; wait for confirmed breakout before buying calls.`;
+  }
+  if (score <= -2.0 && candlePatterns.m5.pattern.toLowerCase().includes('lower shadow')) {
+    score = -1.0; // Downgrade to WAIT_NEUTRAL
+    capitalProtectionReason = `Capital Protection: 5m candle shows Lower Wick Absorption near support. Institutional buyers are absorbing selling pressure; wait for breakdown before buying puts.`;
+  }
+
+  // GUARD RAIL 8: High Implied Volatility (IV Crush) Environment Protection
+  if (ivRank >= 75 || vix >= 22) {
+    if (score >= 2.0 || score <= -2.0) {
+      capitalProtectionReason = capitalProtectionReason 
+        ? capitalProtectionReason 
+        : `Capital Protection Notice: High Implied Volatility (IV Rank ${ivRank}%, VIX ${vix.toFixed(1)}). Extrinsic option premiums are inflated; ITM strike recommended to preserve intrinsic value floor against IV crush.`;
+    }
+  }
+
   // Action Decision & 7-Pillar Confluence Matching
   let action: SignalAction = 'WAIT_NEUTRAL';
   let strength: SignalStrength = 'MODERATE';
@@ -422,7 +443,12 @@ export function generateTradeSignal(
 
   // Select target strike:
   // Standard recommended strike for directional retail option buying is ATM
+  // If High IV Rank (>70) or high VIX (>22), switch to ITM strike to shield against IV Crush
   let targetStrike = atmStrike;
+  if ((ivRank >= 70 || vix >= 22) && (action === 'BUY_CE' || action === 'BUY_PE')) {
+    targetStrike = recommendedType === 'CE' ? atmStrike - ticker.strikeStep : atmStrike + ticker.strikeStep;
+  }
+
   let moneyness: Moneyness = 'ATM';
 
   let selectedRow = chain.find(r => r.strike === targetStrike);
@@ -432,7 +458,22 @@ export function generateTradeSignal(
   }
 
   // Extract the exact contract from the option chain row
-  const contract = recommendedType === 'CE' ? selectedRow?.ce : selectedRow?.pe;
+  let contract = recommendedType === 'CE' ? selectedRow?.ce : selectedRow?.pe;
+
+  // Liquidity Check: If selected strike has very low volume or OI, fallback to ATM or neighboring liquid strike
+  const minVolThreshold = ticker.currency === '₹' ? 1500 : 80;
+  if (contract && contract.volume < minVolThreshold && chain.length > 0) {
+    const liquidRow = chain.find(r => {
+      const c = recommendedType === 'CE' ? r.ce : r.pe;
+      return c.volume >= minVolThreshold;
+    });
+    if (liquidRow) {
+      selectedRow = liquidRow;
+      targetStrike = liquidRow.strike;
+      contract = recommendedType === 'CE' ? selectedRow.ce : selectedRow.pe;
+    }
+  }
+
   if (contract) {
     moneyness = contract.moneyness;
   }
@@ -474,7 +515,6 @@ export function generateTradeSignal(
   const majorPutWall = majorSupportStrike;
 
   // --- 2. PREVIOUS TREND PATTERNS & INTRADAY VOLATILITY ---
-  const vix = Math.max(9, ticker.vix || 13);
   // Daily Expected Move based on VIX: Spot * (VIX / 100) / sqrt(252)
   const dailyExpectedMove = spotPrice * (vix / 100) / 15.87;
   const intradaySessionMove = Math.max(step * 0.45, dailyExpectedMove * 0.40);
@@ -682,6 +722,13 @@ export function generateTradeSignal(
   const estLoss = bsLoss * 0.50 + greekLoss * 0.50;
   const stopLoss = Math.max(tick, roundToTick(premium - estLoss));
   const actualRisk = roundToTick(Math.max(tick, premium - stopLoss));
+
+  // GUARD RAIL 10: Strict Risk-to-Reward Expected Value Filter
+  // If Risk exceeds Target 1 Reward (Risk:Reward worse than 1:1.05), downgrade to WAIT_NEUTRAL
+  if (action !== 'WAIT_NEUTRAL' && actualRisk > target1Delta * 0.95) {
+    action = 'WAIT_NEUTRAL';
+    capitalProtectionReason = `Capital Protection: Unfavorable Risk-to-Reward Ratio (Risk: ${ticker.currency}${actualRisk.toFixed(2)} vs Target 1 Gain: ${ticker.currency}${target1Delta.toFixed(2)}). Buying at ${ticker.currency}${premium.toFixed(2)} has poor expected value; wait for dip toward lower entry boundary ${ticker.currency}${roundToTick(premium - tick * 4).toFixed(2)}.`;
+  }
 
   // Grounded Entry Range calculation (incorporates 2m micro-pullback buffer and bid-ask spread)
   const spreadBuffer = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
@@ -901,6 +948,48 @@ export function generateTradeSignal(
     });
   }
 
+  // --- 6. SESSION EXTREMES & TRADE LIFECYCLE EVALUATION ---
+  // Evaluates contract high/low at session extremes (Day Low for PE peak, Day High for CE peak)
+  const peakSpotExtreme = isCE ? ticker.dayHigh : ticker.dayLow;
+  const bsPeakExtreme = calculateBlackScholes(peakSpotExtreme, targetStrike, T, r, ivDecimal, recommendedType);
+  const sessionHighLTP = Math.max(premium, roundToTick(bsPeakExtreme.price));
+  const lowSpotExtreme = isCE ? ticker.dayLow : ticker.dayHigh;
+  const bsLowExtreme = calculateBlackScholes(lowSpotExtreme, targetStrike, T, r, ivDecimal, recommendedType);
+  const sessionLowLTP = Math.min(premium, roundToTick(bsLowExtreme.price));
+
+  // Determine Trade Lifecycle Stage
+  let tradeStage: TradeLifecycleStage = 'FRESH_ENTRY';
+  let isTargetAlreadyAchieved = false;
+  let targetAchievedNote = '';
+
+  const peakGainPercent = Number((((sessionHighLTP - premium) / premium) * 100).toFixed(1));
+
+  if (action === 'WAIT_NEUTRAL') {
+    tradeStage = 'NEUTRAL_WAIT';
+  } else if (premium >= target2 || sessionHighLTP >= target2) {
+    if (premium >= target2 * 0.96) {
+      tradeStage = 'TARGET_2_HIT';
+    } else {
+      tradeStage = 'POST_TARGET_RETRACEMENT';
+      isTargetAlreadyAchieved = true;
+      targetAchievedNote = `Target 2 (${ticker.currency}${target2.toFixed(2)}) was hit earlier. Current price (${ticker.currency}${premium.toFixed(2)}) is retracing post-target.`;
+    }
+  } else if (sessionHighLTP >= target1 * 0.98 || premium >= target1 * 0.98) {
+    if (premium >= target1 * 0.96) {
+      tradeStage = 'TARGET_1_HIT';
+    } else {
+      tradeStage = 'POST_TARGET_RETRACEMENT';
+      isTargetAlreadyAchieved = true;
+      targetAchievedNote = `Target 1 (${ticker.currency}${target1.toFixed(2)}) was already achieved during this session. Current price (${ticker.currency}${premium.toFixed(2)}) is in a post-target pullback. Avoid fresh market entry at current price.`;
+    }
+  } else if (premium > entryHigh) {
+    tradeStage = 'EXPANDING_IN_PROFIT';
+  } else if (premium <= stopLoss) {
+    tradeStage = 'STOP_LOSS_HIT';
+  } else {
+    tradeStage = 'FRESH_ENTRY';
+  }
+
   // Summary Note: Explicitly states current price and reason
   const pricePrefix = ticker.isUsingPreMarket
     ? `Based on PRE-MARKET price of ${ticker.currency}${spotPrice.toLocaleString()} (${changeFormatted} vs reference close)`
@@ -908,9 +997,9 @@ export function generateTradeSignal(
 
   let summaryNote = '';
   if (action === 'BUY_CE') {
-    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.`;
+    summaryNote = `${pricePrefix}: Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.${isTargetAlreadyAchieved ? ` [NOTE: Target 1 was already achieved; current ${ticker.currency}${premium.toFixed(2)} is a pullback]` : ''}`;
   } else if (action === 'BUY_PE') {
-    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.`;
+    summaryNote = `${pricePrefix}: Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)}. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.${isTargetAlreadyAchieved ? ` [NOTE: Target 1 was already achieved; current ${ticker.currency}${premium.toFixed(2)} is a pullback]` : ''}`;
   } else {
     summaryNote = capitalProtectionReason
       ? `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`
@@ -956,6 +1045,12 @@ export function generateTradeSignal(
     realtimeIndicators: rt,
     constituentAnalysis,
     adjacentStrikes,
+    tradeStage,
+    sessionHighLTP,
+    sessionLowLTP,
+    isTargetAlreadyAchieved,
+    targetAchievedNote,
+    peakGainPercent,
   };
 }
 

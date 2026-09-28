@@ -455,7 +455,6 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
                 <th className="py-2.5 px-3 text-right font-semibold">Target 1 & 2</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Live LTP</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Current P&L</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Peak Gain</th>
                 <th className="py-2.5 px-3 text-center font-semibold">Outcome Status</th>
               </tr>
             </thead>
@@ -519,22 +518,19 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
                       </span>
                     </td>
 
-                    {/* Peak Gain */}
-                    <td className="py-2.5 px-3 text-right font-bold text-emerald-400">
-                      +{record.maxProfitPercent}%
-                    </td>
-
                     {/* Outcome Status */}
                     <td className="py-2.5 px-3 text-center">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
                         record.status === 'TARGET_2_HIT' ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' :
                         record.status === 'TARGET_1_HIT' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                        record.status === 'TARGET_1_RETRACED' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
                         record.status === 'STOP_LOSS_HIT' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' :
                         record.status === 'PROFITABLE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
                         'bg-slate-800 text-slate-300 border-slate-700'
                       }`}>
                         {record.status === 'TARGET_2_HIT' && '🚀 TARGET 2 HIT'}
                         {record.status === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
+                        {record.status === 'TARGET_1_RETRACED' && '⚠️ T1 HIT (RETRACED)'}
                         {record.status === 'STOP_LOSS_HIT' && '🛑 STOP LOSS'}
                         {record.status === 'PROFITABLE' && '⚡ IN PROFIT'}
                         {record.status === 'ACTIVE' && '⏳ ACTIVE'}

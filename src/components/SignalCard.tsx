@@ -147,10 +147,18 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
-              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white">
-                {isCE && <span className="text-emerald-400">BUY CALL — {signal.recommendedStrike} CE</span>}
-                {isPE && <span className="text-rose-400">BUY PUT — {signal.recommendedStrike} PE</span>}
-                {isNeutral && <span className="text-amber-400">STAY NEUTRAL / WAIT</span>}
+              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
+                {signal.tradeStage === 'POST_TARGET_RETRACEMENT' ? (
+                  <span className="text-amber-400">
+                    {isCE ? 'CALL' : 'PUT'} — {signal.recommendedStrike} {signal.recommendedType} (Target 1 Reached · Retracing)
+                  </span>
+                ) : (
+                  <>
+                    {isCE && <span className="text-emerald-400">BUY CALL — {signal.recommendedStrike} CE</span>}
+                    {isPE && <span className="text-rose-400">BUY PUT — {signal.recommendedStrike} PE</span>}
+                    {isNeutral && <span className="text-amber-400">STAY NEUTRAL / WAIT</span>}
+                  </>
+                )}
               </h2>
 
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
@@ -160,6 +168,29 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               }`}>
                 {signal.strength} ({signal.confidence}%)
               </span>
+
+              {/* Trade Lifecycle State Badge */}
+              {signal.tradeStage && (
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded border font-mono ${
+                  signal.tradeStage === 'POST_TARGET_RETRACEMENT'
+                    ? 'border-amber-500/50 bg-amber-950/60 text-amber-300 animate-pulse'
+                    : signal.tradeStage === 'TARGET_1_HIT' || signal.tradeStage === 'TARGET_2_HIT'
+                    ? 'border-emerald-500/50 bg-emerald-950/60 text-emerald-300'
+                    : signal.tradeStage === 'EXPANDING_IN_PROFIT'
+                    ? 'border-sky-500/50 bg-sky-950/60 text-sky-300'
+                    : signal.tradeStage === 'STOP_LOSS_HIT'
+                    ? 'border-rose-500/50 bg-rose-950/60 text-rose-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}>
+                  {signal.tradeStage === 'POST_TARGET_RETRACEMENT' && '⚠️ TARGET 1 HIT · RETRACED'}
+                  {signal.tradeStage === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
+                  {signal.tradeStage === 'TARGET_2_HIT' && '🚀 TARGET 2 RUNNER HIT'}
+                  {signal.tradeStage === 'EXPANDING_IN_PROFIT' && '📈 EXPANDING TOWARDS T1'}
+                  {signal.tradeStage === 'FRESH_ENTRY' && '⚡ FRESH ENTRY ZONE'}
+                  {signal.tradeStage === 'STOP_LOSS_HIT' && '🛑 STOP LOSS HIT'}
+                  {signal.tradeStage === 'NEUTRAL_WAIT' && '⏸️ CONSOLIDATING'}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -184,6 +215,25 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Post-Target Retracement / Completed Prediction Warning Banner */}
+      {signal.tradeStage === 'POST_TARGET_RETRACEMENT' && (
+        <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-amber-300 text-xs sm:text-sm">
+                Target 1 Reached Earlier · Currently Retracing @ {ticker.currency}{currentLTP.toFixed(2)}
+              </div>
+              <p className="text-amber-200/90 text-[11.5px] mt-0.5 leading-relaxed">
+                This contract already reached Target 1 and has now pulled back into profit-booking. <strong className="text-amber-100">Avoid fresh market entry at {ticker.currency}{currentLTP.toFixed(2)}</strong>. Existing positions should hold trailing stop loss; new buyers should wait for a fresh base or next cycle breakout.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Live Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">

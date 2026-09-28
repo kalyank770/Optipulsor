@@ -8,7 +8,8 @@ import {
   CumulativeActionTrend,
   CumulativeTrendAlignment,
   Moneyness,
-  OptionType 
+  OptionType,
+  TradeLifecycleStage
 } from '../types/options';
 
 const STORAGE_KEY_PREFIX = 'optipulse_strike_history_v1_';
@@ -184,16 +185,23 @@ export function updateHistoryWithLiveChain(
     const maxProfitPercent = Number((((highest - entry) / entry) * 100).toFixed(1));
 
     let status = item.status;
-    if (liveLtp >= item.target2) {
-      status = 'TARGET_2_HIT';
-    } else if (liveLtp >= item.target1) {
-      status = 'TARGET_1_HIT';
+    let lifecycleStage: TradeLifecycleStage = item.lifecycleStage || 'ACTIVE' as any;
+
+    if (highest >= item.target2 || liveLtp >= item.target2) {
+      status = liveLtp >= item.target2 ? 'TARGET_2_HIT' : 'TARGET_2_HIT';
+      lifecycleStage = liveLtp < item.target2 ? 'POST_TARGET_RETRACEMENT' : 'TARGET_2_HIT';
+    } else if (highest >= item.target1 || liveLtp >= item.target1) {
+      status = liveLtp < item.target1 ? 'TARGET_1_RETRACED' : 'TARGET_1_HIT';
+      lifecycleStage = liveLtp < item.target1 ? 'POST_TARGET_RETRACEMENT' : 'TARGET_1_HIT';
     } else if (liveLtp <= item.stopLoss) {
       status = 'STOP_LOSS_HIT';
+      lifecycleStage = 'STOP_LOSS_HIT';
     } else if (pnlPercent > 0) {
       status = 'PROFITABLE';
+      lifecycleStage = 'EXPANDING_IN_PROFIT';
     } else {
       status = 'ACTIVE';
+      lifecycleStage = 'FRESH_ENTRY';
     }
 
     return {
@@ -203,6 +211,7 @@ export function updateHistoryWithLiveChain(
       pnlPercent,
       maxProfitPercent,
       status,
+      lifecycleStage,
     };
   });
 }
