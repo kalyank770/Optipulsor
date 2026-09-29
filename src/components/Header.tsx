@@ -2,7 +2,9 @@ import React from 'react';
 import { 
   RefreshCw,
   Sun,
-  Moon
+  Moon,
+  Power,
+  Zap
 } from 'lucide-react';
 import { TickerConfig } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
@@ -166,26 +168,26 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {onTogglePreMarket && (
-            <button
-              onClick={onTogglePreMarket}
-              title={usePreMarket ? "Switch back to regular market feed" : "Switch to Pre-Market hours data & gap prediction model"}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded border transition-all cursor-pointer min-h-[36px] ${
-                usePreMarket 
-                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/35 hover:bg-amber-500/20 shadow-sm'
-                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <span className="relative flex h-2 w-2">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${usePreMarket ? 'bg-amber-400 font-bold' : 'bg-slate-600'} opacity-75`}></span>
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${usePreMarket ? 'bg-amber-400' : 'bg-slate-500'}`}></span>
-              </span>
-              <span>Pre-Market Predictor</span>
-              <span className={`text-[9px] uppercase font-mono px-1 rounded ${usePreMarket ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-500'}`}>
-                {usePreMarket ? 'ON' : 'OFF'}
-              </span>
-            </button>
-          )}
+          {/* Automatic Exchange Session Status Badge */}
+          <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded border transition-all ${
+            marketStatus?.isOpen === false
+              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-xs'
+              : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+          }`}>
+            {marketStatus?.isOpen === false ? (
+              <Moon className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+            ) : (
+              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+            )}
+            <span className="hidden xs:inline font-mono">
+              {marketStatus?.isOpen === false 
+                ? (marketStatus.session === 'PRE_MARKET' ? 'Pre-Market Active' : 'After-Market Active') 
+                : 'Live Regular Session'}
+            </span>
+            <span className="xs:hidden font-mono">
+              {marketStatus?.isOpen === false ? 'After-Market' : 'Live'}
+            </span>
+          </div>
         </div>
       </div>
 

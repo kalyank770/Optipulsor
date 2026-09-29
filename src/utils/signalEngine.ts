@@ -15,6 +15,9 @@ import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
 import { computeRealtimeIndicators } from './technicalIndicators';
 import { analyzeNiftyConstituents, NIFTY_DERIVATIVE_COMPANIES } from '../data/niftyConstituents';
+import { getInterMarketTelemetry } from '../data/globalMacroData';
+import { computeAfterMarketOpeningAnalytics } from './afterMarketEngine';
+import { getMarketHoursStatus } from './marketHours';
 
 /**
  * Computes market metrics from an option chain
@@ -121,7 +124,8 @@ export function generateTradeSignal(
   chain: OptionChainRow[],
   newsItems: NewsItem[],
   previousSignal?: TradeSignal,
-  expiryIndex: number = 0
+  expiryIndex: number = 0,
+  liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis
 ): TradeSignal {
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
   const vix = Math.max(9, ticker.vix || 13);
@@ -230,7 +234,7 @@ export function generateTradeSignal(
   score += (candlePatterns.confluenceScore * 0.4);
 
   // 7b. Nifty Derivative Constituent Heavyweights & Sectoral Delta Engine (Indian Markets)
-  const constituentAnalysis = (ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined;
+  const constituentAnalysis = liveConstituentAnalysis || ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined);
   if (constituentAnalysis) {
     score += (constituentAnalysis.breadthScore * 0.45);
     score += (constituentAnalysis.weightedConstituentDelta * 2.5);
@@ -294,6 +298,20 @@ export function generateTradeSignal(
     score -= 1.0; // Volatility surge accelerates downside momentum
   } else if (rt.vixVelocity.velocityState === 'COMPRESSING' && score > 0) {
     score += 0.6; // Volatility crush supports steady grind up
+  }
+
+  // 14. Inter-Market Telemetry & Global Macro Cues
+  const interMarketTelemetry = getInterMarketTelemetry(ticker.symbol);
+  const globalScoreContrib = Number(((interMarketTelemetry.globalCompositeScore / 100) * 2.2).toFixed(2));
+  score += globalScoreContrib;
+
+  // 15. Volume Analytics & Institutional Spike Multiplier
+  if (rt.volumeAnalytics) {
+    if (rt.volumeAnalytics.volumeDivergence === 'BULLISH_VOLUME_EXPANSION') {
+      score += 1.4;
+    } else if (rt.volumeAnalytics.volumeDivergence === 'BEARISH_VOLUME_EXPANSION') {
+      score -= 1.4;
+    }
   }
 
   // =========================================================================
@@ -1060,6 +1078,22 @@ export function generateTradeSignal(
     });
   }
 
+  // Rationale 9: Global Inter-Market Telemetry (GIFT Nifty, US Futures, USD/INR, Crude, Yields)
+  rationalePoints.push({
+    title: `Global Inter-Market Alignment (${interMarketTelemetry.globalSentiment.replace(/_/g, ' ')})`,
+    verdict: interMarketTelemetry.globalCompositeScore >= 15 ? 'BULLISH' : interMarketTelemetry.globalCompositeScore <= -15 ? 'BEARISH' : 'NEUTRAL',
+    description: `${interMarketTelemetry.summaryInsight} Key drivers: GIFT Nifty (${interMarketTelemetry.giftNifty.change >= 0 ? '+' : ''}${interMarketTelemetry.giftNifty.change.toFixed(2)} pts), S&P 500 Fut (+${interMarketTelemetry.sp500Futures.changePercent}%), Brent Crude ($${interMarketTelemetry.brentCrude.price}/bbl), and USD/INR (₹${interMarketTelemetry.usdInr.price}) directly drive FII capital flow direction.`,
+  });
+
+  // Rationale 10: Volume Analytics & Order Flow Buildup
+  if (rt.volumeAnalytics) {
+    rationalePoints.push({
+      title: `Volume Dynamics & Order Flow Buildup (${rt.volumeAnalytics.volumeBuildupLabel})`,
+      verdict: rt.volumeAnalytics.buyerSellerPressureDelta >= 10 ? 'BULLISH' : rt.volumeAnalytics.buyerSellerPressureDelta <= -10 ? 'BEARISH' : 'NEUTRAL',
+      description: `Volume Multiplier is at ${rt.volumeAnalytics.totalVolumeMultiplier}x baseline 20MA with ${rt.volumeAnalytics.buyerSellerPressureDelta >= 0 ? '+' : ''}${rt.volumeAnalytics.buyerSellerPressureDelta}% order flow delta imbalance (${rt.volumeAnalytics.volumeBuildupLabel}). Confirms prediction accuracy with ${rt.volumeAnalytics.volumeAccuracyMultiplier}x volume multiplier.`,
+    });
+  }
+
   // Add Capital Protection point if activated
   if (capitalProtectionReason) {
     rationalePoints.unshift({
@@ -1224,6 +1258,19 @@ export function generateTradeSignal(
     expiryIndex
   );
 
+  // Compute After-Market & Pre-Market Opening Analytics
+  const marketStatus = getMarketHoursStatus(ticker);
+  const afterMarketAnalytics = computeAfterMarketOpeningAnalytics(ticker, marketStatus, rt.vwap.value, interMarketTelemetry, metrics);
+
+  // Rationale 11: After-Market Opening Projection
+  if (!marketStatus.isOpen) {
+    rationalePoints.push({
+      title: `Next Day Opening Projection (${afterMarketAnalytics.predictedOpeningType.replace(/_/g, ' ')})`,
+      verdict: afterMarketAnalytics.predictedOpeningGapPoints >= 20 ? 'BULLISH' : afterMarketAnalytics.predictedOpeningGapPoints <= -20 ? 'BEARISH' : 'NEUTRAL',
+      description: `After-Market Analysis predicts opening spot at ${ticker.currency}${afterMarketAnalytics.predictedOpeningSpot.toLocaleString()} (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts / ${afterMarketAnalytics.predictedOpeningGapPercent}% gap). Strategy: ${afterMarketAnalytics.openingStrategyPlaybook.strategyTitle}. ${afterMarketAnalytics.openingStrategyPlaybook.playbookDescription}`,
+    });
+  }
+
   return {
     action,
     strength,
@@ -1259,6 +1306,9 @@ export function generateTradeSignal(
     isTargetAlreadyAchieved,
     targetAchievedNote,
     peakGainPercent,
+    interMarketTelemetry,
+    volumeAnalytics: rt.volumeAnalytics,
+    afterMarketAnalytics,
   };
 }
 

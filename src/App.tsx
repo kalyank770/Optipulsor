@@ -31,7 +31,9 @@ import {
   Radio,
   TrendingUp,
   TrendingDown,
-  Clock
+  Clock,
+  Power,
+  X
 } from 'lucide-react';
 
 export default function App() {
@@ -302,6 +304,55 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto px-2.5 sm:px-6 py-3 sm:py-6 space-y-6 sm:space-y-8 pb-28 sm:pb-24">
+        {/* Pre-Market Predictor Active Telemetry Banner & Turn Off Control */}
+        {usePreMarket && (
+          <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3.5 sm:p-4 text-xs shadow-lg backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 mt-0.5 sm:mt-0">
+                <Zap className="w-5 h-5 text-amber-400 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-amber-300 text-sm tracking-tight flex items-center gap-1.5">
+                    Pre-Market Predictor & Gap Analysis Active
+                  </span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-bold shadow-xs">
+                    ON
+                  </span>
+                </div>
+                <p className="text-amber-200/90 text-xs font-mono">
+                  Projected Spot: <strong className="text-white">{selectedTicker.currency}{(selectedTicker.preMarketPrice || selectedTicker.spotPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  <span className="text-amber-400/60 mx-1.5">·</span>
+                  Regular Spot: <span className="text-slate-300">{selectedTicker.currency}{(selectedTicker.regularPrice || selectedTicker.prevClose).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="text-amber-400/60 mx-1.5">·</span>
+                  Gap: <strong className={selectedTicker.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {selectedTicker.change >= 0 ? '+' : ''}{selectedTicker.change.toFixed(2)} pts ({selectedTicker.changePercent >= 0 ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
+                  </strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+              <button
+                onClick={() => toggleUsePreMarket(false)}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 hover:text-white border border-rose-500/50 font-bold text-xs transition-all cursor-pointer shadow-sm group min-h-[36px]"
+                title="Turn off Pre-Market Predictor and restore regular market spot feed"
+              >
+                <Power className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" />
+                <span>Turn Off Pre-Market Predictor</span>
+              </button>
+
+              <button
+                onClick={() => toggleUsePreMarket(false)}
+                className="p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+                title="Turn Off Pre-Market Predictor"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* CE vs PE Recommendation Signal Card (Always prominent) */}
         <section aria-label="Trade Signal" id="section-signal">
           <SignalCard
@@ -314,6 +365,8 @@ export default function App() {
             theme="dark"
             currentExpiryIndex={expiryIndex}
             onSelectExpiry={handleSelectExpiry}
+            usePreMarket={usePreMarket}
+            onTogglePreMarket={toggleUsePreMarket}
           />
         </section>
 
@@ -534,10 +587,10 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                  <span>Real-Time Quantitative Parameters</span>
+                  <span>Real-Time Inter-Market & Quantitative Telemetry</span>
                 </h3>
                 <p className="text-xs text-slate-400 font-mono hidden sm:block mt-0.5">
-                  VWAP Channel · RSI · MACD Velocity · EMA 9/21 · Net Gamma (GEX) · Order Flow · VIX State
+                  GIFT Nifty · US Futures · USD/INR · Brent Crude · Volume Surge · VWAP · Order Flow Delta · GEX
                 </p>
               </div>
             </div>
@@ -554,7 +607,9 @@ export default function App() {
             <div className="pt-1">
               <RealtimeQuantSection 
                 indicators={signal.realtimeIndicators} 
+                interMarketTelemetry={signal.interMarketTelemetry}
                 currency={selectedTicker.currency} 
+                tickerSymbol={selectedTicker.symbol}
               />
             </div>
           )}

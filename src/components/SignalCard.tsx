@@ -5,6 +5,7 @@ import {
   MarketMetrics,
   OptionChainRow
 } from '../types/options';
+import { AfterMarketOpeningCard } from './AfterMarketOpeningCard';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -30,7 +31,8 @@ import {
   Target,
   Percent,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Power
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -43,6 +45,8 @@ interface SignalCardProps {
   theme?: 'dark' | 'light';
   currentExpiryIndex?: number;
   onSelectExpiry?: (index: number) => void;
+  usePreMarket?: boolean;
+  onTogglePreMarket?: () => void;
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
@@ -54,6 +58,8 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   theme = 'dark',
   currentExpiryIndex = 0,
   onSelectExpiry,
+  usePreMarket = false,
+  onTogglePreMarket,
 }) => {
   const isLight = theme === 'light';
   const [copied, setCopied] = useState(false);
@@ -227,6 +233,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   {signal.tradeStage === 'STOP_LOSS_HIT' && '🛑 STOP LOSS HIT'}
                   {signal.tradeStage === 'NEUTRAL_WAIT' && '⏸️ WAIT'}
                 </span>
+              )}
+
+              {/* Pre-Market Predictor Active Badge & Turn Off Button */}
+              {(usePreMarket || ticker.isUsingPreMarket) && (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                  <span>Pre-Market Predictor Active</span>
+                  {onTogglePreMarket && (
+                    <button
+                      onClick={onTogglePreMarket}
+                      className="ml-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-rose-500/30 hover:text-rose-200 text-amber-200 transition-colors cursor-pointer flex items-center gap-1 border border-amber-500/40 text-[10px] font-sans"
+                      title="Turn Off Pre-Market Predictor & Return to Regular Spot Feed"
+                    >
+                      <Power className="w-3 h-3 text-rose-400" />
+                      <span>Turn Off</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -415,6 +439,15 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         );
       })()}
+
+      {/* After-Market & Pre-Market Opening Analytics Card */}
+      {signal.afterMarketAnalytics && (
+        <AfterMarketOpeningCard 
+          analytics={signal.afterMarketAnalytics} 
+          ticker={ticker} 
+          theme={theme} 
+        />
+      )}
 
       {/* Live Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -1102,6 +1135,12 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <span className="text-xs font-bold text-white uppercase tracking-wider">
                 Nifty 50 Derivative Heavyweights & Sectoral Breadth
               </span>
+              {signal.constituentAnalysis.asOnTime && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {signal.constituentAnalysis.asOnTime}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
@@ -1119,6 +1158,15 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
           {expandedSubSections.heavyweights && (
             <div className="p-3 pt-2">
+              {/* Summary Note */}
+              <div className="mb-2 text-[11px] text-slate-300 bg-slate-900/60 p-2 rounded border border-slate-800 flex items-center justify-between">
+                <span>{signal.constituentAnalysis.summaryNote}</span>
+                <span className="text-[10px] text-emerald-400 font-mono font-semibold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  Live Exchange Feed
+                </span>
+              </div>
+
               {/* Heavyweight Breadth Metrics Bar */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2.5 text-xs font-mono">
                 <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
@@ -1148,7 +1196,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               </div>
 
               {/* Top Gainers and Draggers */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs mb-2.5">
                 {/* Top Leaders */}
                 <div className="p-2.5 rounded bg-slate-900/90 border border-emerald-500/20">
                   <span className="text-[10.5px] font-bold text-emerald-400 flex items-center justify-between mb-1.5 font-sans">
@@ -1191,6 +1239,68 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* All Individual Heavyweight Constituents Live Matrix */}
+              {signal.constituentAnalysis.constituents && signal.constituentAnalysis.constituents.length > 0 && (
+                <div className="mb-2.5 rounded bg-slate-900/80 border border-slate-800 overflow-hidden">
+                  <div className="p-2 bg-slate-950 border-b border-slate-800 text-[11px] font-bold text-slate-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <BarChart2 className="w-3.5 h-3.5 text-sky-400" />
+                      All Heavyweight Derivative Constituents
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {signal.constituentAnalysis.constituents.length} stocks
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                    <table className="w-full text-[11px] font-mono text-left">
+                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase sticky top-0 border-b border-slate-800">
+                        <tr>
+                          <th className="p-1.5 pl-2.5">Stock</th>
+                          <th className="p-1.5">Sector</th>
+                          <th className="p-1.5 text-right">Weight</th>
+                          <th className="p-1.5 text-right">LTP (₹)</th>
+                          <th className="p-1.5 text-right">Change</th>
+                          <th className="p-1.5 text-right">Impact</th>
+                          <th className="p-1.5 pr-2.5 text-center">Buildup</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                        {signal.constituentAnalysis.constituents.map(c => {
+                          const isPos = c.change >= 0;
+                          return (
+                            <tr key={c.symbol} className="hover:bg-slate-800/40 transition-colors">
+                              <td className="p-1.5 pl-2.5 font-bold text-white flex items-center gap-1">
+                                {c.symbol}
+                                <span className="text-[9.5px] text-slate-400 font-sans truncate max-w-[80px]">({c.name})</span>
+                              </td>
+                              <td className="p-1.5 text-[10px] text-slate-400">{c.sector}</td>
+                              <td className="p-1.5 text-right text-slate-300">{c.niftyWeight}%</td>
+                              <td className="p-1.5 text-right font-bold">₹{c.spotPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                              <td className={`p-1.5 text-right font-semibold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {isPos ? '+' : ''}{c.change} ({isPos ? '+' : ''}{c.changePercent}%)
+                              </td>
+                              <td className={`p-1.5 text-right font-bold ${c.niftyContributionPoints >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {c.niftyContributionPoints >= 0 ? '+' : ''}{c.niftyContributionPoints} pts
+                              </td>
+                              <td className="p-1.5 pr-2.5 text-center">
+                                <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border ${
+                                  c.buildup === 'Long Buildup' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                                  c.buildup === 'Short Buildup' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' :
+                                  c.buildup === 'Short Covering' ? 'bg-sky-500/10 text-sky-300 border-sky-500/30' :
+                                  'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                }`}>
+                                  {c.buildup}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Sectoral Breakdown Corridor */}
               <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[10.5px] font-mono">

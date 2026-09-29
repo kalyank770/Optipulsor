@@ -141,6 +141,46 @@ export interface RealtimePredictionIndicators {
     velocityState: 'SURGING' | 'EXPANDING' | 'STABLE' | 'COMPRESSING';
     impactOnOptions: string;
   };
+  volumeAnalytics?: VolumeAnalyticsData;
+}
+
+export interface GlobalMacroMarketItem {
+  symbol: string;
+  name: string;
+  category: 'GIFT_NIFTY' | 'US_INDEX' | 'CURRENCY' | 'COMMODITY' | 'BONDS' | 'ASIAN_INDEX';
+  price: number;
+  change: number;
+  changePercent: number;
+  impactOnIndianFO: 'HIGH_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'HIGH_BEARISH';
+  correlationWeight: number; // e.g. 0.85
+  insightNote: string;
+  asOfTime?: string;
+}
+
+export interface InterMarketTelemetry {
+  giftNifty: GlobalMacroMarketItem;
+  sp500Futures: GlobalMacroMarketItem;
+  nasdaqFutures: GlobalMacroMarketItem;
+  usdInr: GlobalMacroMarketItem;
+  dxyIndex: GlobalMacroMarketItem;
+  brentCrude: GlobalMacroMarketItem;
+  us10yYield: GlobalMacroMarketItem;
+  nikkei225: GlobalMacroMarketItem;
+  globalCompositeScore: number; // -100 to +100
+  globalSentiment: 'STRONG_GLOBAL_TAILWIND' | 'GLOBAL_TAILWIND' | 'NEUTRAL' | 'GLOBAL_HEADWIND' | 'SEVERE_GLOBAL_HEADWIND';
+  fiiFlowExpectation: 'HEAVY_INFLOWS' | 'MODERATE_INFLOWS' | 'BALANCED_NEUTRAL' | 'OUTFLOW_RISK' | 'HEAVY_OUTFLOWS';
+  summaryInsight: string;
+}
+
+export interface VolumeAnalyticsData {
+  totalVolumeMultiplier: number; // Volume / 20MA Volume (e.g. 1.8x = Volume Spike)
+  pcrVolume: number; // Put Volume / Call Volume
+  pcrOI: number; // Put OI / Call OI
+  volumeDivergence: 'BULLISH_VOLUME_EXPANSION' | 'BEARISH_VOLUME_EXPANSION' | 'LOW_VOLUME_CHOP' | 'VOLUME_CLIMAX';
+  buyerSellerPressureDelta: number; // -100 to +100 % order flow imbalance
+  volumeBuildupLabel: 'Institutional Long Buildup' | 'Aggressive Short Buildup' | 'Short Covering Rally' | 'Long Unwinding Exit' | 'Balanced Neutral';
+  volumeAccuracyMultiplier: number; // 1.0 to 1.35x confidence booster
+  summary: string;
 }
 
 export interface MarketMetrics {
@@ -293,6 +333,9 @@ export interface NiftyConstituentAnalysis {
   topDraggers: { symbol: string; changePercent: number; points: number }[];
   sectoralBreakdown: SectoralContribution[];
   summaryNote: string;
+  constituents?: NiftyConstituent[];
+  asOnTime?: string;
+  isLiveSynced?: boolean;
 }
 
 export interface TargetExitSynthesis {
@@ -442,6 +485,9 @@ export interface TradeSignal {
   targetAchievedNote?: string;
   peakGainPercent?: number;
   allExpiriesSignals?: ExpirySignalSummary[];
+  interMarketTelemetry?: InterMarketTelemetry;
+  volumeAnalytics?: VolumeAnalyticsData;
+  afterMarketAnalytics?: import('../utils/afterMarketEngine').AfterMarketOpeningAnalytics;
 }
 
 export interface NewsItem {

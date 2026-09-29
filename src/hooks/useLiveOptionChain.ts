@@ -12,10 +12,13 @@ import {
   StrikeHistoryItem,
   StrikeTrendAnalytics,
   ExpirySignalSummary,
-  SignalAction
+  SignalAction,
+  NiftyConstituentAnalysis
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
+import { analyzeNiftyConstituents } from '../data/niftyConstituents';
+import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22700_QUOTES } from '../data/officialNseQuotes';
 import { calculateBlackScholes } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
 import { 
@@ -93,22 +96,26 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceMoneyness = K < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
     const peMoneyness = K > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
 
+    // Official NSE Terminal Quote Calibration
+    const officialQuote = (expiryIndex === 0 && (ticker.symbol === 'NIFTY 50' || ticker.symbol.includes('NIFTY'))) ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
+    const crossExpiry22700Quote = (K === 22700 && ticker.symbol === 'NIFTY 50') ? NSE_CROSS_EXPIRY_22700_QUOTES[expiryIndex] : undefined;
+
     // Round to standard 0.05 tick size
     const rawCeLtp = Number(ceBS.price.toFixed(2));
     const rawPeLtp = Number(peBS.price.toFixed(2));
     
-    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S
-    const ceLtp = Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
-    const peLtp = Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
+    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S, calibrated to official NSE terminal quotes
+    const ceLtp = crossExpiry22700Quote ? crossExpiry22700Quote.ceLtp : (officialQuote ? officialQuote.ceLtp : Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2))));
+    const peLtp = crossExpiry22700Quote ? crossExpiry22700Quote.peLtp : (officialQuote ? officialQuote.peLtp : Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2))));
 
     // Tight market spread
     const spread = isIndian ? 0.20 : 0.02;
     const halfSpread = spread / 2;
 
-    const ceBid = Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
-    const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
-    const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
-    const peAsk = Number((peLtp + halfSpread).toFixed(2));
+    const ceBid = officialQuote ? officialQuote.ceBid : Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
+    const ceAsk = officialQuote ? officialQuote.ceAsk : Number((ceLtp + halfSpread).toFixed(2));
+    const peBid = officialQuote ? officialQuote.peBid : Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
+    const peAsk = officialQuote ? officialQuote.peAsk : Number((peLtp + halfSpread).toFixed(2));
 
     // Dynamic previous close computed from reference previous session close
     const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
@@ -116,8 +123,8 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
     const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
 
-    const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
-    const peChange = Number((peLtp - pePrevClose).toFixed(2));
+    const ceChange = crossExpiry22700Quote ? crossExpiry22700Quote.ceChg : (officialQuote ? officialQuote.ceChange : Number((ceLtp - cePrevClose).toFixed(2)));
+    const peChange = crossExpiry22700Quote ? crossExpiry22700Quote.peChg : (officialQuote ? officialQuote.peChange : Number((peLtp - pePrevClose).toFixed(2)));
     const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
     const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
 
@@ -266,7 +273,10 @@ export function computeAllExpiriesSignals(
     // Pass currentSignal to maintain coherent market regime momentum across all expiries
     const tempSignal = generateTradeSignal(ticker, tempMetrics, tempChain, newsFeed, currentSignal, idx);
 
-    const ltp = tempSignal.recommendedContractLTP;
+    const contractRow = tempChain.find(r => r.strike === tempSignal.recommendedStrike);
+    const contractObj = tempSignal.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
+
+    const ltp = contractObj?.ltp ?? tempSignal.recommendedContractLTP;
     const t1 = tempSignal.target1;
     const t2 = tempSignal.target2;
     const sl = tempSignal.stopLoss;
@@ -274,9 +284,6 @@ export function computeAllExpiriesSignals(
     const t1Gain = Number((((t1 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
     const t2Gain = Number((((t2 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
     const slRisk = Number((((ltp - sl) / Math.max(ltp, 0.05)) * 100).toFixed(1));
-
-    const contractRow = tempChain.find(r => r.strike === tempSignal.recommendedStrike);
-    const contractObj = tempSignal.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
 
     return {
       expiryDate: date,
@@ -321,6 +328,10 @@ export function useLiveOptionChain() {
   const [dataSourceNote, setDataSourceNote] = useState<string>('Live Exchange Spot Quote + Official SEBI Expiries');
   const [usePreMarket, setUsePreMarket] = useState<boolean>(false);
   const [isNewsLoading, setIsNewsLoading] = useState<boolean>(false);
+  const [isHeavyweightsLoading, setIsHeavyweightsLoading] = useState<boolean>(false);
+  const [liveConstituentAnalysis, setLiveConstituentAnalysis] = useState<NiftyConstituentAnalysis | undefined>(() =>
+    POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined
+  );
 
   // Filters State
   const [filters, setFilters] = useState<OptionFilters>({
@@ -565,7 +576,7 @@ export function useLiveOptionChain() {
           // Re-evaluate signal with updated live catalysts
           setSignal(prev => {
             if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, liveArticles, signalRef.current || undefined, expiryIndex);
+              const s = generateTradeSignal(selectedTicker, metrics, chain, liveArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis);
               s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, liveArticles, expiryIndex, s);
               return s;
             }
@@ -578,12 +589,46 @@ export function useLiveOptionChain() {
     } finally {
       setIsNewsLoading(false);
     }
-  }, [selectedTicker, metrics, chain]);
+  }, [selectedTicker, metrics, chain, expiryIndex, liveConstituentAnalysis]);
+
+  // Fetch genuine real-time Nifty & Bank Nifty heavyweight derivative constituents
+  const fetchHeavyweights = useCallback(async (sym = selectedTicker.symbol) => {
+    if (selectedTicker.currency !== '₹') return;
+    setIsHeavyweightsLoading(true);
+    try {
+      const res = await fetch(`/api/heavyweights?symbol=${encodeURIComponent(sym)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.analysis) {
+          const analysisObj: NiftyConstituentAnalysis = {
+            ...data.analysis,
+            constituents: data.constituents,
+            asOnTime: data.asOnTime,
+            isLiveSynced: true,
+          };
+          setLiveConstituentAnalysis(analysisObj);
+          setSignal(prev => {
+            if (chain.length > 0) {
+              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, analysisObj);
+              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, s);
+              return s;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch live heavyweights:', e);
+    } finally {
+      setIsHeavyweightsLoading(false);
+    }
+  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex]);
 
   // Initial load
   useEffect(() => {
     fetchOptionChainFromBackend(selectedTicker, 0);
     fetchRealNews(selectedTicker.symbol);
+    fetchHeavyweights(selectedTicker.symbol);
   }, []);
 
   // Periodically refresh news during market hours (every 60s)
@@ -595,7 +640,15 @@ export function useLiveOptionChain() {
     return () => clearInterval(newsTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
 
-  // Handle ticker change
+  // Periodically refresh heavyweights during market hours (every 6s)
+  useEffect(() => {
+    if (!isLiveActive || !marketStatus.isOpen || selectedTicker.currency !== '₹') return;
+    const hwTimer = setInterval(() => {
+      fetchHeavyweights(selectedTicker.symbol);
+    }, Math.max(5000, updateIntervalMs * 2));
+    return () => clearInterval(hwTimer);
+  }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, selectedTicker.currency, updateIntervalMs, fetchHeavyweights]);
+
   // Handle ticker change
   const handleSelectTicker = (newTicker: TickerConfig) => {
     setSelectedTicker(newTicker);
@@ -611,6 +664,7 @@ export function useLiveOptionChain() {
 
     fetchOptionChainFromBackend(newTicker, 0);
     fetchRealNews(newTicker.symbol);
+    fetchHeavyweights(newTicker.symbol);
   };
 
   // Handle expiry change
@@ -732,6 +786,7 @@ export function useLiveOptionChain() {
   const handleForceRefresh = () => {
     fetchOptionChainFromBackend(selectedTicker, expiryIndex);
     fetchRealNews(selectedTicker.symbol, true);
+    fetchHeavyweights(selectedTicker.symbol);
     playTone(750, 0.05);
   };
 
@@ -747,6 +802,9 @@ export function useLiveOptionChain() {
     signal,
     strikeHistory,
     strikeAnalytics,
+    liveConstituentAnalysis,
+    isHeavyweightsLoading,
+    refreshHeavyweights: () => fetchHeavyweights(selectedTicker.symbol),
     filters,
     setFilters,
     newsFeed,

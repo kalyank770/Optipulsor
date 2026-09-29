@@ -1,4 +1,4 @@
-import { OptionContract, OptionChainRow, TickerConfig, TradeSignal, RealtimePredictionIndicators } from '../types/options';
+import { OptionContract, OptionChainRow, TickerConfig, TradeSignal, RealtimePredictionIndicators, VolumeAnalyticsData } from '../types/options';
 import { generateRollingCandles } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
 
@@ -551,6 +551,50 @@ export function computeRealtimeIndicators(
     impactOnOptions = 'IV crush active; favors ATM/ITM contracts over OTM decay traps.';
   }
 
+  // 8. VOLUME DYNAMICS & INSTITUTIONAL BUILDUP ANALYTICS
+  const avgNearbyVolumePerContract = Math.max(100, totalNearbyVol / Math.max(1, nearbyRows.length * 2));
+  const baselineMaVolume = 8500; // Standard 20-period moving average contract volume
+  const totalVolumeMultiplier = Number((avgNearbyVolumePerContract / baselineMaVolume).toFixed(2));
+
+  let volumeDivergence: VolumeAnalyticsData['volumeDivergence'] = 'LOW_VOLUME_CHOP';
+  let volumeBuildupLabel: VolumeAnalyticsData['volumeBuildupLabel'] = 'Balanced Neutral';
+  let volumeAccuracyMultiplier = 1.0;
+
+  if (totalVolumeMultiplier >= 1.4 && volumeImbalancePercent >= 12) {
+    volumeDivergence = 'BULLISH_VOLUME_EXPANSION';
+    volumeBuildupLabel = 'Institutional Long Buildup';
+    volumeAccuracyMultiplier = 1.25;
+  } else if (totalVolumeMultiplier >= 1.4 && volumeImbalancePercent <= -12) {
+    volumeDivergence = 'BEARISH_VOLUME_EXPANSION';
+    volumeBuildupLabel = 'Aggressive Short Buildup';
+    volumeAccuracyMultiplier = 1.25;
+  } else if (volumeImbalancePercent >= 10) {
+    volumeDivergence = 'BULLISH_VOLUME_EXPANSION';
+    volumeBuildupLabel = 'Short Covering Rally';
+    volumeAccuracyMultiplier = 1.12;
+  } else if (volumeImbalancePercent <= -10) {
+    volumeDivergence = 'BEARISH_VOLUME_EXPANSION';
+    volumeBuildupLabel = 'Long Unwinding Exit';
+    volumeAccuracyMultiplier = 1.12;
+  } else if (totalVolumeMultiplier >= 2.2) {
+    volumeDivergence = 'VOLUME_CLIMAX';
+    volumeBuildupLabel = 'Balanced Neutral';
+    volumeAccuracyMultiplier = 1.15;
+  }
+
+  const volumeSummary = `Volume Multiplier ${totalVolumeMultiplier}x MA with ${volumeImbalancePercent >= 0 ? '+' : ''}${volumeImbalancePercent}% order flow delta imbalance (${volumeBuildupLabel}).`;
+
+  const volumeAnalytics: VolumeAnalyticsData = {
+    totalVolumeMultiplier,
+    pcrVolume: Number(pcrVol.toFixed(2)),
+    pcrOI: Number(pcrOI.toFixed(2)),
+    volumeDivergence,
+    buyerSellerPressureDelta: volumeImbalancePercent,
+    volumeBuildupLabel,
+    volumeAccuracyMultiplier,
+    summary: volumeSummary,
+  };
+
   return {
     vwap: {
       value: vwap,
@@ -605,5 +649,6 @@ export function computeRealtimeIndicators(
       velocityState,
       impactOnOptions,
     },
+    volumeAnalytics,
   };
 }
