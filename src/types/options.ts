@@ -378,6 +378,34 @@ export interface AdjacentStrikeAnalysis {
   recommendationTag: string;
 }
 
+export interface ExpirySignalSummary {
+  expiryDate: string;
+  expiryIndex: number;
+  daysToExpiry?: number;
+  expiryTypeLabel?: string;
+  action: SignalAction;
+  recommendedStrike: number;
+  recommendedType: OptionType;
+  recommendedContractLTP: number;
+  target1: number;
+  target2: number;
+  stopLoss: number;
+  confidence: number;
+  strength: SignalStrength;
+  riskRewardRatio?: string;
+  target1GainPercent?: number;
+  target2GainPercent?: number;
+  stopLossRiskPercent?: number;
+  trailingStopLoss?: number;
+  capitalProtectionStatus?: string;
+  isCurrentExpiry?: boolean;
+  moneyness?: Moneyness;
+  iv?: number;
+  delta?: number;
+  profitProbabilityPercent?: number;
+  entryRange?: [number, number];
+}
+
 export interface TradeSignal {
   action: SignalAction;
   strength: SignalStrength;
@@ -405,11 +433,15 @@ export interface TradeSignal {
   constituentAnalysis?: NiftyConstituentAnalysis;
   adjacentStrikes?: AdjacentStrikeAnalysis[];
   tradeStage?: TradeLifecycleStage;
+  trailingStopLoss?: number;
+  trailingStopNote?: string;
+  capitalProtectionStatus?: 'ACTIVE_RISK' | 'BREAK_EVEN_LOCKED' | 'PROFIT_LOCKED' | 'NEUTRAL_SAFE';
   sessionHighLTP?: number;
   sessionLowLTP?: number;
   isTargetAlreadyAchieved?: boolean;
   targetAchievedNote?: string;
   peakGainPercent?: number;
+  allExpiriesSignals?: ExpirySignalSummary[];
 }
 
 export interface NewsItem {
@@ -532,7 +564,7 @@ export interface StrikeTrendAnalytics {
 
 export interface OptionFilters {
   expiryDate: string;
-  strikeRange: 'ATM_5' | 'ATM_10' | 'ATM_15' | 'ALL' | 'CUSTOM';
+  strikeRange: 'ATM_5' | 'ATM_10' | 'ATM_15' | 'ATM_20' | 'ATM_30' | 'ALL' | 'CUSTOM';
   customMinStrike?: number;
   customMaxStrike?: number;
   moneynessFilter: 'ALL' | 'ITM' | 'ATM' | 'OTM';

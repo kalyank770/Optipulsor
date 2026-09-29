@@ -9,6 +9,7 @@ import {
   TrendingUp, 
   TrendingDown, 
   ShieldAlert, 
+  ShieldCheck,
   Copy, 
   CheckCircle2, 
   Maximize2,
@@ -40,22 +41,27 @@ interface SignalCardProps {
   onSelectContractForSimulation: (strike: number, type: 'CE' | 'PE') => void;
   isSyncing?: boolean;
   theme?: 'dark' | 'light';
+  currentExpiryIndex?: number;
+  onSelectExpiry?: (index: number) => void;
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
   signal,
   ticker,
+  metrics,
   chain,
   onSelectContractForSimulation,
   theme = 'dark',
+  currentExpiryIndex = 0,
+  onSelectExpiry,
 }) => {
   const isLight = theme === 'light';
   const [copied, setCopied] = useState(false);
   const [lots, setLots] = useState<number>(1);
   const [priceFlash, setPriceFlash] = useState<'UP' | 'DOWN' | null>(null);
 
-  // Sub-sections accordion state (all collapsed by default)
-  type SubSectionKey = 'multiTimeframe' | 'highProb' | 'quantParams' | 'groundedPayoff' | 'heavyweights';
+  // Sub-sections accordion state (all collapsed by default except allExpiries)
+  type SubSectionKey = 'multiTimeframe' | 'highProb' | 'quantParams' | 'groundedPayoff' | 'heavyweights' | 'allExpiries';
 
   const [expandedSubSections, setExpandedSubSections] = useState<Record<SubSectionKey, boolean>>({
     multiTimeframe: false,
@@ -63,6 +69,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
     quantParams: false,
     groundedPayoff: false,
     heavyweights: false,
+    allExpiries: true, // Make it highly visible on load
   });
 
   const toggleSubSection = (key: SubSectionKey) => {
@@ -226,23 +233,32 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       </div>
 
-      {/* Dynamic Trade Lifecycle & Simple Execution Guidance Banner */}
+      {/* Dynamic Trade Lifecycle & Institutional Trade Intelligence Banner */}
       {(() => {
         const stage = signal.tradeStage || 'FRESH_ENTRY';
+        const isCE = signal.recommendedType === 'CE';
+        const isNeutral = signal.action === 'WAIT_NEUTRAL';
 
         if (stage === 'POST_TARGET_RETRACEMENT') {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-amber-500/20 text-amber-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
                 <AlertTriangle className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-amber-300 text-xs">
-                  ⚠️ Target Reached Earlier
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-amber-300 text-xs flex items-center justify-between">
+                  <span>⚠️ Target 1 Achieved Earlier · Retracement Phase Active</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Stand By
+                  </span>
                 </div>
-                <p className="text-amber-200/90 text-xs mt-0.5">
-                  The target price was already hit. Do not enter new trades now.
+                <p className="text-amber-200/90 text-xs leading-relaxed">
+                  <strong>Tactical Directive:</strong> Target 1 was achieved earlier in this session. The market is consolidating in a post-target pullback. <em>Do not chase new entries at current levels</em> — wait for a confirmed price retest of Intraday VWAP ({ticker.currency}{signal.realtimeIndicators?.vwap.value.toLocaleString() || 'support'}) or the 9 EMA before seeking re-entry.
                 </p>
+                <div className="pt-1 text-[11px] text-amber-300/80 border-t border-amber-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Rule: Avoid FOMO chop at session extremes</span>
+                  <span>Trailing SL: Locked at Cost for runners</span>
+                </div>
               </div>
             </div>
           );
@@ -250,17 +266,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         if (stage === 'TARGET_1_HIT') {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-emerald-300 text-xs">
-                  🎯 First Target Achieved! (+{t1ProfitPct}%)
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-emerald-300 text-xs flex items-center justify-between">
+                  <span>🎯 Tactical Target 1 Captured (+{t1ProfitPct}%) · Milestone Secured</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Scale Out 50%
+                  </span>
                 </div>
-                <p className="text-emerald-200/90 text-xs mt-0.5">
-                  First profit target hit. Sell half of your trade to secure profits, and move your safety limit (Stop Loss) to your buy price to make it a risk-free trade.
+                <p className="text-emerald-200/90 text-xs leading-relaxed">
+                  <strong>Execution Protocol:</strong> Book 50% profits on your position immediately. Adjust the Stop Loss on the remaining 50% runner lots to your exact entry cost to guarantee a completely risk-free ride toward Target 2.
                 </p>
+                <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Action: Book partial gains</span>
+                  <span>Remaining: Risk-free runner to Target 2</span>
+                </div>
               </div>
             </div>
           );
@@ -268,17 +291,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         if (stage === 'TARGET_2_HIT') {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-sky-500/20 text-sky-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-sky-500/20 text-sky-400 shrink-0 mt-0.5">
                 <Maximize2 className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-sky-300 text-xs">
-                  🚀 All Targets Achieved! (+{t2ProfitPct}%)
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-sky-300 text-xs flex items-center justify-between">
+                  <span>🚀 Structural Target 2 Captured (+{t2ProfitPct}%) · Trend Climax</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                    Full Exit
+                  </span>
                 </div>
-                <p className="text-sky-200/90 text-xs mt-0.5">
-                  All profit targets have been met. Exit your remaining trade now to secure your total profits.
+                <p className="text-sky-200/90 text-xs leading-relaxed">
+                  <strong>Execution Protocol:</strong> The 15m structural measured move is complete. Institutional liquidity sweeps and profit booking are expected near major walls. Close all remaining runner contracts and protect realized session gains.
                 </p>
+                <div className="pt-1 text-[11px] text-sky-300/80 border-t border-sky-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Objective: 100% Target Met</span>
+                  <span>Next Action: Flat position, wait for next setup</span>
+                </div>
               </div>
             </div>
           );
@@ -286,17 +316,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         if (stage === 'EXPANDING_IN_PROFIT') {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
                 <TrendingUp className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-emerald-300 text-xs">
-                  📈 Trade is in Profit
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-emerald-300 text-xs flex items-center justify-between">
+                  <span>📈 Momentum Expanding in Profit · Trend Acceleration</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Hold & Trail
+                  </span>
                 </div>
-                <p className="text-emerald-200/90 text-xs mt-0.5">
-                  The price is moving up in your favor. Hold on and get ready to book profits as it nears the target.
+                <p className="text-emerald-200/90 text-xs leading-relaxed">
+                  <strong>Trade Management:</strong> Favorable institutional order flow is pushing contract premiums in the trade direction. Maintain trailing stop discipline and let the position ride. Prepare partial profit booking orders as Target 1 nears.
                 </p>
+                <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Flow: {signal.realtimeIndicators?.orderFlow.sentiment.replace(/_/g, ' ') || 'Order Flow Dominance'}</span>
+                  <span>Discipline: Trail SL along 9 EMA / VWAP</span>
+                </div>
               </div>
             </div>
           );
@@ -304,35 +341,49 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         if (stage === 'STOP_LOSS_HIT') {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-rose-500/20 text-rose-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-rose-500/20 text-rose-400 shrink-0 mt-0.5">
                 <AlertTriangle className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-rose-300 text-xs">
-                  🛑 Trade Closed (Safety Limit Hit)
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-rose-300 text-xs flex items-center justify-between">
+                  <span>🛑 Technical Invalidation Level Breached · Capital Protection Triggered</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Exit Trade
+                  </span>
                 </div>
-                <p className="text-rose-200/90 text-xs mt-0.5">
-                  The price hit the safety limit (Stop Loss). Exit the trade now to prevent further loss and protect your money.
+                <p className="text-rose-200/90 text-xs leading-relaxed">
+                  <strong>Risk Directive:</strong> Invalidation floor was breached. Strict institutional discipline dictates an immediate exit to cap drawdown. Do not average losing positions — preserve capital for the next high-probability setup.
                 </p>
+                <div className="pt-1 text-[11px] text-rose-300/80 border-t border-rose-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Protocol: Hard stop triggered</span>
+                  <span>Capital Preservation: Cut losses swiftly</span>
+                </div>
               </div>
             </div>
           );
         }
 
-        if (stage === 'NEUTRAL_WAIT') {
+        if (stage === 'NEUTRAL_WAIT' || isNeutral) {
           return (
-            <div className="mt-3 p-2.5 px-3 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 text-xs flex items-center gap-2.5">
-              <div className="p-1 rounded bg-amber-500/20 text-amber-400 shrink-0">
+            <div className="mt-3 p-3 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
                 <ShieldAlert className="w-4 h-4" />
               </div>
-              <div>
-                <div className="font-bold text-slate-200 text-xs">
-                  ⏸️ Sideways Market (No Trade)
+              <div className="space-y-1 w-full">
+                <div className="font-bold text-slate-200 text-xs flex items-center justify-between">
+                  <span>⏸️ Range Equilibrium / Consolidation Phase · Stand Aside</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    No Action
+                  </span>
                 </div>
-                <p className="text-slate-400 text-xs mt-0.5">
-                  No clear trend. It is safest to wait on the sidelines for a clearer market move.
+                <p className="text-slate-400 text-xs leading-relaxed">
+                  <strong>Market Context:</strong> Spot is oscillating between Support ({ticker.currency}{metrics.majorSupportStrike.toLocaleString()}) and Resistance ({ticker.currency}{metrics.majorResistanceStrike.toLocaleString()}). Whipsaw risk is elevated — stay on the sidelines until a volume-confirmed directional breakout emerges.
                 </p>
+                <div className="pt-1 text-[11px] text-slate-400 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Pillar: Multi-timeframe consolidation</span>
+                  <span>Discipline: Capital preservation mode</span>
+                </div>
               </div>
             </div>
           );
@@ -340,17 +391,26 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
         // Default: FRESH_ENTRY
         return (
-          <div className="mt-3 p-2.5 px-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-center gap-2.5">
-            <div className="p-1 rounded bg-emerald-500/20 text-emerald-400 shrink-0">
+          <div className="mt-3 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2.5">
+            <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
               <Zap className="w-4 h-4" />
             </div>
-            <div>
-              <div className="font-bold text-emerald-300 text-xs">
-                ⚡ Buy Signal Active
+            <div className="space-y-1 w-full">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
+                  <span>⚡ Institutional Trade Setup Active · {isCE ? 'Call Accumulation Momentum' : 'Put Distribution Momentum'}</span>
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
+                  R:R {signal.riskRewardRatio} · {signal.strength} ({signal.confidence}%)
+                </span>
               </div>
-              <p className="text-emerald-200/90 text-xs mt-0.5">
-                Good time to buy. Buy between {ticker.currency}{signal.entryRange[0].toFixed(2)} and {ticker.currency}{signal.entryRange[1].toFixed(2)}. Set safety limit (Stop Loss) at {ticker.currency}{stopLoss.toFixed(2)} and sell target at {ticker.currency}{target1.toFixed(2)}.
+              <p className="text-emerald-200/90 text-xs leading-relaxed">
+                <strong>Catalyst & Confluence:</strong> {signal.candleAnalysis?.confluencePattern || 'Multi-timeframe 2m/5m/15m momentum alignment'} · {signal.realtimeIndicators?.orderFlow.sentiment.replace(/_/g, ' ') || 'Order Flow Dominance'}.
               </p>
+              <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                <span>Rule: Enter on 5m candle close confirmation · Max 1-2% risk</span>
+                <span>Action: Scale 50% at Target 1 · Trail SL to Cost</span>
+              </div>
             </div>
           </div>
         );
@@ -495,36 +555,65 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
 
-        {/* Metric 2: Stop Loss Points Risk */}
-        <div className={`p-2.5 sm:p-3.5 rounded-lg border border-rose-500/30 flex flex-col justify-between ${
-          isLight ? 'bg-rose-50/50' : 'bg-slate-950'
-        }`}>
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold text-rose-500 dark:text-rose-400">
-            <span className="flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              Stop Loss
-            </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-rose-500/10 text-rose-600 dark:text-rose-300">
-              -{slLossPct}%
-            </span>
-          </div>
-          <div className="my-1.5">
-            <div className="text-lg sm:text-2xl font-bold font-mono text-rose-600 dark:text-rose-400 tracking-tight">
-              -{slRiskPoints.toFixed(2)} pts
+        {/* Metric 2: Stop Loss Points Risk / Trailing Stop Loss */}
+        {(() => {
+          const isBreakEven = signal.capitalProtectionStatus === 'BREAK_EVEN_LOCKED';
+          const isProfitLocked = signal.capitalProtectionStatus === 'PROFIT_LOCKED';
+          const displaySL = signal.trailingStopLoss || stopLoss;
+          const isTrailed = isBreakEven || isProfitLocked;
+
+          return (
+            <div className={`p-2.5 sm:p-3.5 rounded-lg border flex flex-col justify-between transition-all ${
+              isProfitLocked
+                ? (isLight ? 'bg-emerald-50/70 border-emerald-500/40 text-emerald-950' : 'bg-slate-950 border-emerald-500/50 text-emerald-200')
+                : isBreakEven
+                  ? (isLight ? 'bg-amber-50/70 border-amber-500/40 text-amber-950' : 'bg-slate-950 border-amber-500/50 text-amber-200')
+                  : (isLight ? 'bg-rose-50/50 border-rose-500/30 text-rose-950' : 'bg-slate-950 border-rose-500/30 text-rose-200')
+            }`}>
+              <div className="flex items-center justify-between text-[10px] sm:text-[11px] uppercase font-semibold">
+                <span className={`flex items-center gap-1 ${
+                  isProfitLocked ? 'text-emerald-500 font-bold' : isBreakEven ? 'text-amber-500 font-bold' : 'text-rose-500 dark:text-rose-400'
+                }`}>
+                  {isTrailed ? <ShieldCheck className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3 h-3" />}
+                  {isProfitLocked ? 'Profit Lock SL' : isBreakEven ? 'Trailed SL (Cost)' : 'Stop Loss'}
+                </span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                  isProfitLocked
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : isBreakEven
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-300'
+                }`}>
+                  {isProfitLocked ? '🔒 LOCKED' : isBreakEven ? '🛡️ 0% RISK' : `-${slLossPct}%`}
+                </span>
+              </div>
+              <div className="my-1.5">
+                <div className={`text-lg sm:text-2xl font-bold font-mono tracking-tight ${
+                  isProfitLocked ? 'text-emerald-400' : isBreakEven ? 'text-amber-400' : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {isTrailed ? `${ticker.currency}${displaySL.toFixed(2)}` : `-${slRiskPoints.toFixed(2)} pts`}
+                </div>
+                <div className={`text-[10px] sm:text-[11px] font-mono ${
+                  isProfitLocked ? 'text-emerald-400/90' : isBreakEven ? 'text-amber-400/90' : 'text-rose-700/80 dark:text-rose-300/80'
+                }`}>
+                  {isProfitLocked
+                    ? `Locked @ ${ticker.currency}${displaySL.toFixed(2)}`
+                    : isBreakEven
+                      ? `Break-even @ ${ticker.currency}${displaySL.toFixed(2)}`
+                      : `Cut @ ${ticker.currency}${stopLoss.toFixed(2)}`}
+                </div>
+              </div>
+              <div className={`text-[10px] pt-1 flex items-center justify-between font-mono border-t ${
+                isLight ? 'border-slate-200 text-slate-500' : 'border-slate-900 text-slate-400'
+              }`}>
+                <span className="truncate mr-1 text-[9.5px]" title={signal.trailingStopNote || (signal.spotStopLoss ? `Spot Invalidation @ ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit')}>
+                  {signal.trailingStopNote || (signal.spotStopLoss ? `Spot: ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit')}
+                </span>
+                <span className="shrink-0">{isTrailed ? 'Protected' : 'Max SL'}</span>
+              </div>
             </div>
-            <div className="text-[10px] sm:text-[11px] text-rose-700/80 dark:text-rose-300/80 font-mono">
-              Cut @ {ticker.currency}{stopLoss.toFixed(2)}
-            </div>
-          </div>
-          <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
-            isLight ? 'border-rose-200' : 'border-slate-900'
-          }`}>
-            <span className="truncate mr-1 text-[9.5px] text-rose-400/90" title={signal.spotStopLoss ? `Spot Invalidation @ ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit'}>
-              {signal.spotStopLoss ? `Spot: ${ticker.currency}${signal.spotStopLoss.toLocaleString()}` : 'Risk Limit'}
-            </span>
-            <span className="shrink-0">Max SL</span>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Metric 3: Target 1 Points Gain */}
         <div className={`p-2.5 sm:p-3.5 rounded-lg border border-emerald-500/30 flex flex-col justify-between ${
@@ -1118,6 +1207,420 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     <strong>{s.sector}</strong> ({s.weight}%): {s.contributionPoints >= 0 ? '+' : ''}{s.contributionPoints} pts ({s.leadingStock})
                   </span>
                 ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cross-Expiry Prediction Spectrum */}
+      {signal.allExpiriesSignals && signal.allExpiriesSignals.length > 0 && (
+        <div className={`mt-3 rounded-lg border overflow-hidden transition-all ${
+          isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-950/80 border-slate-800'
+        }`}>
+          <div 
+            onClick={() => toggleSubSection('allExpiries')}
+            className={`flex flex-wrap items-center justify-between gap-2 p-3 cursor-pointer select-none transition-colors ${
+              isLight 
+                ? 'bg-slate-100/80 hover:bg-slate-100 text-slate-900' 
+                : 'bg-slate-900/90 hover:bg-slate-900 text-white'
+            } ${expandedSubSections.allExpiries ? (isLight ? 'border-b border-slate-200' : 'border-b border-slate-800') : ''}`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+              </span>
+              <Compass className="w-4 h-4 text-sky-500 dark:text-sky-400" />
+              <span className="text-xs font-bold uppercase tracking-wider">
+                Cross-Expiry Prediction Spectrum & Expiry Switcher
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                isLight 
+                  ? 'bg-sky-50 text-sky-700 border-sky-200' 
+                  : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+              }`}>
+                {signal.allExpiriesSignals.length} Expiries Analyzed
+              </span>
+              <button 
+                className={`p-1 ${isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white'}`} 
+                title={expandedSubSections.allExpiries ? "Collapse section" : "Expand section"}
+              >
+                {expandedSubSections.allExpiries ? <ChevronUp className="w-4 h-4 text-emerald-500" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {expandedSubSections.allExpiries && (
+            <div className="p-3 pt-2 space-y-3">
+              {/* DESKTOP TABULAR VIEW (Visible on screens >= sm) */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className={`border-b text-[10.5px] uppercase font-mono tracking-wider font-semibold ${
+                      isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/80 text-slate-400'
+                    }`}>
+                      <th className="py-2.5 px-2">Expiry Date & DTE</th>
+                      <th className="py-2.5 px-2">Recommendation</th>
+                      <th className="py-2.5 px-2">Contract Strike</th>
+                      <th className="py-2.5 px-2">Price (LTP)</th>
+                      <th className="py-2.5 px-2">Targets (T1 / T2)</th>
+                      <th className="py-2.5 px-2">Safety Stop Loss</th>
+                      <th className="py-2.5 px-2">R:R Ratio</th>
+                      <th className="py-2.5 px-2 text-right">Action / Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {signal.allExpiriesSignals.map((exp) => {
+                      const isCE_exp = exp.action === 'BUY_CE';
+                      const isPE_exp = exp.action === 'BUY_PE';
+                      const isNeutral_exp = exp.action === 'WAIT_NEUTRAL';
+                      const isActive = exp.expiryIndex === currentExpiryIndex;
+
+                      return (
+                        <tr 
+                          key={exp.expiryIndex} 
+                          onClick={() => {
+                            if (!isActive && onSelectExpiry) {
+                              onSelectExpiry(exp.expiryIndex);
+                            }
+                          }}
+                          className={`border-b transition-colors font-mono cursor-pointer ${
+                            isLight
+                              ? (isActive 
+                                  ? 'bg-sky-50/80 border-sky-300 font-semibold' 
+                                  : 'border-slate-200/80 hover:bg-slate-50')
+                              : (isActive 
+                                  ? 'bg-sky-950/30 border-sky-500/40 font-semibold' 
+                                  : 'border-slate-800/40 hover:bg-slate-900/60')
+                          }`}
+                          title={isActive ? 'Current active expiry' : 'Click to switch to this expiry contract'}
+                        >
+                          {/* Expiry Date & DTE */}
+                          <td className="py-3 px-2 font-sans">
+                            <div className="flex items-center gap-1.5">
+                              <Percent className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-sky-500' : 'text-slate-400'}`} />
+                              <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
+                                {exp.expiryDate}
+                              </span>
+                              {isActive && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-sky-500 text-white font-bold shrink-0 shadow-xs">
+                                  ACTIVE
+                                </span>
+                              )}
+                            </div>
+                            <div className={`text-[10px] font-mono mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {exp.daysToExpiry !== undefined ? `${exp.daysToExpiry}d to expiry` : ''} 
+                              {exp.expiryTypeLabel ? ` · ${exp.expiryTypeLabel}` : ''}
+                            </div>
+                          </td>
+
+                          {/* Recommendation Action */}
+                          <td className="py-3 px-2">
+                            {isCE_exp && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border border-emerald-500/30">
+                                BUY CALL (CE)
+                              </span>
+                            )}
+                            {isPE_exp && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/15 text-rose-500 dark:text-rose-400 border border-rose-500/30">
+                                BUY PUT (PE)
+                              </span>
+                            )}
+                            {isNeutral_exp && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-500 dark:text-amber-400 border border-amber-500/30">
+                                WAIT / RANGE
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Contract Strike */}
+                          <td className="py-3 px-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`font-bold text-xs ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
+                                {exp.recommendedStrike} {exp.recommendedType}
+                              </span>
+                              {exp.moneyness && (
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                  exp.moneyness === 'ITM' 
+                                    ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                                    : exp.moneyness === 'ATM'
+                                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                      : 'bg-slate-800 text-slate-400'
+                                }`}>
+                                  {exp.moneyness}
+                                </span>
+                              )}
+                            </div>
+                            {isNeutral_exp && (
+                              <span className="text-[10px] text-amber-500/90 font-mono block">
+                                Consolidation Pivot
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Current Live Price (LTP) */}
+                          <td className="py-3 px-2">
+                            <div className={`font-bold text-xs ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                              {ticker.currency}{exp.recommendedContractLTP.toFixed(2)}
+                            </div>
+                            {exp.entryRange && (
+                              <div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                                Zone: {ticker.currency}{exp.entryRange[0].toFixed(1)}-{exp.entryRange[1].toFixed(1)}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Targets & Goals */}
+                          <td className="py-3 px-2 text-[11px]">
+                            <div className="space-y-0.5 font-mono">
+                              <div className="flex items-center gap-1.5">
+                                <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>
+                                  {isNeutral_exp ? 'R1:' : 'T1:'}
+                                </span>
+                                <strong className="text-emerald-500 dark:text-emerald-400">
+                                  {ticker.currency}{exp.target1.toFixed(2)}
+                                </strong>
+                                {exp.target1GainPercent !== undefined && (
+                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-300 font-semibold">
+                                    (+{exp.target1GainPercent}%)
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>
+                                  {isNeutral_exp ? 'R2:' : 'T2:'}
+                                </span>
+                                <strong className="text-sky-500 dark:text-sky-400">
+                                  {ticker.currency}{exp.target2.toFixed(2)}
+                                </strong>
+                                {exp.target2GainPercent !== undefined && (
+                                  <span className="text-[10px] text-sky-600 dark:text-sky-300 font-semibold">
+                                    (+{exp.target2GainPercent}%)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Safety Stop Loss */}
+                          <td className="py-3 px-2 text-[11px] font-mono">
+                            <div>
+                              <strong className="text-rose-500 dark:text-rose-400">
+                                {ticker.currency}{exp.stopLoss.toFixed(2)}
+                              </strong>
+                              {exp.stopLossRiskPercent !== undefined && (
+                                <span className="text-[10px] text-rose-500/90 dark:text-rose-400/90 ml-1">
+                                  (-{exp.stopLossRiskPercent}%)
+                                </span>
+                              )}
+                            </div>
+                            {exp.trailingStopLoss !== undefined && exp.trailingStopLoss > exp.stopLoss && (
+                              <div className="text-[9.5px] text-emerald-500 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                                🛡️ Trailed: {ticker.currency}{exp.trailingStopLoss.toFixed(2)}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Risk:Reward */}
+                          <td className="py-3 px-2 text-[11px]">
+                            <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10.5px] border ${
+                              isLight 
+                                ? 'bg-slate-100 text-slate-800 border-slate-300' 
+                                : 'bg-slate-800/80 text-slate-200 border-slate-700/70'
+                            }`}>
+                              {exp.riskRewardRatio || '1 : 1.5'}
+                            </span>
+                          </td>
+
+                          {/* Action Button / Switch Expiry */}
+                          <td className="py-3 px-2 text-right">
+                            {isActive ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-sky-500/15 text-sky-500 dark:text-sky-300 border border-sky-500/30 text-[10px] font-bold">
+                                <CheckCircle2 className="w-3 h-3 text-sky-400" />
+                                Active
+                              </span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelectExpiry?.(exp.expiryIndex);
+                                }}
+                                className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer border shadow-xs ${
+                                  isLight 
+                                    ? 'bg-slate-100 hover:bg-sky-500 hover:text-white border-slate-300 text-slate-700' 
+                                    : 'bg-slate-900 hover:bg-sky-500 hover:text-white border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                Switch →
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* MOBILE CARDS VIEW (Visible on screens < sm, fully responsive and finger-friendly) */}
+              <div className="block sm:hidden space-y-3">
+                {signal.allExpiriesSignals.map((exp) => {
+                  const isCE_exp = exp.action === 'BUY_CE';
+                  const isPE_exp = exp.action === 'BUY_PE';
+                  const isNeutral_exp = exp.action === 'WAIT_NEUTRAL';
+                  const isActive = exp.expiryIndex === currentExpiryIndex;
+
+                  return (
+                    <div 
+                      key={exp.expiryIndex}
+                      onClick={() => {
+                        if (!isActive && onSelectExpiry) {
+                          onSelectExpiry(exp.expiryIndex);
+                        }
+                      }}
+                      className={`p-3 rounded-lg border flex flex-col gap-2.5 transition-all cursor-pointer ${
+                        isLight
+                          ? (isActive ? 'bg-sky-50/70 border-sky-300 shadow-sm' : 'bg-slate-50 border-slate-200')
+                          : (isActive ? 'bg-sky-950/20 border-sky-500/40 ring-1 ring-sky-500/30' : 'bg-slate-900/50 border-slate-800')
+                      }`}
+                    >
+                      {/* Top Row: Date & Active Badge / Switch Button */}
+                      <div className={`flex items-center justify-between gap-2 border-b pb-1.5 ${
+                        isLight ? 'border-slate-200' : 'border-slate-800/60'
+                      }`}>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <Percent className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                            <span className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
+                              {exp.expiryDate}
+                            </span>
+                            {isActive && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-sky-500 text-white font-bold">
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
+                          <div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {exp.daysToExpiry !== undefined ? `${exp.daysToExpiry}d to expiry` : ''} 
+                            {exp.expiryTypeLabel ? ` · ${exp.expiryTypeLabel}` : ''}
+                          </div>
+                        </div>
+
+                        <div>
+                          {isActive ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                              Selected
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectExpiry?.(exp.expiryIndex);
+                              }}
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded border cursor-pointer ${
+                                isLight 
+                                  ? 'bg-white hover:bg-sky-500 hover:text-white border-slate-300 text-slate-700' 
+                                  : 'bg-slate-800 hover:bg-sky-500 hover:text-white border-slate-700 text-slate-300'
+                              }`}
+                            >
+                              Switch →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Middle Row: Recommendation, Strike Target, and Current LTP */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                        <div>
+                          {isCE_exp && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              BUY CALL (CE)
+                            </span>
+                          )}
+                          {isPE_exp && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                              BUY PUT (PE)
+                            </span>
+                          )}
+                          {isNeutral_exp && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              WAIT / RANGE
+                            </span>
+                          )}
+                          
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className={`font-bold text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                              {exp.recommendedStrike} {exp.recommendedType}
+                            </span>
+                            {exp.moneyness && (
+                              <span className="text-[9px] px-1 py-0.2 rounded font-mono font-bold bg-slate-800 text-slate-400">
+                                {exp.moneyness}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className={`text-[10px] uppercase block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Contract LTP</span>
+                          <span className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                            {ticker.currency}{exp.recommendedContractLTP.toFixed(2)}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 block">
+                            R:R {exp.riskRewardRatio || '1:1.5'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bottom Row: Targets & Safety SL Grid */}
+                      <div className={`p-2 rounded border text-[11px] font-mono ${
+                        isLight ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-900'
+                      }`}>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <span className={`text-[9px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isNeutral_exp ? 'RESISTANCE 1' : 'TARGET 1'}
+                            </span>
+                            <strong className="text-emerald-500 dark:text-emerald-400">{ticker.currency}{exp.target1.toFixed(2)}</strong>
+                            {exp.target1GainPercent !== undefined && (
+                              <div className="text-[9px] text-emerald-600 dark:text-emerald-400">+{exp.target1GainPercent}%</div>
+                            )}
+                          </div>
+                          <div className={isLight ? 'border-x border-slate-200' : 'border-x border-slate-900'}>
+                            <span className={`text-[9px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isNeutral_exp ? 'RESISTANCE 2' : 'TARGET 2'}
+                            </span>
+                            <strong className="text-sky-500 dark:text-sky-400">{ticker.currency}{exp.target2.toFixed(2)}</strong>
+                            {exp.target2GainPercent !== undefined && (
+                              <div className="text-[9px] text-sky-600 dark:text-sky-400">+{exp.target2GainPercent}%</div>
+                            )}
+                          </div>
+                          <div>
+                            <span className={`text-[9px] block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {isNeutral_exp ? 'SUPPORT SL' : 'SAFETY SL'}
+                            </span>
+                            <strong className="text-rose-500 dark:text-rose-400">{ticker.currency}{exp.stopLoss.toFixed(2)}</strong>
+                            {exp.stopLossRiskPercent !== undefined && (
+                              <div className="text-[9px] text-rose-600 dark:text-rose-400">-{exp.stopLossRiskPercent}%</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Informative Footer */}
+              <div className={`p-2.5 rounded text-[11px] font-sans flex items-start gap-2 border ${
+                isLight ? 'bg-sky-50/60 border-sky-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+              }`}>
+                <Compass className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Cross-Expiry Intelligence:</strong> Near-weekly options offer maximum directional percentage leverage, while monthly expiries carry lower theta decay per day. Click any row or <strong>Switch</strong> to load that expiry's live option chain and directional trading setup.
+                </span>
               </div>
             </div>
           )}

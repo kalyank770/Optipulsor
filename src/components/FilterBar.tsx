@@ -39,7 +39,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   const resetFilters = () => {
     setFilters({
       expiryDate: ticker.expiryDates[0],
-      strikeRange: 'ATM_10',
+      strikeRange: 'ALL',
       moneynessFilter: 'ALL',
       minIV: 5,
       maxIV: 80,
@@ -51,7 +51,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   };
 
   const hasActiveCustomFilters = 
-    filters.strikeRange !== 'ATM_10' ||
+    filters.strikeRange !== 'ALL' ||
     filters.moneynessFilter !== 'ALL' ||
     filters.minIV > 5 ||
     filters.maxIV < 80 ||
@@ -93,7 +93,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           {/* Strike Range Selector */}
           <div className={`flex items-center gap-1 p-0.5 rounded border ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-950 border-slate-800'}`}>
-            {(['ATM_5', 'ATM_10', 'ATM_15', 'ALL'] as const).map(range => (
+            {(['ALL', 'ATM_10', 'ATM_20', 'ATM_30'] as const).map(range => (
               <button
                 key={range}
                 onClick={() => setFilters(prev => ({ ...prev, strikeRange: range }))}
@@ -103,9 +103,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                     : isLight ? 'text-slate-700 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {range === 'ATM_5' ? '±5 ATM' :
+                {range === 'ALL' ? 'All Strikes' :
                  range === 'ATM_10' ? '±10 ATM' :
-                 range === 'ATM_15' ? '±15 ATM' : 'All'}
+                 range === 'ATM_20' ? '±20 ATM' : '±30 ATM'}
               </button>
             ))}
           </div>

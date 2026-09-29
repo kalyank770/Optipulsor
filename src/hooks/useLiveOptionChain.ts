@@ -10,7 +10,9 @@ import {
   BuildupType,
   OptionType,
   StrikeHistoryItem,
-  StrikeTrendAnalytics
+  StrikeTrendAnalytics,
+  ExpirySignalSummary,
+  SignalAction
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
@@ -35,37 +37,45 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
   // 29 Sep 2026 = 2.4 trading days remaining (from Friday midday)
   // 06 Oct 2026 = 7.4 trading days
   // 13 Oct 2026 = 12.4 trading days
-  // 20 Oct 2026 = 17.4 trading days
-  // 27 Oct 2026 = 22.4 trading days
-  // 24 Nov 2026 = 42.4 trading days
-  const tradingDaysArray = [2.4, 7.4, 12.4, 17.4, 22.4, 42.4];
-  const tradingDays = tradingDaysArray[expiryIndex] || 2.4;
-  const T = isIndian ? Math.max(0.004, tradingDays / 252) : Math.max(0.005, (tradingDays * 1.4) / 365);
+  // Dynamic calendar days to expiry:
+  // Expiry 0 (Today): Active intraday session with standard minimum realized movement
+  // Future weekly & monthly expiries scale with exact calendar DTE (7, 14, 20, 28, 35, 55 days)
+  const calendarDaysArray = [0.15, 7.0, 14.0, 20.0, 28.0, 35.0, 55.0];
+  const daysToExpiry = calendarDaysArray[expiryIndex] !== undefined 
+    ? calendarDaysArray[expiryIndex] 
+    : (expiryIndex === 0 ? 0.15 : expiryIndex * 7.0);
+
+  const T = Math.max(0.0003, daysToExpiry / 365);
   const r = isIndian ? 0.065 : 0.045;
+  const divYield = isIndian ? 0.012 : 0.015;
 
   // Calibrated ATM Implied Volatility:
-  // For NIFTY 50, 11.06% IV aligns directly with exchange-traded ATM 23050 PE = 93.15
-  const baseIV = isIndian 
-    ? (ticker.symbol.includes('BANK') ? 0.128 : ticker.symbol.includes('FIN') ? 0.118 : 0.1106)
-    : ticker.vix / 100;
+  // Dynamically driven by the ticker's live implied volatility index (VIX) and term structure
+  const baseIV = (ticker.vix || 14.04) / 100;
+  const termFactor = expiryIndex === 0 ? 0.85 : expiryIndex === 1 ? 1.11 : expiryIndex === 2 ? 1.06 : expiryIndex === 3 ? 1.02 : 0.98;
 
   const rows: OptionChainRow[] = [];
-  const strikeCount = 18; // 18 above and 18 below ATM = 37 total strikes
+  const strikeCount = 50; // 50 above and 50 below ATM = 101 total strikes across full chain spectrum
 
   for (let i = -strikeCount; i <= strikeCount; i++) {
     const K = atm + i * step;
     const isATM = K === atm;
-    const m = (K - S) / S;
+    const m = (K - S) / Math.max(S, 1);
     
-    // Natural market volatility smile
-    const ivSkew = isIndian
-      ? baseIV + (m < 0 ? -m * 0.12 : m * 0.08)
+    // Natural market volatility smile with forward CE skew
+    const ceIVSkew = isIndian
+      ? (baseIV * termFactor * 1.08) + (m < 0 ? -m * 0.12 : m * 0.08)
       : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
-    const ivPercent = Number((ivSkew * 100).toFixed(1));
+    const peIVSkew = isIndian
+      ? (baseIV * termFactor * 0.92) + (m < 0 ? -m * 0.12 : m * 0.08)
+      : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
 
-    // Calculate Black-Scholes for CE & PE
-    const ceBS = calculateBlackScholes(S, K, T, r, ivSkew, 'CE');
-    const peBS = calculateBlackScholes(S, K, T, r, ivSkew, 'PE');
+    const ceIVPercent = Number((ceIVSkew * 100).toFixed(1));
+    const peIVPercent = Number((peIVSkew * 100).toFixed(1));
+
+    // Calculate Black-Scholes for CE & PE with forward cost-of-carry
+    const ceBS = calculateBlackScholes(S, K, T, r, ceIVSkew, 'CE', divYield);
+    const peBS = calculateBlackScholes(S, K, T, r, peIVSkew, 'PE', divYield);
 
     // Realistic Open Interest & Volume distributions centered at ATM
     const factor = Math.exp(-Math.pow(i / 6.5, 2));
@@ -101,8 +111,8 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const peAsk = Number((peLtp + halfSpread).toFixed(2));
 
     // Dynamic previous close computed from reference previous session close
-    const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'CE');
-    const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 252, r, ivSkew, 'PE');
+    const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
+    const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, peIVSkew, 'PE', divYield);
     const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
     const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
 
@@ -142,7 +152,7 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       openInterest: ceOI,
       oiChange: ceChgOI,
       oiChangePercent: Number(((ceChgOI / Math.max(ceOI, 1)) * 100).toFixed(1)),
-      iv: ivPercent,
+      iv: ceIVPercent,
       greeks: {
         delta: ceBS.delta,
         gamma: ceBS.gamma,
@@ -169,7 +179,7 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
       openInterest: peOI,
       oiChange: peChgOI,
       oiChangePercent: Number(((peChgOI / Math.max(peOI, 1)) * 100).toFixed(1)),
-      iv: ivPercent,
+      iv: peIVPercent,
       greeks: {
         delta: peBS.delta,
         gamma: peBS.gamma,
@@ -194,6 +204,110 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
   return rows;
 }
 
+// Computes predicted signals across all available expiries for the given ticker, anchored to live option prices and refreshing with prediction polling
+export function computeAllExpiriesSignals(
+  ticker: TickerConfig, 
+  newsFeed: NewsItem[],
+  currentExpiryIndex: number,
+  currentSignal?: TradeSignal
+): ExpirySignalSummary[] {
+  if (!ticker.expiryDates || ticker.expiryDates.length === 0) return [];
+
+  const tradingDaysArray = [0, 5, 10, 15, 20, 40];
+
+  return ticker.expiryDates.map((date, idx) => {
+    const dte = idx === 0 ? 0 : Math.round(tradingDaysArray[idx] || (idx * 5));
+    const expiryTypeLabel = idx === 0 
+      ? 'Today (0 DTE Expiry)' 
+      : idx === 1 
+        ? 'Next Weekly' 
+        : idx >= 4 
+          ? 'Monthly Expiry' 
+          : 'Extended Expiry';
+    const isCurrentExpiry = idx === currentExpiryIndex;
+
+    // If it is the currently selected expiry, utilize the active live signal's prices to guarantee perfect synchronization
+    if (isCurrentExpiry && currentSignal) {
+      const ltp = currentSignal.recommendedContractLTP;
+      const t1Gain = Number((((currentSignal.target1 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+      const t2Gain = Number((((currentSignal.target2 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+      const slRisk = Number((((ltp - currentSignal.stopLoss) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+
+      return {
+        expiryDate: date,
+        expiryIndex: idx,
+        daysToExpiry: dte,
+        expiryTypeLabel,
+        action: currentSignal.action,
+        recommendedStrike: currentSignal.recommendedStrike,
+        recommendedType: currentSignal.recommendedType,
+        recommendedContractLTP: ltp,
+        target1: currentSignal.target1,
+        target2: currentSignal.target2,
+        stopLoss: currentSignal.stopLoss,
+        confidence: currentSignal.confidence,
+        strength: currentSignal.strength,
+        riskRewardRatio: currentSignal.riskRewardRatio,
+        target1GainPercent: t1Gain,
+        target2GainPercent: t2Gain,
+        stopLossRiskPercent: slRisk,
+        trailingStopLoss: currentSignal.trailingStopLoss,
+        capitalProtectionStatus: currentSignal.capitalProtectionStatus,
+        isCurrentExpiry: true,
+        moneyness: currentSignal.moneyness,
+        entryRange: currentSignal.entryRange,
+        profitProbabilityPercent: currentSignal.confidence,
+      };
+    }
+
+    // For other expiries, calculate genuine option chain with that specific expiry's Greeks & time-decay
+    const tempChain = buildInitialChain(ticker, idx);
+    const tempMetrics = computeMarketMetrics(ticker, tempChain);
+    // Pass currentSignal to maintain coherent market regime momentum across all expiries
+    const tempSignal = generateTradeSignal(ticker, tempMetrics, tempChain, newsFeed, currentSignal, idx);
+
+    const ltp = tempSignal.recommendedContractLTP;
+    const t1 = tempSignal.target1;
+    const t2 = tempSignal.target2;
+    const sl = tempSignal.stopLoss;
+
+    const t1Gain = Number((((t1 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+    const t2Gain = Number((((t2 - ltp) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+    const slRisk = Number((((ltp - sl) / Math.max(ltp, 0.05)) * 100).toFixed(1));
+
+    const contractRow = tempChain.find(r => r.strike === tempSignal.recommendedStrike);
+    const contractObj = tempSignal.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
+
+    return {
+      expiryDate: date,
+      expiryIndex: idx,
+      daysToExpiry: dte,
+      expiryTypeLabel,
+      action: tempSignal.action,
+      recommendedStrike: tempSignal.recommendedStrike,
+      recommendedType: tempSignal.recommendedType,
+      recommendedContractLTP: ltp,
+      target1: t1,
+      target2: t2,
+      stopLoss: sl,
+      confidence: tempSignal.confidence,
+      strength: tempSignal.strength,
+      riskRewardRatio: tempSignal.riskRewardRatio,
+      target1GainPercent: t1Gain,
+      target2GainPercent: t2Gain,
+      stopLossRiskPercent: slRisk,
+      trailingStopLoss: tempSignal.trailingStopLoss,
+      capitalProtectionStatus: tempSignal.capitalProtectionStatus,
+      isCurrentExpiry: false,
+      moneyness: tempSignal.moneyness,
+      iv: contractObj?.iv,
+      delta: contractObj?.greeks.delta,
+      entryRange: tempSignal.entryRange,
+      profitProbabilityPercent: tempSignal.confidence,
+    };
+  });
+}
+
 export function useLiveOptionChain() {
   const [selectedTicker, setSelectedTicker] = useState<TickerConfig>(POPULAR_TICKERS[0]);
   const [expiryIndex, setExpiryIndex] = useState<number>(0);
@@ -211,7 +325,7 @@ export function useLiveOptionChain() {
   // Filters State
   const [filters, setFilters] = useState<OptionFilters>({
     expiryDate: POPULAR_TICKERS[0].expiryDates[0],
-    strikeRange: 'ATM_10',
+    strikeRange: 'ALL',
     moneynessFilter: 'ALL',
     minIV: 5,
     maxIV: 80,
@@ -231,9 +345,54 @@ export function useLiveOptionChain() {
     computeMarketMetrics(POPULAR_TICKERS[0], buildInitialChain(POPULAR_TICKERS[0], 0))
   );
 
-  const [signal, setSignal] = useState<TradeSignal>(() =>
-    generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED)
-  );
+  const [signal, setSignal] = useState<TradeSignal>(() => {
+    const s = generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED);
+    s.allExpiriesSignals = computeAllExpiriesSignals(POPULAR_TICKERS[0], INITIAL_NEWS_FEED, 0, s);
+    return s;
+  });
+
+  // Signal Reference & Anti-Whipsaw Confirmation State
+  const signalRef = useRef<TradeSignal>(signal);
+  signalRef.current = signal;
+  const pendingFlipRef = useRef<{ action: SignalAction; count: number }>({ action: signal.action, count: 0 });
+
+  // Strategic Anti-Whipsaw Signal Confirmation Filter
+  const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal): TradeSignal => {
+    const prev = signalRef.current;
+    if (!prev) return proposedSignal;
+
+    if (proposedSignal.action === prev.action) {
+      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
+      return proposedSignal;
+    }
+
+    // Safety First: Transitions to WAIT_NEUTRAL or Stop Loss hit execute immediately
+    if (proposedSignal.action === 'WAIT_NEUTRAL' || proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
+      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
+      return proposedSignal;
+    }
+
+    // Direct Reversal Guard (BUY_CE <-> BUY_PE):
+    const isReversal = (prev.action === 'BUY_CE' && proposedSignal.action === 'BUY_PE') ||
+                       (prev.action === 'BUY_PE' && proposedSignal.action === 'BUY_CE');
+
+    if (pendingFlipRef.current.action === proposedSignal.action) {
+      pendingFlipRef.current.count += 1;
+    } else {
+      pendingFlipRef.current = { action: proposedSignal.action, count: 1 };
+    }
+
+    if (isReversal && pendingFlipRef.current.count < 2) {
+      // Step down safely to WAIT_NEUTRAL during confirmation window to eliminate whipsaw chops
+      return {
+        ...proposedSignal,
+        action: 'WAIT_NEUTRAL',
+        strength: 'CAUTION',
+      };
+    }
+
+    return proposedSignal;
+  }, []);
 
   // Strike History and Derived Profitability Trends State
   const [strikeHistory, setStrikeHistory] = useState<StrikeHistoryItem[]>(() =>
@@ -313,14 +472,22 @@ export function useLiveOptionChain() {
         // Update spot price & metadata from real live exchange
         const regularPrice = data.regularPrice || data.spotPrice;
         const prePrice = data.preMarketPrice || data.extendedHours?.price;
-        const activeSpot = usePreMarket && prePrice ? prePrice : data.spotPrice;
+        
+        const isMarketOpen = data.marketState === 'REGULAR' || getMarketHoursStatus(tickerToFetch).isOpen;
+        // Automatically disable usePreMarket if market is open
+        const activePreMarket = usePreMarket && !isMarketOpen;
+        if (usePreMarket && isMarketOpen) {
+          setUsePreMarket(false);
+        }
+
+        const activeSpot = activePreMarket && prePrice ? prePrice : data.spotPrice;
         const step = tickerToFetch.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = usePreMarket && prePrice && data.preMarketChange !== undefined
+        const activeChange = activePreMarket && prePrice && data.preMarketChange !== undefined
           ? data.preMarketChange
           : data.change;
-        const activeChangePct = usePreMarket && prePrice && data.preMarketChangePercent !== undefined
+        const activeChangePct = activePreMarket && prePrice && data.preMarketChangePercent !== undefined
           ? data.preMarketChangePercent
           : data.changePercent;
 
@@ -334,6 +501,8 @@ export function useLiveOptionChain() {
           dayHigh: data.dayHigh,
           dayLow: data.dayLow,
           atmStrike: newAtm,
+          vix: data.vix !== undefined ? data.vix : tickerToFetch.vix,
+          vixChange: data.vixChange !== undefined ? data.vixChange : tickerToFetch.vixChange,
           asOnTime: data.asOnTime,
           marketState: data.marketState,
           preMarketPrice: data.preMarketPrice,
@@ -343,7 +512,7 @@ export function useLiveOptionChain() {
           postMarketChange: data.postMarketChange,
           postMarketChangePercent: data.postMarketChangePercent,
           extendedHours: data.extendedHours,
-          isUsingPreMarket: usePreMarket && !!prePrice,
+          isUsingPreMarket: activePreMarket && !!prePrice,
           expiryDates: data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : tickerToFetch.expiryDates,
           isLiveSynced: true,
         };
@@ -356,17 +525,21 @@ export function useLiveOptionChain() {
         if (data.rows && Array.isArray(data.rows) && data.rows.length > 0) {
           setChain(data.rows);
           const newMetrics = computeMarketMetrics(updatedTicker, data.rows);
-          const newSignal = generateTradeSignal(updatedTicker, newMetrics, data.rows, newsFeed);
+          const rawSignal = generateTradeSignal(updatedTicker, newMetrics, data.rows, newsFeed, signalRef.current || undefined, targetExpiryIndex);
+          const debouncedSignal = applySignalWithDebounce(rawSignal);
+          debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updatedTicker, newsFeed, targetExpiryIndex, debouncedSignal);
           setMetrics(newMetrics);
-          setSignal(newSignal);
+          setSignal(debouncedSignal);
         } else {
           // For Indian indices: calculate Black-Scholes anchored on the exact live spot
           const newChain = buildInitialChain(updatedTicker, targetExpiryIndex);
           const newMetrics = computeMarketMetrics(updatedTicker, newChain);
-          const newSignal = generateTradeSignal(updatedTicker, newMetrics, newChain, newsFeed);
+          const rawSignal = generateTradeSignal(updatedTicker, newMetrics, newChain, newsFeed, signalRef.current || undefined, targetExpiryIndex);
+          const debouncedSignal = applySignalWithDebounce(rawSignal);
+          debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updatedTicker, newsFeed, targetExpiryIndex, debouncedSignal);
           setChain(newChain);
           setMetrics(newMetrics);
-          setSignal(newSignal);
+          setSignal(debouncedSignal);
         }
 
         setLastUpdated(new Date());
@@ -392,7 +565,9 @@ export function useLiveOptionChain() {
           // Re-evaluate signal with updated live catalysts
           setSignal(prev => {
             if (chain.length > 0) {
-              return generateTradeSignal(selectedTicker, metrics, chain, liveArticles);
+              const s = generateTradeSignal(selectedTicker, metrics, chain, liveArticles, signalRef.current || undefined, expiryIndex);
+              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, liveArticles, expiryIndex, s);
+              return s;
             }
             return prev;
           });
@@ -446,6 +621,15 @@ export function useLiveOptionChain() {
       expiryDate: selectedTicker.expiryDates[idx] || prev.expiryDate,
     }));
 
+    // Immediate zero-lag optimistic switch for instantaneous UI response
+    const instantChain = buildInitialChain(selectedTicker, idx);
+    const instantMetrics = computeMarketMetrics(selectedTicker, instantChain);
+    const instantSignal = generateTradeSignal(selectedTicker, instantMetrics, instantChain, newsFeed, signalRef.current || undefined, idx);
+    instantSignal.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, idx, instantSignal);
+    setChain(instantChain);
+    setMetrics(instantMetrics);
+    setSignal(instantSignal);
+
     const targetTimestamp = expiryTimestamps[idx];
     fetchOptionChainFromBackend(selectedTicker, idx, targetTimestamp);
   };
@@ -485,17 +669,19 @@ export function useLiveOptionChain() {
     return () => clearInterval(timer);
   }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex, marketStatus.isOpen]);
 
-  // Recalculate metrics & signals when ticker spot or chain changes
+  // Recalculate metrics & signals when ticker, chain, news, or expiry changes
   useEffect(() => {
     const updatedMetrics = computeMarketMetrics(selectedTicker, chain);
     setMetrics(updatedMetrics);
-    const updatedSignal = generateTradeSignal(selectedTicker, updatedMetrics, chain, newsFeed);
+    const rawSignal = generateTradeSignal(selectedTicker, updatedMetrics, chain, newsFeed, signalRef.current || undefined, expiryIndex);
+    const debouncedSignal = applySignalWithDebounce(rawSignal);
+    debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, debouncedSignal);
     
-    if (signal.action !== updatedSignal.action && updatedSignal.action !== 'WAIT_NEUTRAL') {
-      playTone(updatedSignal.action === 'BUY_CE' ? 1046.5 : 587.33, 0.15);
+    if (signal.action !== debouncedSignal.action && debouncedSignal.action !== 'WAIT_NEUTRAL') {
+      playTone(debouncedSignal.action === 'BUY_CE' ? 1046.5 : 587.33, 0.15);
     }
-    setSignal(updatedSignal);
-  }, [selectedTicker.spotPrice, chain.length]);
+    setSignal(debouncedSignal);
+  }, [selectedTicker, chain, newsFeed, expiryIndex, applySignalWithDebounce]);
 
   // Toggle between Regular Market and Pre-Market / Extended Hours pricing
   const toggleUsePreMarket = (enable?: boolean) => {
@@ -533,10 +719,12 @@ export function useLiveOptionChain() {
     // If US ticker has real option chain, adjust Greeks or synthesize for new spot
     const newChain = buildInitialChain(updated, expiryIndex);
     const newMetrics = computeMarketMetrics(updated, newChain);
-    const newSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed);
+    const rawSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed, signalRef.current || undefined, expiryIndex);
+    const debouncedSignal = applySignalWithDebounce(rawSignal);
+    debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updated, newsFeed, expiryIndex, debouncedSignal);
     setChain(newChain);
     setMetrics(newMetrics);
-    setSignal(newSignal);
+    setSignal(debouncedSignal);
     setLastUpdated(new Date());
   };
 

@@ -192,6 +192,8 @@ export default function App() {
       if (filters.strikeRange === 'ATM_5' && atmDist > 5) return false;
       if (filters.strikeRange === 'ATM_10' && atmDist > 10) return false;
       if (filters.strikeRange === 'ATM_15' && atmDist > 15) return false;
+      if (filters.strikeRange === 'ATM_20' && atmDist > 20) return false;
+      if (filters.strikeRange === 'ATM_30' && atmDist > 30) return false;
 
       // 3. Moneyness Filter (if user wants to view only ITM, ATM, or OTM)
       if (filters.moneynessFilter === 'ITM') {
@@ -294,6 +296,8 @@ export default function App() {
         onSyncLiveExchange={syncLiveExchange}
         syncStatusMsg={dataSourceNote}
         marketStatus={marketStatus}
+        usePreMarket={usePreMarket}
+        onTogglePreMarket={toggleUsePreMarket}
       />
 
       {/* Main Content Area */}
@@ -308,6 +312,8 @@ export default function App() {
             onSelectContractForSimulation={handleSelectContract}
             isSyncing={isSyncing}
             theme="dark"
+            currentExpiryIndex={expiryIndex}
+            onSelectExpiry={handleSelectExpiry}
           />
         </section>
 

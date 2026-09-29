@@ -1,5 +1,6 @@
 /**
- * Black-Scholes Options Pricing & Greeks Calculator
+ * Black-Scholes & Black-76 Options Pricing & Greeks Calculator
+ * Calibrated for Global & Indian Exchange (NSE/NFO) Index and Equity Derivatives
  */
 
 // Standard normal cumulative distribution function (Abramowitz and Stegun approximation)
@@ -34,13 +35,14 @@ export interface BSResult {
 }
 
 /**
- * Computes European Call & Put price and Greeks
+ * Computes European Call & Put price and Greeks with forward cost-of-carry
  * @param S Current Spot Price
  * @param K Strike Price
  * @param T Time to expiration in years (e.g. 7 days / 365)
  * @param r Risk-free interest rate (e.g. 0.065 for India or 0.045 for US)
  * @param sigma Implied Volatility as a decimal (e.g. 0.15 for 15%)
  * @param type 'CE' | 'PE'
+ * @param dividendYield Annualized dividend yield (default 0.012 for Nifty / 0.015 for equities)
  */
 export function calculateBlackScholes(
   S: number,
@@ -48,14 +50,18 @@ export function calculateBlackScholes(
   T: number,
   r: number,
   sigma: number,
-  type: 'CE' | 'PE'
+  type: 'CE' | 'PE',
+  dividendYield: number = 0.012
 ): BSResult {
   // Prevent division by zero or negative time
   const timeToExpiry = Math.max(T, 0.0001);
   const vol = Math.max(sigma, 0.01);
   const sqrtT = Math.sqrt(timeToExpiry);
 
-  const d1 = (Math.log(S / K) + (r + 0.5 * vol * vol) * timeToExpiry) / (vol * sqrtT);
+  // Forward underlying price with cost of carry (F = S * exp((r - q) * T))
+  const F = S * Math.exp((r - dividendYield) * timeToExpiry);
+
+  const d1 = (Math.log(F / K) + (0.5 * vol * vol) * timeToExpiry) / (vol * sqrtT);
   const d2 = d1 - vol * sqrtT;
 
   const nd1 = standardNormalCDF(d1);
@@ -70,11 +76,21 @@ export function calculateBlackScholes(
   let delta = 0;
 
   if (type === 'CE') {
-    price = S * nd1 - K * discount * nd2;
+    price = discount * (F * nd1 - K * nd2);
     delta = nd1;
   } else {
-    price = K * discount * n_neg_d2 - S * n_neg_d1;
+    price = discount * (K * n_neg_d2 - F * n_neg_d1);
     delta = nd1 - 1.0;
+  }
+
+  // 0-DTE Intraday Volatility Extrinsic Floor: During active market hours on expiry day,
+  // options maintain minimum premium reflecting intraday movement bounds
+  if (timeToExpiry < 0.002) {
+    const intrinsic = type === 'CE' ? Math.max(0, S - K) : Math.max(0, K - S);
+    const m = Math.abs(K - S) / Math.max(S, 1);
+    const atmDecay = Math.exp(-Math.pow(m * 180, 2));
+    const intradayTimeValue = S * 0.0022 * (vol / 0.14) * atmDecay;
+    price = Math.max(price, intrinsic + intradayTimeValue);
   }
 
   // Gamma is identical for Call and Put

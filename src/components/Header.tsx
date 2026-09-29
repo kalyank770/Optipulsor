@@ -23,8 +23,8 @@ interface HeaderProps {
   onSyncLiveExchange?: () => void;
   syncStatusMsg?: string;
   marketStatus?: MarketHoursStatus;
-  theme?: 'dark' | 'light';
-  onToggleTheme?: () => void;
+  usePreMarket?: boolean;
+  onTogglePreMarket?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,8 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing = false,
   onSyncLiveExchange,
   marketStatus,
-  theme = 'dark',
-  onToggleTheme,
+  usePreMarket = false,
+  onTogglePreMarket,
 }) => {
   const isPositive = selectedTicker.change >= 0;
 
@@ -166,18 +166,24 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {onToggleTheme && (
+          {onTogglePreMarket && (
             <button
-              onClick={onToggleTheme}
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              className="flex items-center justify-center p-2 rounded bg-slate-900 border border-slate-700 hover:text-white hover:bg-slate-800 text-slate-200 hover:text-white transition-colors cursor-pointer min-h-[36px] min-w-[36px]"
-              aria-label="Toggle theme"
+              onClick={onTogglePreMarket}
+              title={usePreMarket ? "Switch back to regular market feed" : "Switch to Pre-Market hours data & gap prediction model"}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded border transition-all cursor-pointer min-h-[36px] ${
+                usePreMarket 
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/35 hover:bg-amber-500/20 shadow-sm'
+                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
             >
-              {theme === 'dark' ? (
-                <Sun className="w-4.5 h-4.5 text-amber-400 animate-pulse" />
-              ) : (
-                <Moon className="w-4.5 h-4.5 text-sky-400" />
-              )}
+              <span className="relative flex h-2 w-2">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${usePreMarket ? 'bg-amber-400 font-bold' : 'bg-slate-600'} opacity-75`}></span>
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${usePreMarket ? 'bg-amber-400' : 'bg-slate-500'}`}></span>
+              </span>
+              <span>Pre-Market Predictor</span>
+              <span className={`text-[9px] uppercase font-mono px-1 rounded ${usePreMarket ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-500'}`}>
+                {usePreMarket ? 'ON' : 'OFF'}
+              </span>
             </button>
           )}
         </div>
