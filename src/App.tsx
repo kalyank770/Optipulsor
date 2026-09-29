@@ -66,28 +66,17 @@ export default function App() {
     handleForceRefresh,
   } = useLiveOptionChain();
 
-  // Dark/Light Theme state with localStorage persistence
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    const saved = localStorage.getItem('optipulse-theme');
-    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
-  });
-
+  // Force dark theme strictly - no light theme switcher or options
   useEffect(() => {
-    if (theme === 'light') {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-      document.documentElement.style.colorScheme = 'light';
-    } else {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-      document.documentElement.style.colorScheme = 'dark';
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
+    document.documentElement.style.colorScheme = 'dark';
+    try {
+      localStorage.removeItem('optipulse-theme');
+    } catch (e) {
+      // Ignore storage exception
     }
-    localStorage.setItem('optipulse-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
+  }, []);
 
   // Active view navigation & section expansion state
   type SectionKey = 'chain' | 'signals' | 'quant' | 'grounded_payoff' | 'trends' | 'oi_map' | 'strategy' | 'news';
@@ -305,8 +294,6 @@ export default function App() {
         onSyncLiveExchange={syncLiveExchange}
         syncStatusMsg={dataSourceNote}
         marketStatus={marketStatus}
-        theme={theme}
-        onToggleTheme={toggleTheme}
       />
 
       {/* Main Content Area */}
@@ -320,7 +307,7 @@ export default function App() {
             chain={chain}
             onSelectContractForSimulation={handleSelectContract}
             isSyncing={isSyncing}
-            theme={theme}
+            theme="dark"
           />
         </section>
 
@@ -431,7 +418,7 @@ export default function App() {
                 recommendedType={signal.recommendedType}
                 maxPainStrike={metrics.maxPainStrike}
                 onSelectContract={handleSelectContract}
-                theme={theme}
+                theme="dark"
               />
             </div>
           )}
@@ -651,7 +638,7 @@ export default function App() {
                 history={strikeHistory}
                 analytics={strikeAnalytics}
                 onSelectContract={handleSelectContract}
-                theme={theme}
+                theme="dark"
               />
             </div>
           )}
@@ -698,7 +685,7 @@ export default function App() {
                 ticker={selectedTicker}
                 metrics={metrics}
                 onSelectStrike={handleSelectStrike}
-                theme={theme}
+                theme="dark"
               />
             </div>
           )}
@@ -813,7 +800,7 @@ export default function App() {
                 onSelectTickerBySymbol={handleSelectTickerBySymbol}
                 onRefreshNews={refreshNews}
                 isNewsLoading={isNewsLoading}
-                theme={theme}
+                theme="dark"
               />
             </div>
           )}
