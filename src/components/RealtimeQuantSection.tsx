@@ -170,7 +170,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               {telemetry.globalCompositeScore > 0 ? `+${telemetry.globalCompositeScore}` : telemetry.globalCompositeScore} / 100
             </span>
             <span className="text-[10px] font-bold uppercase px-2 py-1 rounded bg-slate-900 border border-slate-800 text-emerald-400">
-              FII: {telemetry.fiiFlowExpectation.replace(/_/g, ' ')}
+              FII: {telemetry.fiiFlowExpectation?.replace(/_/g, ' ') || 'BALANCED'}
             </span>
           </div>
         </div>
@@ -181,10 +181,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">GIFT NIFTY</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.giftNifty.price.toLocaleString()}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : '22,695.50'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.giftNifty.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.giftNifty.change >= 0 ? '+' : ''}{telemetry.giftNifty.change.toFixed(1)} ({telemetry.giftNifty.changePercent >= 0 ? '+' : ''}{telemetry.giftNifty.changePercent}%)
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.giftNifty?.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)} ({(telemetry?.giftNifty?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.giftNifty?.changePercent || 0}%)
             </div>
           </div>
 
@@ -192,10 +192,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">S&P 500 FUT</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.sp500Futures.price.toLocaleString()}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '5,752.25'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.sp500Futures.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.sp500Futures.changePercent >= 0 ? '+' : ''}{telemetry.sp500Futures.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.sp500Futures?.changePercent || 0}%
             </div>
           </div>
 
@@ -203,10 +203,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">NASDAQ FUT</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.nasdaqFutures.price.toLocaleString()}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.nasdaqFutures?.price ? telemetry.nasdaqFutures.price.toLocaleString() : '20,145.50'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.nasdaqFutures.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.nasdaqFutures.changePercent >= 0 ? '+' : ''}{telemetry.nasdaqFutures.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nasdaqFutures?.changePercent || 0}%
             </div>
           </div>
 
@@ -214,10 +214,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">USD / INR</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">₹{telemetry.usdInr.price.toFixed(2)}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">₹{telemetry?.usdInr?.price ? telemetry.usdInr.price.toFixed(2) : '83.52'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.usdInr.changePercent <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.usdInr.changePercent >= 0 ? '+' : ''}{telemetry.usdInr.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.usdInr?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.usdInr?.changePercent || 0}%
             </div>
           </div>
 
@@ -225,10 +225,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">DXY INDEX</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.dxyIndex.price.toFixed(2)}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.dxyIndex?.price ? telemetry.dxyIndex.price.toFixed(2) : '103.20'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.dxyIndex.changePercent <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.dxyIndex.changePercent >= 0 ? '+' : ''}{telemetry.dxyIndex.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.dxyIndex?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.dxyIndex?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.dxyIndex?.changePercent || 0}%
             </div>
           </div>
 
@@ -236,10 +236,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">BRENT CRUDE</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">${telemetry.brentCrude.price.toFixed(2)}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">${telemetry?.brentCrude?.price ? telemetry.brentCrude.price.toFixed(2) : '73.20'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.brentCrude.changePercent <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.brentCrude.changePercent >= 0 ? '+' : ''}{telemetry.brentCrude.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.brentCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
             </div>
           </div>
 
@@ -247,10 +247,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">US 10Y YIELD</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.us10yYield.price.toFixed(2)}%</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.us10yYield?.price ? telemetry.us10yYield.price.toFixed(2) : '3.72'}%</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.us10yYield.changePercent <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.us10yYield.changePercent >= 0 ? '+' : ''}{telemetry.us10yYield.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.us10yYield?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.us10yYield?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.us10yYield?.changePercent || 0}%
             </div>
           </div>
 
@@ -258,10 +258,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">NIKKEI 225</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry.nikkei225.price.toLocaleString()}</div>
+              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.nikkei225?.price ? telemetry.nikkei225.price.toLocaleString() : '38,380'}</div>
             </div>
-            <div className={`text-[11px] font-bold mt-1 ${telemetry.nikkei225.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {telemetry.nikkei225.changePercent >= 0 ? '+' : ''}{telemetry.nikkei225.changePercent}%
+            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.nikkei225?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {(telemetry?.nikkei225?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nikkei225?.changePercent || 0}%
             </div>
           </div>
         </div>
@@ -332,7 +332,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
                 {volumeAnalytics.volumeBuildupLabel}
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                {volumeAnalytics.volumeDivergence.replace(/_/g, ' ')}
+                {volumeAnalytics.volumeDivergence?.replace(/_/g, ' ') || 'BALANCED'}
               </p>
             </div>
 
@@ -398,7 +398,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               </div>
               {rsi.divergence !== 'NONE' && (
                 <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  {rsi.divergence.replace(/_/g, ' ')}
+                  {rsi.divergence?.replace(/_/g, ' ') || 'NONE'}
                 </span>
               )}
             </div>
@@ -417,7 +417,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
                 MACD Trend Velocity
               </span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-800/80 font-bold">
-                {macd.trend.replace(/_/g, ' ')}
+                {macd.trend?.replace(/_/g, ' ') || 'NEUTRAL'}
               </span>
             </div>
             <div className="text-xl font-extrabold font-mono text-slate-200">
@@ -471,7 +471,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
                   ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800/80' 
                   : 'bg-rose-950/70 text-rose-300 border-rose-800/80'
               }`}>
-                {gammaExposure.regime.replace(/_/g, ' ')}
+                {gammaExposure.regime?.replace(/_/g, ' ') || 'BALANCED'}
               </span>
             </div>
             <div className="text-xl font-extrabold font-mono text-purple-300">
@@ -502,7 +502,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               VIX: {vixVelocity.vix.toFixed(2)} ({vixVelocity.vixChange >= 0 ? `+${vixVelocity.vixChange.toFixed(2)}` : vixVelocity.vixChange.toFixed(2)})
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-1 flex justify-between">
-              <span>Order Flow: {orderFlow.sentiment.replace(/_/g, ' ')}</span>
+              <span>Order Flow: {orderFlow.sentiment?.replace(/_/g, ' ') || 'BALANCED'}</span>
             </div>
           </div>
           <p className="text-xs text-slate-400 mt-2 border-t border-slate-800/80 pt-2 font-mono">

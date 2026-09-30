@@ -52,7 +52,7 @@ export function generateRollingCandles(
       const open = Number((S + openOffset).toFixed(2));
       const high = Number((Math.max(S, open) + candleVolatility * 0.20 + 0.02).toFixed(2));
       const low = Number((Math.min(S, open) - candleVolatility * 0.20 - 0.02).toFixed(2));
-      const volume = Math.round(15000 + Math.random() * 25000);
+      const volume = Math.round(18000 + Math.abs(Math.sin((candleTs / 60000) * 0.7)) * 24000);
 
       candles.unshift({
         time: timeStr,
@@ -343,9 +343,9 @@ export function computeMultiTimeframeChartPatterns(
   // Build descriptive confluence pattern headline
   let confluencePattern = '';
   if (confluenceBias === 'BULLISH') {
-    confluencePattern = `15m ${m15.trend} Structure (${m15Score > 0 ? '+' : ''}${m15Score}) + 5m ${m5.pattern.replace(/5m\s*/, '')} (${m5Score > 0 ? '+' : ''}${m5Score}) + 2m Trigger (${m2Score > 0 ? '+' : ''}${m2Score})`;
+    confluencePattern = `15m ${m15.trend} Structure (${m15Score > 0 ? '+' : ''}${m15Score}) + 5m ${m5?.pattern?.replace(/5m\s*/, '') || ''} (${m5Score > 0 ? '+' : ''}${m5Score}) + 2m Trigger (${m2Score > 0 ? '+' : ''}${m2Score})`;
   } else if (confluenceBias === 'BEARISH') {
-    confluencePattern = `15m ${m15.trend} Pressure (${m15Score}) + 5m ${m5.pattern.replace(/5m\s*/, '')} (${m5Score}) + 2m Breakdown (${m2Score})`;
+    confluencePattern = `15m ${m15.trend} Pressure (${m15Score}) + 5m ${m5?.pattern?.replace(/5m\s*/, '') || ''} (${m5Score}) + 2m Breakdown (${m2Score})`;
   } else {
     confluencePattern = `Multi-Timeframe Equilibrium (2m: ${m2Score > 0 ? '+' : ''}${m2Score} | 5m: ${m5Score > 0 ? '+' : ''}${m5Score} | 15m: ${m15Score > 0 ? '+' : ''}${m15Score})`;
   }

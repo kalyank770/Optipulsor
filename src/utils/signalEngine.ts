@@ -125,7 +125,8 @@ export function generateTradeSignal(
   newsItems: NewsItem[],
   previousSignal?: TradeSignal,
   expiryIndex: number = 0,
-  liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis
+  liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
+  liveGlobalMacro?: import('../types/options').InterMarketTelemetry
 ): TradeSignal {
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
   const vix = Math.max(9, ticker.vix || 13);
@@ -301,7 +302,7 @@ export function generateTradeSignal(
   }
 
   // 14. Inter-Market Telemetry & Global Macro Cues
-  const interMarketTelemetry = getInterMarketTelemetry(ticker.symbol);
+  const interMarketTelemetry = getInterMarketTelemetry(ticker.symbol, liveGlobalMacro);
   const globalScoreContrib = Number(((interMarketTelemetry.globalCompositeScore / 100) * 2.2).toFixed(2));
   score += globalScoreContrib;
 
@@ -339,21 +340,34 @@ export function generateTradeSignal(
     }
   }
 
-  // GUARD RAIL 1: Intraday Recovery Protection (Strictly block BUY_PE into an active bounce off day low)
-  const isBouncingOffLow = recoveryPoints >= ticker.strikeStep * 0.40 || recoveryRatio >= 0.35;
-  const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen + ticker.strikeStep * 0.05 : false;
-  const isPositiveSession = spotChangePct >= 0;
-  const isBullishCandles = candlePatterns.confluenceBias === 'BULLISH';
-  const isBullishVwap = rt.vwap.bias === 'BULLISH' && spotPrice >= rt.vwap.value;
-  const isMarketRaising = isPositiveSession || isAboveDayOpen || isBouncingOffLow || isBullishCandles || isBullishVwap;
+  // Regime Detection: Differentiate genuine bullish rises from continuous downward falls
+  const isPositiveSession = spotChangePct >= 0.05;
+  const isBullishCandles = candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.2;
+  const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen + ticker.strikeStep * 0.15 : false;
+  const isConfirmedBullishReversal = recoveryRatio >= 0.65 && spotPrice >= rt.vwap.value && isBullishCandles;
 
+  // True Market Raising: Only when in the green, or trading above open with bullish candles, or confirmed 65%+ V-shape reversal
+  const isMarketRaising = isPositiveSession || (isAboveDayOpen && isBullishCandles) || isConfirmedBullishReversal;
+
+  // True Continuous Downtrend: Negative session, trading in lower range, bearish indicator confluence
+  const isContinuousFall = spotChangePct <= -0.05 && recoveryRatio <= 0.55 && (
+    candlePatterns.confluenceBias === 'BEARISH' || 
+    rt.vwap.bias === 'BEARISH' || 
+    rt.ema.alignment === 'BEARISH_STACK' ||
+    (ticker.dayOpen ? spotPrice < ticker.dayOpen : true)
+  );
+
+  // GUARD RAIL 1: Intraday Recovery vs Trend Continuation
   if (isMarketRaising && score < 0) {
-    if (isBullishCandles && candlePatterns.confluenceScore >= 1.5) {
-      score = Math.max(score, 2.5); // Trigger BUY_CE for recovery rally continuation
+    if (isBullishCandles) {
+      score = Math.max(score, 2.5); // Trigger BUY_CE for confirmed rally
     } else {
-      score = Math.max(0.8, score + 3.5); // Lift score out of negative territory into positive/neutral
-      capitalProtectionReason = `Capital Protection: Market is in an active upward rise / intraday recovery (+${ticker.currency}${recoveryPoints.toFixed(1)} off day low${isPositiveSession ? ' / in green' : ''}). Put option (PE) buying is strictly prohibited into an upward move; seeking Call setup or breakout confirmation.`;
+      score = Math.max(0.6, score + 3.0); // Neutralize false bearishness in a rising market
+      capitalProtectionReason = `Capital Protection: Market is in an active upward rise (${isPositiveSession ? 'in green' : 'rally above open'}). Put option (PE) buying is prohibited during an upward move.`;
     }
+  } else if (isContinuousFall && score > -1.0) {
+    // If the market is continuously falling, ensure the bearish conviction is preserved so BUY_PE is recommended!
+    score = Math.min(score, -2.4);
   }
 
   // GUARD RAIL 2: Extreme PCR Reversal Trap (Do not short oversold extremes / do not buy calls at overbought peaks)
@@ -476,9 +490,9 @@ export function generateTradeSignal(
   if (giftNiftyBias <= 0) bearMatches++;
 
   if (isMarketRaising) {
-    // MARKET IS RAISING / INTRADAY RECOVERY:
+    // MARKET IS GENUINELY RAISING:
     // Put (PE) buying is strictly forbidden. The system only permits BUY_CE (if momentum confirms) or WAIT_NEUTRAL.
-    if (score >= 1.0 && (bullMatches >= 1 || isBullishCandles || isPositiveSession)) {
+    if (score >= 1.0 && (bullMatches >= 1 || isBullishCandles)) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(65, Math.round(58 + (bullMatches / 7) * 36)));
       strength = bullMatches >= 4 ? 'STRONG' : 'MODERATE';
@@ -487,53 +501,49 @@ export function generateTradeSignal(
       confidence = 54;
       strength = 'CAUTION';
     }
+  } else if (isContinuousFall) {
+    // MARKET IS CONTINUOUSLY FALLING / BREAKING DOWN:
+    // Primary regime for option buyers: Recommend BUY_PE to capitalize on the downward momentum!
+    action = 'BUY_PE';
+    confidence = Math.min(94, Math.max(68, Math.round(62 + (bearMatches / 7) * 32)));
+    strength = bearMatches >= 4 ? 'STRONG' : 'MODERATE';
   } else if (prevAction === 'BUY_CE') {
     // ACTIVE LONG (CE) POSITION:
-    // 1. Momentum Persistence: Maintain BUY_CE even on mild score pullbacks (down to 0.7) to avoid premature chop
     if (score >= 0.7 && bullMatches >= 3) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(64, Math.round(58 + (bullMatches / 7) * 36)));
       strength = bullMatches >= 5 && score >= 3.8 ? 'STRONG' : 'MODERATE';
-    }
-    // 2. Direct Reversal to BUY_PE is strictly guarded: Only allowed if severe institutional breakdown occurs
-    else if (score <= -3.0 && bearMatches >= 5 && rt.ema.alignment === 'BEARISH_STACK') {
+    } else if (score <= -2.5 && bearMatches >= 4) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
-      strength = bearMatches >= 6 ? 'STRONG' : 'MODERATE';
-    }
-    // 3. Orderly De-escalation: If momentum wanes, step down to WAIT_NEUTRAL (never flip directly to opposite side)
-    else {
+      strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
+    } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
       strength = 'CAUTION';
     }
   } else if (prevAction === 'BUY_PE') {
     // ACTIVE SHORT (PE) POSITION:
-    // 1. Momentum Persistence: Maintain BUY_PE only if market is actively breaking down (NOT bouncing)
-    if (score <= -1.2 && bearMatches >= 3 && !isMarketRaising) {
+    if (score <= -0.7 && bearMatches >= 2) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(64, Math.round(58 + (bearMatches / 7) * 36)));
-      strength = bearMatches >= 5 && Math.abs(score) >= 3.8 ? 'STRONG' : 'MODERATE';
-    }
-    // 2. Direct Reversal to BUY_CE is strictly guarded: Only allowed if severe institutional breakout occurs
-    else if (score >= 2.2 && (bullMatches >= 4 || isMarketRaising) && rt.ema.alignment !== 'BEARISH_STACK') {
+      strength = bearMatches >= 4 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
+    } else if (score >= 2.2 && (bullMatches >= 4 || isMarketRaising)) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
       strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
-    }
-    // 3. Orderly De-escalation: If selling pressure fades or price bounces, step down to WAIT_NEUTRAL
-    else {
+    } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
       strength = 'CAUTION';
     }
   } else {
     // CURRENTLY IN WAIT_NEUTRAL (Fresh Entry Filtering):
-    if (score >= 0.5 && bullMatches >= 1) {
+    if (score >= 0.7 && bullMatches >= 1) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(62, Math.round(56 + (bullMatches / 7) * 38)));
       strength = bullMatches >= 5 && score >= 3.0 ? 'STRONG' : 'MODERATE';
-    } else if (score <= -1.2 && bearMatches >= 2 && !isMarketRaising) {
+    } else if (score <= -0.7 && bearMatches >= 1) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(62, Math.round(56 + (bearMatches / 7) * 38)));
       strength = bearMatches >= 5 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
@@ -562,7 +572,7 @@ export function generateTradeSignal(
     // WAIT_NEUTRAL:
     if (isMarketRaising) {
       recommendedType = 'CE'; // In a raising market, reference contract MUST be CE!
-    } else if (spotChangePct <= -0.15 && recoveryRatio <= 0.25) {
+    } else if (isContinuousFall || spotChangePct <= -0.08) {
       recommendedType = 'PE';
     } else {
       recommendedType = (previousSignal && previousSignal.action !== 'WAIT_NEUTRAL') ? previousSignal.recommendedType : 'CE';
@@ -617,7 +627,7 @@ export function generateTradeSignal(
   }
 
   // Real contract premium (LTP) directly from the recommended contract in the live chain
-  const premium = contract?.ltp ?? 50.00;
+  let premium = contract?.ltp ?? 50.00;
 
   // Exchange standard tick size (0.05 for Indian F&O, 0.01 for US)
   const tick = ticker.currency === '₹' ? 0.05 : 0.01;
@@ -861,7 +871,7 @@ export function generateTradeSignal(
   const intradayTheta1 = theta * 0.12;
   const greekGain1 = Math.max(tick * 2, deltaExpansion1 + gammaAcceleration1 - intradayTheta1 + vegaExpansion1);
   const estGain1 = bsDeltaGain1 * 0.50 + greekGain1 * 0.50;
-  const target1 = roundToTick(premium + estGain1);
+  let target1 = roundToTick(premium + estGain1);
   const target1Delta = roundToTick(Math.max(tick, target1 - premium));
 
   // 2. Target 2 Option Price: Direct, authentic payoff at spotTarget2
@@ -874,7 +884,7 @@ export function generateTradeSignal(
   const intradayTheta2 = theta * 0.25;
   const greekGain2 = Math.max(target1Delta + tick * 2, deltaExpansion2 + gammaAcceleration2 - intradayTheta2 + vegaExpansion2);
   const estGain2 = bsDeltaGain2 * 0.50 + greekGain2 * 0.50;
-  const target2 = roundToTick(premium + Math.max(target1Delta + tick * 4, estGain2));
+  let target2 = roundToTick(premium + Math.max(target1Delta + tick * 4, estGain2));
   const target2Delta = roundToTick(Math.max(tick * 2, target2 - premium));
 
   // 3. Stop Loss Option Price: Technical invalidation at spotStopLoss
@@ -885,7 +895,7 @@ export function generateTradeSignal(
   const intradayThetaSL = theta * 0.06;
   const greekLoss = Math.max(tick, delta * deltaSpotSL - 0.5 * gamma * Math.pow(deltaSpotSL, 2) + intradayThetaSL);
   const estLoss = bsLoss * 0.50 + greekLoss * 0.50;
-  const stopLoss = Math.max(tick, roundToTick(premium - estLoss));
+  let stopLoss = Math.max(tick, roundToTick(premium - estLoss));
   const actualRisk = roundToTick(Math.max(tick, premium - stopLoss));
 
   // GUARD RAIL 10: Strict Risk-to-Reward Expected Value Filter
@@ -1099,7 +1109,7 @@ export function generateTradeSignal(
   rationalePoints.push({
     title: 'RSI, MACD Momentum & Option Gamma (GEX) Regime',
     verdict: rt.macd.trend.includes('BULLISH') ? 'BULLISH' : rt.macd.trend.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
-    description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence.replace(/_/g, ' ')}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure.regime.replace(/_/g, ' ')} (Net GEX: ${rt.gammaExposure.netGex.toLocaleString()} | Flip Strike: ${ticker.currency}${rt.gammaExposure.flipStrike.toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment.replace(/_/g, ' ')}).`,
+    description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence?.replace(/_/g, ' ') || 'NONE'}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure?.regime?.replace(/_/g, ' ') || 'BALANCED'} (Net GEX: ${rt.gammaExposure.netGex.toLocaleString()} | Flip Strike: ${ticker.currency}${rt.gammaExposure.flipStrike.toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment?.replace(/_/g, ' ') || 'BALANCED'}).`,
   });
 
   // Rationale 8: Nifty Derivative Constituent Heavyweights & Sectoral Breadth (for Indian Equities & Indices)
@@ -1113,9 +1123,9 @@ export function generateTradeSignal(
 
   // Rationale 9: Global Inter-Market Telemetry (GIFT Nifty, US Futures, USD/INR, Crude, Yields)
   rationalePoints.push({
-    title: `Global Inter-Market Alignment (${interMarketTelemetry.globalSentiment.replace(/_/g, ' ')})`,
-    verdict: interMarketTelemetry.globalCompositeScore >= 15 ? 'BULLISH' : interMarketTelemetry.globalCompositeScore <= -15 ? 'BEARISH' : 'NEUTRAL',
-    description: `${interMarketTelemetry.summaryInsight} Key drivers: GIFT Nifty (${interMarketTelemetry.giftNifty.change >= 0 ? '+' : ''}${interMarketTelemetry.giftNifty.change.toFixed(2)} pts), S&P 500 Fut (+${interMarketTelemetry.sp500Futures.changePercent}%), Brent Crude ($${interMarketTelemetry.brentCrude.price}/bbl), and USD/INR (₹${interMarketTelemetry.usdInr.price}) directly drive FII capital flow direction.`,
+    title: `Global Inter-Market Alignment (${interMarketTelemetry?.globalSentiment?.replace(/_/g, ' ') || 'NEUTRAL'})`,
+    verdict: (interMarketTelemetry?.globalCompositeScore || 0) >= 15 ? 'BULLISH' : (interMarketTelemetry?.globalCompositeScore || 0) <= -15 ? 'BEARISH' : 'NEUTRAL',
+    description: `${interMarketTelemetry?.summaryInsight || 'Balanced macro cues.'} Key drivers: GIFT Nifty (${(interMarketTelemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}${(interMarketTelemetry?.giftNifty?.change || 0).toFixed(2)} pts), S&P 500 Fut (+${interMarketTelemetry?.sp500Futures?.changePercent || 0}%), Brent Crude ($${interMarketTelemetry?.brentCrude?.price || 75}/bbl), and USD/INR (₹${interMarketTelemetry?.usdInr?.price || 83.5}) directly drive FII capital flow direction.`,
   });
 
   // Rationale 10: Volume Analytics & Order Flow Buildup
@@ -1295,12 +1305,45 @@ export function generateTradeSignal(
   const marketStatus = getMarketHoursStatus(ticker);
   const afterMarketAnalytics = computeAfterMarketOpeningAnalytics(ticker, marketStatus, rt.vwap.value, interMarketTelemetry, metrics);
 
+  // When market is in After-Market / Closed session:
+  // Show the strike price that will hit tomorrow once the market opens based on today's full day chart + aftermarket analysis
+  if (!marketStatus.isOpen && afterMarketAnalytics.tomorrowHitStrike) {
+    const hit = afterMarketAnalytics.tomorrowHitStrike;
+    action = hit.action;
+    targetStrike = hit.strike;
+    recommendedType = hit.type;
+
+    const hitRow = chain.find(r => r.strike === targetStrike);
+    const hitContract = recommendedType === 'CE' ? hitRow?.ce : hitRow?.pe;
+    if (hitContract && hitContract.ltp > 0) {
+      premium = hitContract.ltp;
+    } else {
+      premium = hit.estimatedOpeningPremium;
+    }
+
+    target1 = hit.target1;
+    target2 = hit.target2;
+    stopLoss = hit.stopLoss;
+    spotTarget1 = hit.projectedSpotAtHit;
+    spotTarget2 = recommendedType === 'CE' 
+      ? Number((spotTarget1 + ticker.strikeStep * 0.8).toFixed(2)) 
+      : Number((spotTarget1 - ticker.strikeStep * 0.8).toFixed(2));
+    spotStopLoss = recommendedType === 'CE'
+      ? Number((ticker.spotPrice - ticker.strikeStep * 0.4).toFixed(2))
+      : Number((ticker.spotPrice + ticker.strikeStep * 0.4).toFixed(2));
+    
+    confidence = Math.max(confidence, 82);
+    strength = 'STRONG';
+
+    summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, Range: ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayLow?.toLocaleString()} - ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayHigh?.toLocaleString()}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty drift (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts), opening will test ${targetStrike} ${recommendedType}. Recommending ${targetStrike} ${recommendedType} @ ₹${premium.toFixed(2)} | Target 1: ₹${target1.toFixed(2)}, Target 2: ₹${target2.toFixed(2)} | SL: ₹${stopLoss.toFixed(2)}.`;
+  }
+
   // Rationale 11: After-Market Opening Projection
   if (!marketStatus.isOpen) {
     rationalePoints.push({
-      title: `Next Day Opening Projection (${afterMarketAnalytics.predictedOpeningType.replace(/_/g, ' ')})`,
-      verdict: afterMarketAnalytics.predictedOpeningGapPoints >= 20 ? 'BULLISH' : afterMarketAnalytics.predictedOpeningGapPoints <= -20 ? 'BEARISH' : 'NEUTRAL',
-      description: `After-Market Analysis predicts opening spot at ${ticker.currency}${afterMarketAnalytics.predictedOpeningSpot.toLocaleString()} (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts / ${afterMarketAnalytics.predictedOpeningGapPercent}% gap). Strategy: ${afterMarketAnalytics.openingStrategyPlaybook.strategyTitle}. ${afterMarketAnalytics.openingStrategyPlaybook.playbookDescription}`,
+      title: `Opening Target Strike: ${targetStrike} ${recommendedType} (${afterMarketAnalytics?.predictedOpeningType?.replace(/_/g, ' ') || 'MARKET OPEN'})`,
+      verdict: action === 'BUY_CE' ? 'BULLISH' : 'BEARISH',
+      description: `Today's entire day chart (${afterMarketAnalytics.fullDayChartAnalysis.dayChartSummary}) combined with overnight GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts) indicates spot will drive to ${afterMarketAnalytics.tomorrowHitStrike.projectedSpotAtHit} at 09:15 AM open, hitting strike ${targetStrike} ${recommendedType}. Strategy: ${afterMarketAnalytics.openingStrategyPlaybook.openingExecutionTrigger}`,
     });
   }
 

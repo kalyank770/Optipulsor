@@ -13,7 +13,8 @@ import {
   StrikeTrendAnalytics,
   ExpirySignalSummary,
   SignalAction,
-  NiftyConstituentAnalysis
+  NiftyConstituentAnalysis,
+  InterMarketTelemetry
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
@@ -207,12 +208,17 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
   return rows;
 }
 
+// Cache for background expiry chains to eliminate expensive recomputation on every tick
+const tempExpiryChainCache = new Map<string, { chain: OptionChainRow[]; metrics: MarketMetrics; timestamp: number }>();
+
 // Computes predicted signals across all available expiries for the given ticker, anchored to live option prices and refreshing with prediction polling
 export function computeAllExpiriesSignals(
   ticker: TickerConfig, 
   newsFeed: NewsItem[],
   currentExpiryIndex: number,
-  currentSignal?: TradeSignal
+  currentSignal?: TradeSignal,
+  liveConstituentAnalysis?: NiftyConstituentAnalysis,
+  liveGlobalMacro?: InterMarketTelemetry
 ): ExpirySignalSummary[] {
   if (!ticker.expiryDates || ticker.expiryDates.length === 0) return [];
 
@@ -263,11 +269,28 @@ export function computeAllExpiriesSignals(
       };
     }
 
-    // For other expiries, calculate genuine option chain with that specific expiry's Greeks & time-decay
-    const tempChain = buildInitialChain(ticker, idx);
-    const tempMetrics = computeMarketMetrics(ticker, tempChain);
+    // For other expiries, utilize cached chain or calculate with that specific expiry's Greeks
+    const cacheKey = `${ticker.symbol}_${idx}_${Math.round(ticker.spotPrice / 10) * 10}`;
+    const cached = tempExpiryChainCache.get(cacheKey);
+    const now = Date.now();
+    let tempChain: OptionChainRow[];
+    let tempMetrics: MarketMetrics;
+
+    if (cached && now - cached.timestamp < 60000) {
+      tempChain = cached.chain;
+      tempMetrics = cached.metrics;
+    } else {
+      tempChain = buildInitialChain(ticker, idx);
+      tempMetrics = computeMarketMetrics(ticker, tempChain);
+      tempExpiryChainCache.set(cacheKey, { chain: tempChain, metrics: tempMetrics, timestamp: now });
+      if (tempExpiryChainCache.size > 20) {
+        const oldestKey = tempExpiryChainCache.keys().next().value;
+        if (oldestKey) tempExpiryChainCache.delete(oldestKey);
+      }
+    }
+
     // Pass currentSignal to maintain coherent market regime momentum across all expiries
-    const tempSignal = generateTradeSignal(ticker, tempMetrics, tempChain, newsFeed, currentSignal, idx);
+    const tempSignal = generateTradeSignal(ticker, tempMetrics, tempChain, newsFeed, currentSignal, idx, liveConstituentAnalysis, liveGlobalMacro);
 
     const contractRow = tempChain.find(r => r.strike === tempSignal.recommendedStrike);
     const contractObj = tempSignal.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
@@ -325,6 +348,7 @@ export function useLiveOptionChain() {
   const [usePreMarket, setUsePreMarket] = useState<boolean>(false);
   const [isNewsLoading, setIsNewsLoading] = useState<boolean>(false);
   const [isHeavyweightsLoading, setIsHeavyweightsLoading] = useState<boolean>(false);
+  const [liveGlobalMacro, setLiveGlobalMacro] = useState<InterMarketTelemetry | undefined>(undefined);
   const [liveConstituentAnalysis, setLiveConstituentAnalysis] = useState<NiftyConstituentAnalysis | undefined>(() =>
     POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined
   );
@@ -534,22 +558,12 @@ export function useLiveOptionChain() {
         // If the backend returned actual live option rows (for US tickers like SPY, QQQ, NVDA, TSLA)
         if (data.rows && Array.isArray(data.rows) && data.rows.length > 0) {
           setChain(data.rows);
-          const newMetrics = computeMarketMetrics(updatedTicker, data.rows);
-          const rawSignal = generateTradeSignal(updatedTicker, newMetrics, data.rows, newsFeed, signalRef.current || undefined, targetExpiryIndex);
-          const debouncedSignal = applySignalWithDebounce(rawSignal);
-          debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updatedTicker, newsFeed, targetExpiryIndex, debouncedSignal);
-          setMetrics(newMetrics);
-          setSignal(debouncedSignal);
+          setMetrics(computeMarketMetrics(updatedTicker, data.rows));
         } else {
           // For Indian indices: calculate Black-Scholes anchored on the exact live spot
           const newChain = buildInitialChain(updatedTicker, targetExpiryIndex);
-          const newMetrics = computeMarketMetrics(updatedTicker, newChain);
-          const rawSignal = generateTradeSignal(updatedTicker, newMetrics, newChain, newsFeed, signalRef.current || undefined, targetExpiryIndex);
-          const debouncedSignal = applySignalWithDebounce(rawSignal);
-          debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updatedTicker, newsFeed, targetExpiryIndex, debouncedSignal);
           setChain(newChain);
-          setMetrics(newMetrics);
-          setSignal(debouncedSignal);
+          setMetrics(computeMarketMetrics(updatedTicker, newChain));
         }
 
         setLastUpdated(new Date());
@@ -626,11 +640,27 @@ export function useLiveOptionChain() {
     }
   }, [selectedTicker, metrics, chain, newsFeed, expiryIndex]);
 
+  // Fetch genuine real-time global macro inter-market telemetry
+  const fetchGlobalMacro = useCallback(async (sym = selectedTicker.symbol) => {
+    try {
+      const res = await fetch(`/api/global-macro?symbol=${encodeURIComponent(sym)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.giftNifty) {
+          setLiveGlobalMacro(data);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch live global macro:', e);
+    }
+  }, [selectedTicker.symbol]);
+
   // Initial load
   useEffect(() => {
     fetchOptionChainFromBackend(selectedTicker, 0);
     fetchRealNews(selectedTicker.symbol);
     fetchHeavyweights(selectedTicker.symbol);
+    fetchGlobalMacro(selectedTicker.symbol);
   }, []);
 
   // Periodically refresh news during market hours (every 60s)
@@ -641,6 +671,15 @@ export function useLiveOptionChain() {
     }, 60000);
     return () => clearInterval(newsTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
+
+  // Periodically refresh global macro telemetry (every 45s)
+  useEffect(() => {
+    if (!isLiveActive) return;
+    const macroTimer = setInterval(() => {
+      fetchGlobalMacro(selectedTicker.symbol);
+    }, 45000);
+    return () => clearInterval(macroTimer);
+  }, [isLiveActive, selectedTicker.symbol, fetchGlobalMacro]);
 
   // Periodically refresh heavyweights during market hours (every 6s)
   useEffect(() => {
@@ -667,6 +706,7 @@ export function useLiveOptionChain() {
     fetchOptionChainFromBackend(newTicker, 0);
     fetchRealNews(newTicker.symbol);
     fetchHeavyweights(newTicker.symbol);
+    fetchGlobalMacro(newTicker.symbol);
   };
 
   // Handle expiry change
@@ -680,7 +720,7 @@ export function useLiveOptionChain() {
     // Immediate zero-lag optimistic switch for instantaneous UI response
     const instantChain = buildInitialChain(selectedTicker, idx);
     const instantMetrics = computeMarketMetrics(selectedTicker, instantChain);
-    const instantSignal = generateTradeSignal(selectedTicker, instantMetrics, instantChain, newsFeed, signalRef.current || undefined, idx);
+    const instantSignal = generateTradeSignal(selectedTicker, instantMetrics, instantChain, newsFeed, signalRef.current || undefined, idx, liveConstituentAnalysis, liveGlobalMacro);
     instantSignal.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, idx, instantSignal);
     setChain(instantChain);
     setMetrics(instantMetrics);
@@ -704,23 +744,35 @@ export function useLiveOptionChain() {
     });
   }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
 
-  // Real-time live exchange poll: Continuously ticks live during Regular & Pre-Market Discovery Sessions
+  // Real-time live exchange poll: Continuously ticks live during Regular Session; throttles outside hours
   useEffect(() => {
     if (!isLiveActive) return;
 
-    // Immediately poll on mount/tick change, then establish polling loop
+    // During regular open hours: poll fast (updateIntervalMs).
+    // Outside market hours: relax polling to 60s to prevent freezing CPU/memory on settled exchange data
+    const pollingInterval = marketStatus.isOpen ? updateIntervalMs : 60000;
+
     const timer = setInterval(() => {
       fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-    }, updateIntervalMs);
+    }, pollingInterval);
 
     return () => clearInterval(timer);
-  }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex, usePreMarket]);
+  }, [isLiveActive, marketStatus.isOpen, updateIntervalMs, selectedTicker.symbol, expiryIndex, usePreMarket]);
 
-  // Recalculate metrics & signals when ticker, chain, news, or expiry changes
+  // Recalculate metrics & signals when ticker, chain, news, global macro or expiry changes
   useEffect(() => {
     const updatedMetrics = computeMarketMetrics(selectedTicker, chain);
     setMetrics(updatedMetrics);
-    const rawSignal = generateTradeSignal(selectedTicker, updatedMetrics, chain, newsFeed, signalRef.current || undefined, expiryIndex);
+    const rawSignal = generateTradeSignal(
+      selectedTicker, 
+      updatedMetrics, 
+      chain, 
+      newsFeed, 
+      signalRef.current || undefined, 
+      expiryIndex,
+      liveConstituentAnalysis,
+      liveGlobalMacro
+    );
     const debouncedSignal = applySignalWithDebounce(rawSignal);
     debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, debouncedSignal);
     
@@ -728,7 +780,7 @@ export function useLiveOptionChain() {
       playTone(debouncedSignal.action === 'BUY_CE' ? 1046.5 : 587.33, 0.15);
     }
     setSignal(debouncedSignal);
-  }, [selectedTicker, chain, newsFeed, expiryIndex, applySignalWithDebounce]);
+  }, [selectedTicker, chain, newsFeed, expiryIndex, liveConstituentAnalysis, liveGlobalMacro, applySignalWithDebounce]);
 
   // Toggle between Regular Market and Pre-Market / Extended Hours pricing
   const toggleUsePreMarket = (enable?: boolean) => {
@@ -766,7 +818,7 @@ export function useLiveOptionChain() {
     // If US ticker has real option chain, adjust Greeks or synthesize for new spot
     const newChain = buildInitialChain(updated, expiryIndex);
     const newMetrics = computeMarketMetrics(updated, newChain);
-    const rawSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed, signalRef.current || undefined, expiryIndex);
+    const rawSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, liveGlobalMacro);
     const debouncedSignal = applySignalWithDebounce(rawSignal);
     debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updated, newsFeed, expiryIndex, debouncedSignal);
     setChain(newChain);

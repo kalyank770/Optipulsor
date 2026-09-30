@@ -6,6 +6,7 @@ import {
   OptionChainRow
 } from '../types/options';
 import { AfterMarketOpeningCard } from './AfterMarketOpeningCard';
+import { MarketHoursStatus } from '../utils/marketHours';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -47,6 +48,7 @@ interface SignalCardProps {
   onSelectExpiry?: (index: number) => void;
   usePreMarket?: boolean;
   onTogglePreMarket?: () => void;
+  marketStatus?: MarketHoursStatus;
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
@@ -60,6 +62,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   onSelectExpiry,
   usePreMarket = false,
   onTogglePreMarket,
+  marketStatus,
 }) => {
   const isLight = theme === 'light';
   const [copied, setCopied] = useState(false);
@@ -172,7 +175,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
           <div>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="uppercase font-semibold tracking-wider text-[11px]">Trade Recommendation</span>
+              <span className="uppercase font-semibold tracking-wider text-[11px]">
+                {marketStatus && !marketStatus.isOpen ? "Tomorrow's Opening Prediction" : 'Trade Recommendation'}
+              </span>
               
               {/* Compact Copy Icon beside header */}
               <button
@@ -185,7 +190,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
               <span className="text-slate-600">·</span>
               <span className="font-mono text-slate-300">
-                Spot: <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                Spot Close: <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
               </span>
             </div>
 
@@ -193,7 +198,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
                 {signal.tradeStage === 'POST_TARGET_RETRACEMENT' ? (
                   <span className="text-amber-400">
-                    {isCE ? 'CALL' : 'PUT'} — {signal.recommendedStrike} {signal.recommendedType} (Target 1 Reached · Retracing)
+                    {isCE ? 'BUY CALL' : 'BUY PUT'} — {signal.recommendedStrike} {signal.recommendedType} (Target 1 Reached)
                   </span>
                 ) : (
                   <>
@@ -212,17 +217,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 {signal.strength} ({signal.confidence}%)
               </span>
 
-              {/* Explicit Directional Clarification Badge */}
-              {isPE && (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded border border-rose-500/40 bg-rose-950/60 text-rose-300 flex items-center gap-1 font-mono">
-                  <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Bearish Setup · Put (PE) profits as market drops</span>
-                </span>
-              )}
-              {isCE && (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-950/60 text-emerald-300 flex items-center gap-1 font-mono">
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Bullish Setup · Call (CE) profits as market rises</span>
+              {/* Institutional Trade Setup Active Badge */}
+              {!isNeutral && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded border border-slate-700 bg-slate-900/90 text-slate-300 flex items-center gap-1.5 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Institutional Trade Setup Active</span>
                 </span>
               )}
 
@@ -369,7 +368,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   <strong>Trade Management:</strong> Favorable institutional order flow is pushing contract premiums in the trade direction. Maintain trailing stop discipline and let the position ride. Prepare partial profit booking orders as Target 1 nears.
                 </p>
                 <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
-                  <span>Flow: {signal.realtimeIndicators?.orderFlow.sentiment.replace(/_/g, ' ') || 'Order Flow Dominance'}</span>
+                  <span>Flow: {signal.realtimeIndicators?.orderFlow?.sentiment?.replace(/_/g, ' ') || 'Order Flow Dominance'}</span>
                   <span>Discipline: Trail SL along 9 EMA / VWAP</span>
                 </div>
               </div>
@@ -443,7 +442,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 </span>
               </div>
               <p className="text-emerald-200/90 text-xs leading-relaxed">
-                <strong>Catalyst & Confluence:</strong> {signal.candleAnalysis?.confluencePattern || 'Multi-timeframe 2m/5m/15m momentum alignment'} · {signal.realtimeIndicators?.orderFlow.sentiment.replace(/_/g, ' ') || 'Order Flow Dominance'}.
+                <strong>Catalyst & Confluence:</strong> {signal.candleAnalysis?.confluencePattern || 'Multi-timeframe 2m/5m/15m momentum alignment'} · {signal.realtimeIndicators?.orderFlow?.sentiment?.replace(/_/g, ' ') || 'Order Flow Dominance'}.
               </p>
               <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
                 <span>Rule: Enter on 5m candle close confirmation · Max 1-2% risk</span>
@@ -463,14 +462,23 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         />
       )}
 
-      {/* Live Contract Strip */}
+      {/* Live / Settled Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">LIVE NFO</span>
+          {marketStatus?.isOpen !== false ? (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">LIVE NFO</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">SETTLED NFO</span>
+            </>
+          )}
           <span className="text-slate-600">·</span>
           <span className="font-mono text-white font-bold text-xs sm:text-sm">
             {ticker.symbol} {signal.recommendedStrike} {signal.recommendedType}
@@ -491,7 +499,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             priceFlash === 'DOWN' ? 'bg-rose-500/30 text-rose-300' :
             'bg-slate-900 text-white'
           }`}>
-            <span className="text-slate-400 text-[11px]">LTP:</span>
+            <span className="text-slate-400 text-[11px]">
+              {marketStatus?.isOpen !== false ? 'LTP:' : 'Settled Close:'}
+            </span>
             <span className="text-base sm:text-lg font-bold">
               {ticker.currency}{currentLTP.toFixed(2)}
             </span>
@@ -818,13 +828,13 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     </div>
 
                     <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis.m2.pattern.replace(/2m\s*/, '')}
+                      {signal.candleAnalysis?.m2?.pattern?.replace(/2m\s*/, '') || ''}
                     </div>
                   </div>
                   
                   <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.support.toLocaleString()}</strong></span>
-                    <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis.m2.resistance.toLocaleString()}</strong></span>
+                    <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis?.m2?.support?.toLocaleString()}</strong></span>
+                    <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis?.m2?.resistance?.toLocaleString()}</strong></span>
                   </div>
                 </div>
 
@@ -836,11 +846,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                         <span>5-Min Tactical Trend</span>
                       </span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                        (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                        (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
                       }`}>
-                        {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) > 0 ? '+' : ''}
-                        {(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore)}/10
+                        {(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) > 0 ? '+' : ''}
+                        {(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0)}/10
                       </span>
                     </div>
 
@@ -848,20 +858,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          (signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                          (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
                         }`}
-                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m5Score ?? signal.candleAnalysis.m5.momentumScore) * 10))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) * 10))}%` }}
                       />
                     </div>
 
                     <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis.m5.pattern.replace(/5m\s*/, '')}
+                      {signal.candleAnalysis?.m5?.pattern?.replace(/5m\s*/, '') || ''}
                     </div>
                   </div>
 
                   <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel1.toLocaleString()}</strong></span>
-                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m5.atr}</strong></span>
+                    <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis?.derivedExitLevel1?.toLocaleString()}</strong></span>
+                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis?.m5?.atr}</strong></span>
                   </div>
                 </div>
 
@@ -873,11 +883,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                         <span>15-Min Structure Anchor</span>
                       </span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                        (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                        (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
                       }`}>
-                        {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) > 0 ? '+' : ''}
-                        {(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore)}/10
+                        {(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) > 0 ? '+' : ''}
+                        {(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0)}/10
                       </span>
                     </div>
 
@@ -885,20 +895,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          (signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                          (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
                         }`}
-                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m15Score ?? signal.candleAnalysis.m15.momentumScore) * 10))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) * 10))}%` }}
                       />
                     </div>
 
                     <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis.m15.pattern.replace(/15m\s*/, '')}
+                      {signal.candleAnalysis?.m15?.pattern?.replace(/15m\s*/, '') || ''}
                     </div>
                   </div>
 
                   <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis.derivedExitLevel2.toLocaleString()}</strong></span>
-                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis.m15.atr}</strong></span>
+                    <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis?.derivedExitLevel2?.toLocaleString()}</strong></span>
+                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis?.m15?.atr}</strong></span>
                   </div>
                 </div>
               </div>
@@ -1084,11 +1094,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                signal.constituentAnalysis.overallHeavyweightBias.includes('BULLISH') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
-                signal.constituentAnalysis.overallHeavyweightBias.includes('BEARISH') ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
+                signal.constituentAnalysis?.overallHeavyweightBias?.includes('BULLISH') ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+                signal.constituentAnalysis?.overallHeavyweightBias?.includes('BEARISH') ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' :
                 'bg-amber-500/15 text-amber-300 border-amber-500/30'
               }`}>
-                {signal.constituentAnalysis.overallHeavyweightBias.replace(/_/g, ' ')} ({signal.constituentAnalysis.breadthScore > 0 ? '+' : ''}{signal.constituentAnalysis.breadthScore}/10)
+                {signal.constituentAnalysis?.overallHeavyweightBias?.replace(/_/g, ' ') || 'Neutral'} ({signal.constituentAnalysis?.breadthScore && signal.constituentAnalysis.breadthScore > 0 ? '+' : ''}{signal.constituentAnalysis?.breadthScore || 0}/10)
               </span>
               <button className="p-1 text-slate-400 hover:text-white" title={expandedSubSections.heavyweights ? "Collapse section" : "Expand section"}>
                 {expandedSubSections.heavyweights ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}

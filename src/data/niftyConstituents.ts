@@ -371,5 +371,6 @@ export function analyzeNiftyConstituents(
     topDraggers: draggersList.slice(0, 4),
     sectoralBreakdown,
     summaryNote,
+    constituents,
   };
 }

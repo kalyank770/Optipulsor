@@ -51,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             onClick={onGoHome}
             className="text-base sm:text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors flex items-center gap-2 cursor-pointer group"
-            title="OptiPulse V1.0 - Scroll to Top"
+            title="OptiPulse V2.0 - Scroll to Top"
           >
             {/* Custom Scalable Professional SVG Logo (Options Payoff & Trading Candlesticks) */}
             <svg 
@@ -91,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({
                 stroke="url(#optipulse-trading-grad)" 
                 strokeWidth="3.2" 
                 strokeLinecap="round" 
-                strokeLinejoin="round"
+                strokeLinejoin="round" 
                 className="drop-shadow-[0_0_6px_rgba(16,185,129,0.55)]"
               />
 
@@ -116,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-[11px] font-semibold text-slate-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V1.0</span>
+            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V2.0</span>
           </button>
           <span className="hidden sm:inline-block text-xs font-mono text-slate-500 border-l border-slate-800 pl-2.5">
             NSE Live Derivatives
@@ -125,33 +125,33 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Combined Clean Exchange Session Status Badge */}
           {marketStatus && (
             <div 
               title={marketStatus.isOpen 
-                ? `${marketStatus.marketName} regular trading is active (${marketStatus.tradingHoursLabel}). Auto-refresh is polling.` 
-                : `${marketStatus.marketName} is currently closed (${marketStatus.tradingHoursLabel}). Auto-refresh is paused outside market hours. ${marketStatus.nextOpenMsg}.`
+                ? `${marketStatus.marketName} regular trading is active (${marketStatus.tradingHoursLabel}).` 
+                : `${marketStatus.marketName} is currently closed. ${marketStatus.nextOpenMsg}.`
               }
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-mono font-semibold rounded border transition-colors ${
                 marketStatus.isOpen
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : 'bg-slate-900/90 text-slate-400 border-slate-800'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
               }`}
             >
-              <span className="relative flex h-2 w-2">
-                {marketStatus.isOpen ? (
-                  <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </>
-                ) : (
-                  <span className="inline-flex rounded-full h-2 w-2 bg-amber-500/80"></span>
-                )}
-              </span>
-              <span className="hidden sm:inline font-semibold">
-                {marketStatus.isOpen ? 'Market Open' : 'Market Closed'}
-              </span>
-              <span className="hidden lg:inline text-[10px] text-slate-500">
-                ({marketStatus.isOpen ? 'Auto-Refresh Active' : 'Refresh Paused'})
+              {marketStatus.isOpen ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              ) : (
+                <Moon className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+              )}
+              <span>
+                {marketStatus.isOpen 
+                  ? 'Live Session' 
+                  : marketStatus.session === 'PRE_MARKET' 
+                  ? 'Pre-Market Active' 
+                  : 'After-Market Active'}
               </span>
             </div>
           )}
@@ -167,27 +167,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden xs:inline">{isSyncing ? 'Syncing...' : 'Live Sync'}</span>
             </button>
           )}
-
-          {/* Automatic Exchange Session Status Badge */}
-          <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded border transition-all ${
-            marketStatus?.isOpen === false
-              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-xs'
-              : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-          }`}>
-            {marketStatus?.isOpen === false ? (
-              <Moon className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-            ) : (
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            )}
-            <span className="hidden xs:inline font-mono">
-              {marketStatus?.isOpen === false 
-                ? (marketStatus.session === 'PRE_MARKET' ? 'Pre-Market Active' : 'After-Market Active') 
-                : 'Live Regular Session'}
-            </span>
-            <span className="xs:hidden font-mono">
-              {marketStatus?.isOpen === false ? 'After-Market' : 'Live'}
-            </span>
-          </div>
         </div>
       </div>
 

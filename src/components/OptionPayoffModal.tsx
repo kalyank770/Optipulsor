@@ -483,7 +483,7 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
               <div className="text-xs font-mono flex items-center gap-2">
                 <span className="text-slate-400">Posture:</span>
                 <span className="text-emerald-400 font-semibold bg-slate-900 px-2 py-1 rounded border border-slate-800">
-                  {exitPlan.momentumVerdict.replace(/_/g, ' ')}
+                  {exitPlan?.momentumVerdict?.replace(/_/g, ' ') || 'NEUTRAL'}
                 </span>
               </div>
             </div>
