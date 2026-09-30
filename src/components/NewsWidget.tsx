@@ -178,7 +178,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
             No news matching your filter criteria.
           </div>
         ) : (
-          filteredNews.map(item => {
+          filteredNews.map((item, idx) => {
             const isBull = item.sentiment === 'BULLISH';
             const isBear = item.sentiment === 'BEARISH';
             const isHighImpact = item.impact === 'HIGH';
@@ -194,7 +194,7 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
             }) + ' IST') : '');
 
             return (
-              <div key={item.id} className="py-4 first:pt-2 last:pb-2">
+              <div key={`${item.id}-${idx}`} className="py-4 first:pt-2 last:pb-2">
                 {/* Meta Header */}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs mb-1.5">
                   <div className="flex flex-wrap items-center gap-2 text-slate-400">
@@ -244,9 +244,9 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
                     </span>
 
                     <div className="flex items-center gap-1">
-                      {item.relatedTickers.map(sym => (
+                      {item.relatedTickers.map((sym, sIdx) => (
                         <button
-                          key={sym}
+                          key={`${sym}-${sIdx}`}
                           onClick={() => onSelectTickerBySymbol && onSelectTickerBySymbol(sym)}
                           className="text-[11px] font-mono text-slate-400 hover:text-emerald-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 transition-colors cursor-pointer"
                         >

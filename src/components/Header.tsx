@@ -218,7 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="border-t border-slate-800/80 bg-slate-950 px-3 sm:px-6 py-1.5">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 text-xs font-mono">
           {/* Left: Symbol & Live Spot */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <span className="font-bold text-white text-xs sm:text-sm">{selectedTicker.symbol}</span>
             <span className="text-slate-600">·</span>
             <span className="text-base sm:text-lg font-bold text-white tracking-tight">

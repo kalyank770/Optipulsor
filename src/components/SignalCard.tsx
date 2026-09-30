@@ -71,10 +71,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
   const [expandedSubSections, setExpandedSubSections] = useState<Record<SubSectionKey, boolean>>({
     multiTimeframe: false,
-    highProb: false,
-    quantParams: false,
+    highProb: true,
+    quantParams: true,
     groundedPayoff: false,
-    heavyweights: false,
+    heavyweights: true,
     allExpiries: true, // Make it highly visible on load
   });
 
@@ -211,6 +211,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               }`}>
                 {signal.strength} ({signal.confidence}%)
               </span>
+
+              {/* Explicit Directional Clarification Badge */}
+              {isPE && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded border border-rose-500/40 bg-rose-950/60 text-rose-300 flex items-center gap-1 font-mono">
+                  <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Bearish Setup · Put (PE) profits as market drops</span>
+                </span>
+              )}
+              {isCE && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-950/60 text-emerald-300 flex items-center gap-1 font-mono">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Bullish Setup · Call (CE) profits as market rises</span>
+                </span>
+              )}
 
               {/* Trade Lifecycle State Badge */}
               {signal.tradeStage && (
@@ -460,6 +474,13 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <span className="text-slate-600">·</span>
           <span className="font-mono text-white font-bold text-xs sm:text-sm">
             {ticker.symbol} {signal.recommendedStrike} {signal.recommendedType}
+          </span>
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+            signal.recommendedType === 'PE'
+              ? 'bg-rose-950/60 text-rose-300 border-rose-500/30'
+              : 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30'
+          }`}>
+            {signal.recommendedType === 'PE' ? 'Put Option · Gains as market falls' : 'Call Option · Gains as market rises'}
           </span>
         </div>
 

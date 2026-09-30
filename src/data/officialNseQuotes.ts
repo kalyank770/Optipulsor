@@ -22,7 +22,7 @@ export interface OfficialNseQuote {
 export const NSE_OFFICIAL_NIFTY_CHAIN: Record<number, OfficialNseQuote> = {
   22700: { peLtp: 0.05, peBid: 0.00, peAsk: 0.05, peChange: -36.50, peBidQty: 0, peAskQty: 5568615, ceLtp: 16.25, ceBid: 16.20, ceAsk: 16.25, ceChange: -133.25, ceBidQty: 4485, ceAskQty: 1634165, iv: 12.50 },
   22750: { peLtp: 33.80, peBid: 33.70, peAsk: 33.90, peChange: -38.20, peBidQty: 1200, peAskQty: 3200, ceLtp: 1.15, ceBid: 1.10, ceAsk: 1.20, ceChange: -185.40, ceBidQty: 8500, ceAskQty: 2100, iv: 12.60 },
-  22800: { peLtp: 22.40, peBid: 22.35, peAsk: 22.45, peChange: -38.65, peBidQty: 4290, peAskQty: 8710, ceLtp: 388.50, ceBid: 388.35, ceAsk: 388.65, ceChange: +42.10, ceBidQty: 8710, ceAskQty: 4290, iv: 12.80 },
+  22800: { peLtp: 120.70, peBid: 120.60, peAsk: 120.80, peChange: -30.20, peBidQty: 2103660, peAskQty: 921115, ceLtp: 155.50, ceBid: 155.40, ceAsk: 155.60, ceChange: -0.60, ceBidQty: 2481830, ceAskQty: 975390, iv: 12.80 },
   22850: { peLtp: 28.15, peBid: 28.10, peAsk: 28.20, peChange: -36.15, peBidQty: 5915, peAskQty: 9555, ceLtp: 345.20, ceBid: 345.05, ceAsk: 345.35, ceChange: +38.75, ceBidQty: 9555, ceAskQty: 5915, iv: 12.65 },
   22900: { peLtp: 36.80, peBid: 36.70, peAsk: 36.90, peChange: -34.80, peBidQty: 715, peAskQty: 1495, ceLtp: 304.15, ceBid: 304.00, ceAsk: 304.30, ceChange: +35.20, ceBidQty: 1495, ceAskQty: 715, iv: 12.50 },
   22950: { peLtp: 47.90, peBid: 47.80, peAsk: 48.00, peChange: -32.85, peBidQty: 7410, peAskQty: 1430, ceLtp: 265.40, ceBid: 265.25, ceAsk: 265.55, ceChange: +31.40, ceBidQty: 1430, ceAskQty: 7410, iv: 12.35 },

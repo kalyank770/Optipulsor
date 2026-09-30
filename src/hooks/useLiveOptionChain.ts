@@ -96,26 +96,22 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceMoneyness = K < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
     const peMoneyness = K > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
 
-    // Official NSE Terminal Quote Calibration
-    const officialQuote = (expiryIndex === 0 && (ticker.symbol === 'NIFTY 50' || ticker.symbol.includes('NIFTY'))) ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
-    const crossExpiry22700Quote = (K === 22700 && ticker.symbol === 'NIFTY 50') ? NSE_CROSS_EXPIRY_22700_QUOTES[expiryIndex] : undefined;
-
     // Round to standard 0.05 tick size
     const rawCeLtp = Number(ceBS.price.toFixed(2));
     const rawPeLtp = Number(peBS.price.toFixed(2));
     
-    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S, calibrated to official NSE terminal quotes
-    const ceLtp = crossExpiry22700Quote ? crossExpiry22700Quote.ceLtp : (officialQuote ? officialQuote.ceLtp : Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2))));
-    const peLtp = crossExpiry22700Quote ? crossExpiry22700Quote.peLtp : (officialQuote ? officialQuote.peLtp : Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2))));
+    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S
+    const ceLtp = Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
+    const peLtp = Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
 
     // Tight market spread
     const spread = isIndian ? 0.20 : 0.02;
     const halfSpread = spread / 2;
 
-    const ceBid = officialQuote ? officialQuote.ceBid : Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
-    const ceAsk = officialQuote ? officialQuote.ceAsk : Number((ceLtp + halfSpread).toFixed(2));
-    const peBid = officialQuote ? officialQuote.peBid : Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
-    const peAsk = officialQuote ? officialQuote.peAsk : Number((peLtp + halfSpread).toFixed(2));
+    const ceBid = Number(Math.max(0.05, ceLtp - halfSpread).toFixed(2));
+    const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
+    const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
+    const peAsk = Number((peLtp + halfSpread).toFixed(2));
 
     // Dynamic previous close computed from reference previous session close
     const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
@@ -123,8 +119,8 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
     const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
 
-    const ceChange = crossExpiry22700Quote ? crossExpiry22700Quote.ceChg : (officialQuote ? officialQuote.ceChange : Number((ceLtp - cePrevClose).toFixed(2)));
-    const peChange = crossExpiry22700Quote ? crossExpiry22700Quote.peChg : (officialQuote ? officialQuote.peChange : Number((peLtp - pePrevClose).toFixed(2)));
+    const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
+    const peChange = Number((peLtp - pePrevClose).toFixed(2));
     const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
     const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
 
@@ -485,38 +481,41 @@ export function useLiveOptionChain() {
         const prePrice = data.preMarketPrice || data.extendedHours?.price;
         
         const isMarketOpen = data.marketState === 'REGULAR' || getMarketHoursStatus(tickerToFetch).isOpen;
-        // Automatically disable usePreMarket if market is open
-        const activePreMarket = usePreMarket && !isMarketOpen;
+        const currentSession = data.marketState || getMarketHoursStatus(tickerToFetch).session;
+        const isPreMarketSession = currentSession === 'PRE_MARKET' || currentSession === 'PRE';
+
+        // Automatically activate premarket price if market is in PRE_MARKET session OR if user explicitly toggled usePreMarket
+        const activePreMarket = (usePreMarket || isPreMarketSession) && !!prePrice;
         if (usePreMarket && isMarketOpen) {
           setUsePreMarket(false);
         }
 
-        const activeSpot = activePreMarket && prePrice ? prePrice : data.spotPrice;
+        const activeSpot = activePreMarket && prePrice ? prePrice : (data.spotPrice || regularPrice);
         const step = tickerToFetch.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
         const activeChange = activePreMarket && prePrice && data.preMarketChange !== undefined
           ? data.preMarketChange
-          : data.change;
+          : (data.change !== undefined ? data.change : Number((activeSpot - (data.prevClose || activeSpot)).toFixed(2)));
         const activeChangePct = activePreMarket && prePrice && data.preMarketChangePercent !== undefined
           ? data.preMarketChangePercent
-          : data.changePercent;
+          : (data.changePercent !== undefined ? data.changePercent : Number(((activeChange / Math.max(data.prevClose || activeSpot, 1)) * 100).toFixed(2)));
 
         const updatedTicker: TickerConfig = {
           ...tickerToFetch,
           spotPrice: activeSpot,
           regularPrice,
-          prevClose: data.prevClose,
+          prevClose: data.prevClose || tickerToFetch.prevClose,
           change: activeChange,
           changePercent: activeChangePct,
-          dayHigh: data.dayHigh,
-          dayLow: data.dayLow,
+          dayHigh: data.dayHigh || activeSpot,
+          dayLow: data.dayLow || activeSpot,
           atmStrike: newAtm,
           vix: data.vix !== undefined ? data.vix : tickerToFetch.vix,
           vixChange: data.vixChange !== undefined ? data.vixChange : tickerToFetch.vixChange,
-          asOnTime: data.asOnTime,
-          marketState: data.marketState,
-          preMarketPrice: data.preMarketPrice,
+          asOnTime: activePreMarket ? `Pre-Market (${data.extendedHours?.time || 'Live Discovery'})` : data.asOnTime,
+          marketState: data.marketState || currentSession,
+          preMarketPrice: data.preMarketPrice || prePrice,
           preMarketChange: data.preMarketChange,
           preMarketChangePercent: data.preMarketChangePercent,
           postMarketPrice: data.postMarketPrice,
@@ -572,12 +571,15 @@ export function useLiveOptionChain() {
       if (res.ok) {
         const liveArticles = await res.json();
         if (Array.isArray(liveArticles) && liveArticles.length > 0) {
-          setNewsFeed(liveArticles);
+          const uniqueArticles = liveArticles.filter((item, idx, self) => 
+            self.findIndex(t => t.id === item.id) === idx
+          );
+          setNewsFeed(uniqueArticles);
           // Re-evaluate signal with updated live catalysts
           setSignal(prev => {
             if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, liveArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis);
-              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, liveArticles, expiryIndex, s);
+              const s = generateTradeSignal(selectedTicker, metrics, chain, uniqueArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis);
+              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, uniqueArticles, expiryIndex, s);
               return s;
             }
             return prev;
@@ -702,26 +704,17 @@ export function useLiveOptionChain() {
     });
   }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
 
-  // Real-time live exchange poll: STRICTLY DURING OFFICIAL MARKET HOURS (not 24X7)
+  // Real-time live exchange poll: Continuously ticks live during Regular & Pre-Market Discovery Sessions
   useEffect(() => {
     if (!isLiveActive) return;
 
-    // Check market hours: if market is closed, pause continuous background polling
-    const currentStatus = getMarketHoursStatus(selectedTicker);
-    if (!currentStatus.isOpen) {
-      return;
-    }
-
+    // Immediately poll on mount/tick change, then establish polling loop
     const timer = setInterval(() => {
-      // Re-verify market is still open on each tick before querying exchange
-      const statusOnTick = getMarketHoursStatus(selectedTicker);
-      if (statusOnTick.isOpen) {
-        fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-      }
+      fetchOptionChainFromBackend(selectedTicker, expiryIndex);
     }, updateIntervalMs);
 
     return () => clearInterval(timer);
-  }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex, marketStatus.isOpen]);
+  }, [isLiveActive, updateIntervalMs, selectedTicker.symbol, expiryIndex, usePreMarket]);
 
   // Recalculate metrics & signals when ticker, chain, news, or expiry changes
   useEffect(() => {
