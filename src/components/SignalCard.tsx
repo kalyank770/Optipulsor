@@ -435,7 +435,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <div className="space-y-1 w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
-                  <span>⚡ Institutional Trade Setup Active · {isCE ? 'Call Accumulation Momentum' : 'Put Distribution Momentum'}</span>
+                  <span>⚡ {isCE ? 'Call Accumulation Momentum' : 'Put Distribution Momentum'}</span>
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
                   R:R {signal.riskRewardRatio} · {signal.strength} ({signal.confidence}%)
