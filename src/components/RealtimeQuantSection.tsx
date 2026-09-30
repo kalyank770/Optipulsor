@@ -7,9 +7,18 @@ import {
   TrendingDown,
   ShieldAlert, 
   BarChart2, 
-  Globe
+  Globe,
+  Sliders,
+  Flame,
+  ArrowUpRight,
+  ArrowDownRight,
+  Sparkles,
+  Percent,
+  CheckCircle2,
+  AlertTriangle,
+  Compass
 } from 'lucide-react';
-import { RealtimePredictionIndicators, InterMarketTelemetry } from '../types/options';
+import { RealtimePredictionIndicators, InterMarketTelemetry, OptionChainRow } from '../types/options';
 import { getInterMarketTelemetry } from '../data/globalMacroData';
 
 interface RealtimeQuantSectionProps {
@@ -17,15 +26,104 @@ interface RealtimeQuantSectionProps {
   interMarketTelemetry?: InterMarketTelemetry;
   currency?: string;
   tickerSymbol?: string;
+  chain?: OptionChainRow[];
+  spotPrice?: number;
 }
 
 export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
   indicators,
   interMarketTelemetry,
   currency = '₹',
-  tickerSymbol = 'NIFTY 50'
+  tickerSymbol = 'NIFTY 50',
+  chain = [],
+  spotPrice = 22716.20,
 }) => {
   const telemetry = interMarketTelemetry || getInterMarketTelemetry(tickerSymbol);
+
+  // --- IV SURFACE & MISPRICING IDENTIFIER ENGINE ---
+  const currentSpot = spotPrice || 22716.20;
+
+  // Extract near-ATM strikes (up to 9 rows)
+  const surfaceRows = React.useMemo(() => {
+    if (!chain || chain.length === 0) return [];
+    const sorted = [...chain].sort((a, b) => Math.abs(a.strike - currentSpot) - Math.abs(b.strike - currentSpot));
+    const nearAtm = sorted.slice(0, 9).sort((a, b) => a.strike - b.strike);
+    return nearAtm;
+  }, [chain, currentSpot]);
+
+  // Compute baseline ATM IV
+  const atmIvBaseline = React.useMemo(() => {
+    if (surfaceRows.length === 0) return 12.5;
+    const atmRow = surfaceRows.reduce((prev, curr) => 
+      Math.abs(curr.strike - currentSpot) < Math.abs(prev.strike - currentSpot) ? curr : prev
+    );
+    return Number(((atmRow.ce.iv + atmRow.pe.iv) / 2).toFixed(1));
+  }, [surfaceRows, currentSpot]);
+
+  // Derive mispricing spectrum across options
+  const mispricedOptions = React.useMemo(() => {
+    if (surfaceRows.length === 0) return [];
+
+    const list: Array<{
+      strike: number;
+      type: 'CE' | 'PE';
+      ltp: number;
+      iv: number;
+      ivVsAtmPct: number;
+      pricingTag: 'OVERPRICED' | 'UNDERPRICED' | 'FAIR_VALUE';
+      mispricingRatio: number;
+      tradingAction: string;
+    }> = [];
+
+    surfaceRows.forEach(row => {
+      // Call Option
+      const ceIvDiff = Number((((row.ce.iv - atmIvBaseline) / atmIvBaseline) * 100).toFixed(1));
+      let ceTag: 'OVERPRICED' | 'UNDERPRICED' | 'FAIR_VALUE' = 'FAIR_VALUE';
+      if (ceIvDiff > 10) ceTag = 'OVERPRICED';
+      else if (ceIvDiff < -10) ceTag = 'UNDERPRICED';
+
+      list.push({
+        strike: row.strike,
+        type: 'CE',
+        ltp: row.ce.ltp,
+        iv: row.ce.iv,
+        ivVsAtmPct: ceIvDiff,
+        pricingTag: ceTag,
+        mispricingRatio: Number((row.ce.iv / Math.max(1, atmIvBaseline)).toFixed(2)),
+        tradingAction: ceTag === 'UNDERPRICED' 
+          ? '⚡ High Leverage Buy Opportunity (Cheap IV)' 
+          : ceTag === 'OVERPRICED' 
+          ? '🔥 High Vol Premium (Credit Spread Sell / Avoid Buy)' 
+          : 'Fair Market Value',
+      });
+
+      // Put Option
+      const peIvDiff = Number((((row.pe.iv - atmIvBaseline) / atmIvBaseline) * 100).toFixed(1));
+      let peTag: 'OVERPRICED' | 'UNDERPRICED' | 'FAIR_VALUE' = 'FAIR_VALUE';
+      if (peIvDiff > 10) peTag = 'OVERPRICED';
+      else if (peIvDiff < -10) peTag = 'UNDERPRICED';
+
+      list.push({
+        strike: row.strike,
+        type: 'PE',
+        ltp: row.pe.ltp,
+        iv: row.pe.iv,
+        ivVsAtmPct: peIvDiff,
+        pricingTag: peTag,
+        mispricingRatio: Number((row.pe.iv / Math.max(1, atmIvBaseline)).toFixed(2)),
+        tradingAction: peTag === 'UNDERPRICED' 
+          ? '⚡ High Leverage Buy Opportunity (Cheap IV)' 
+          : peTag === 'OVERPRICED' 
+          ? '🔥 High Vol Premium (Credit Spread Sell / Avoid Buy)' 
+          : 'Fair Market Value',
+      });
+    });
+
+    return list;
+  }, [surfaceRows, atmIvBaseline]);
+
+  const underpricedPicks = mispricedOptions.filter(o => o.pricingTag === 'UNDERPRICED').sort((a, b) => a.ivVsAtmPct - b.ivVsAtmPct).slice(0, 3);
+  const overpricedPicks = mispricedOptions.filter(o => o.pricingTag === 'OVERPRICED').sort((a, b) => b.ivVsAtmPct - a.ivVsAtmPct).slice(0, 3);
 
   if (!indicators) {
     return (
@@ -412,6 +510,127 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           </p>
         </div>
       </div>
+
+      {/* SECTION 3: IMPLIED VOLATILITY (IV) SURFACE & MISPRICING IDENTIFIER */}
+      {surfaceRows.length > 0 && (
+        <div className="rounded-xl border border-purple-500/30 bg-slate-950/90 p-4 shadow-lg space-y-4">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30 shrink-0">
+                <Sliders className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <span>Option Mispricing Spectrum & Volatility Arbitrage</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                    Vol Skew & Arbitrage
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  Real-time volatility skew analysis vs. ATM baseline ({atmIvBaseline}% IV) identifying mispriced options
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                ATM IV Baseline: <strong className="text-purple-300">{atmIvBaseline}%</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-emerald-400 font-bold">
+                {underpricedPicks.length} Cheap Options Found
+              </span>
+            </div>
+          </div>
+
+          {/* Top Mispriced Option Opportunities Table */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            {/* Underpriced Options (Vol Cheap / High Leverage Buy) */}
+            <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  Top Underpriced Options (Vol Cheap)
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                  BUY OPPORTUNITIES
+                </span>
+              </div>
+
+              {underpricedPicks.length === 0 ? (
+                <p className="text-xs text-slate-400 font-mono py-2">
+                  No significantly underpriced options detected. All strikes trading near fair baseline volatility.
+                </p>
+              ) : (
+                <div className="space-y-1.5 font-mono text-xs">
+                  {underpricedPicks.map((pick, i) => (
+                    <div key={i} className="p-2 rounded bg-slate-900/90 border border-emerald-500/20 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>{currency}{pick.strike} {pick.type}</span>
+                          <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded">
+                            {pick.ivVsAtmPct}% IV Cheap
+                          </span>
+                        </div>
+                        <div className="text-[10.5px] text-slate-400 mt-0.5">
+                          LTP: <strong className="text-slate-200">{currency}{pick.ltp.toFixed(2)}</strong> | IV: <strong className="text-emerald-300">{pick.iv.toFixed(1)}%</strong>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block">
+                          BUY CHEAP IV
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Overpriced Options (Vol Premium / Avoid Buy or Sell Spread) */}
+            <div className="p-3 rounded-lg bg-amber-950/20 border border-amber-500/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Flame className="w-4 h-4 text-amber-400" />
+                  Top Overpriced Options (Vol Spike)
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                  VOL PREMIUM SPIKE
+                </span>
+              </div>
+
+              {overpricedPicks.length === 0 ? (
+                <p className="text-xs text-slate-400 font-mono py-2">
+                  No extreme IV spikes detected across option chain. Premium levels balanced.
+                </p>
+              ) : (
+                <div className="space-y-1.5 font-mono text-xs">
+                  {overpricedPicks.map((pick, i) => (
+                    <div key={i} className="p-2 rounded bg-slate-900/90 border border-amber-500/20 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>{currency}{pick.strike} {pick.type}</span>
+                          <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded">
+                            +{pick.ivVsAtmPct}% IV Spike
+                          </span>
+                        </div>
+                        <div className="text-[10.5px] text-slate-400 mt-0.5">
+                          LTP: <strong className="text-slate-200">{currency}{pick.ltp.toFixed(2)}</strong> | IV: <strong className="text-amber-300">{pick.iv.toFixed(1)}%</strong>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 block">
+                          SELL / AVOID BUY
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

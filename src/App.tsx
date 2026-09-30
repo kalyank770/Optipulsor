@@ -610,6 +610,8 @@ export default function App() {
                 interMarketTelemetry={signal.interMarketTelemetry}
                 currency={selectedTicker.currency} 
                 tickerSymbol={selectedTicker.symbol}
+                chain={chain}
+                spotPrice={selectedTicker.spotPrice}
               />
             </div>
           )}

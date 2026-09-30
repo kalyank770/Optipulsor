@@ -74,11 +74,11 @@ export function computeAfterMarketOpeningAnalytics(
   const giftNiftyChangePoints = Number((giftNiftyPrice - spotClose).toFixed(2));
   const giftNiftyChangePercent = Number(((giftNiftyChangePoints / Math.max(spotClose, 1)) * 100).toFixed(2));
 
-  // 3. FII / DII Net Flow (Provisional After-Market Data)
-  const isBullishGlobal = interMarket.globalCompositeScore >= 15;
-  const fiiNetCashCr = isBullishGlobal ? 1450 : -820;
-  const fiiNetFoIndexFuturesCr = isBullishGlobal ? 620 : -340;
-  const diiNetCashCr = isBullishGlobal ? 820 : 1150;
+  // 3. FII / DII Net Flow (Provisional After-Market Data dynamically derived from global score & GIFT Nifty delta)
+  const score = interMarket.globalCompositeScore;
+  const fiiNetCashCr = Math.round(score * 28 + giftNiftyChangePoints * 8);
+  const fiiNetFoIndexFuturesCr = Math.round(score * 12 + giftNiftyChangePoints * 4);
+  const diiNetCashCr = Math.round(score < 0 ? Math.abs(score) * 22 + 450 : Math.max(200, 350 - score * 5));
   
   const netFlowSentiment = (fiiNetCashCr + fiiNetFoIndexFuturesCr > 400) 
     ? 'INSTITUTIONAL_BUYING' 
