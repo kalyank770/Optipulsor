@@ -16,7 +16,7 @@ export interface FullDayChartAnalysis {
 export interface TomorrowHitStrike {
   strike: number;
   type: 'CE' | 'PE';
-  action: 'BUY_CE' | 'BUY_PE';
+  action: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M';
   expectedHitTiming: string; // e.g. "Within 09:15 - 09:45 AM opening session"
   hitReason: string;
   projectedSpotAtHit: number;
@@ -196,13 +196,23 @@ export function computeAfterMarketOpeningAnalytics(
 
   // 5. DETERMINE THE PRECISE STRIKE THAT WILL HIT TOMORROW ONCE THE MARKET OPENS
   const step = ticker.strikeStep;
-  let tomorrowAction: 'BUY_CE' | 'BUY_PE' = 'BUY_CE';
+  let tomorrowAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M' = 'BUY_CE';
   let tomorrowType: 'CE' | 'PE' = 'CE';
   let tomorrowStrike = Math.round(predictedOpeningSpot / step) * step;
   let projectedSpotAtHit = predictedOpeningSpot;
   let hitReason = '';
 
-  if (openMomentumScore >= 0) {
+  const isFlatConsolidation = Math.abs(openMomentumScore) < 0.40 || 
+    (predictedOpeningType === 'FLAT_OPENING' && Math.abs(predictedOpeningGapPercent) < 0.12 && dayStructureVerdict === 'NEUTRAL_CONSOLIDATION');
+
+  if (isFlatConsolidation) {
+    // Neutral / Flat Opening: Capital Protection First!
+    tomorrowAction = 'WAIT_FIRST_15M';
+    tomorrowType = closeVsVwapPoints >= 0 ? 'CE' : 'PE';
+    tomorrowStrike = Math.round(spotClose / step) * step;
+    projectedSpotAtHit = predictedOpeningSpot;
+    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts, ${predictedOpeningGapPercent}%). Chart closed in ${dayStructureVerdict?.replace(/_/g, ' ') || 'NEUTRAL CONSOLIDATION'} with flat GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts). Stand aside at 09:15 AM open; wait for the first 15-minute range breakout (09:30 AM) to confirm institutional direction.`;
+  } else if (openMomentumScore > 0) {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';
     tomorrowType = 'CE';
@@ -237,11 +247,17 @@ export function computeAfterMarketOpeningAnalytics(
   }
 
   // Derive estimated opening contract targets for tomorrow's hit strike
-  const estimatedOpeningPremium = Math.max(30, Number((92 + (tomorrowType === 'CE' 
+  const isUSD = ticker.currency === '$';
+  const baselineAtmPremium = isUSD
+    ? Math.max(0.8, spotClose * 0.009)
+    : Math.max(15, spotClose * (isBankNifty ? 0.009 : 0.0055));
+  const moneynessAdjustment = (tomorrowType === 'CE' 
     ? (predictedOpeningSpot - tomorrowStrike) * 0.48 
-    : (tomorrowStrike - predictedOpeningSpot) * 0.48)).toFixed(2)));
-  const target1 = Number((estimatedOpeningPremium * 1.36).toFixed(2)); // +36% opening target
-  const target2 = Number((estimatedOpeningPremium * 1.72).toFixed(2)); // +72% runner extension
+    : (tomorrowStrike - predictedOpeningSpot) * 0.48);
+  const minFloor = isUSD ? 0.20 : 5.0;
+  const estimatedOpeningPremium = Number(Math.max(minFloor, baselineAtmPremium + moneynessAdjustment).toFixed(2));
+  const target1 = Number((estimatedOpeningPremium * 1.35).toFixed(2)); // +35% opening target
+  const target2 = Number((estimatedOpeningPremium * 1.70).toFixed(2)); // +70% runner extension
   const stopLoss = Number((estimatedOpeningPremium * 0.82).toFixed(2)); // -18% invalidation SL
 
   const tomorrowHitStrike: TomorrowHitStrike = {
@@ -262,8 +278,15 @@ export function computeAfterMarketOpeningAnalytics(
     ? `+${closeVsVwapPoints} pts above VWAP (Late Accumulation)` 
     : `${closeVsVwapPoints} pts below VWAP (Late Unwinding)`;
 
-  let openingBias: AfterMarketOpeningAnalytics['openingStrategyPlaybook']['openingBias'] = tomorrowAction === 'BUY_CE' ? 'BULLISH_GAP_MOMENTUM' : 'BEARISH_GAP_BREAKDOWN';
-  let strategyTitle = tomorrowAction === 'BUY_CE' 
+  let openingBias: AfterMarketOpeningAnalytics['openingStrategyPlaybook']['openingBias'] = 
+    tomorrowAction === 'WAIT_FIRST_15M' 
+      ? 'RANGE_ORB_BREAKOUT' 
+      : tomorrowAction === 'BUY_CE' 
+      ? 'BULLISH_GAP_MOMENTUM' 
+      : 'BEARISH_GAP_BREAKDOWN';
+  let strategyTitle = tomorrowAction === 'WAIT_FIRST_15M'
+    ? `Flat Open: Wait for 15-Minute Range Breakout (Reference ${tomorrowStrike} ${tomorrowType})`
+    : tomorrowAction === 'BUY_CE' 
     ? `Bullish Open: Target Strike ${tomorrowStrike} CE` 
     : `Bearish Open: Target Strike ${tomorrowStrike} PE`;
   let playbookDescription = hitReason;

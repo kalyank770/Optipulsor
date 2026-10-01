@@ -6,6 +6,7 @@ import {
   OptionChainRow
 } from '../types/options';
 import { AfterMarketOpeningCard } from './AfterMarketOpeningCard';
+import { PredictionValidationCard } from './PredictionValidationCard';
 import { MarketHoursStatus } from '../utils/marketHours';
 import { 
   TrendingUp, 
@@ -121,21 +122,28 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
   // Real-time Target 1 P&L calculation
   const target1 = signal.target1;
-  const t1Points = Number((target1 - currentLTP).toFixed(2));
+  const entryLTP = signal.recommendedContractLTP || currentLTP;
+  const isTarget1Achieved = currentLTP >= target1;
+  const t1Points = isTarget1Achieved 
+    ? Number((target1 - entryLTP).toFixed(2)) 
+    : Number((target1 - currentLTP).toFixed(2));
   const t1ProfitTotal = Number((t1Points * totalQty).toFixed(2));
-  const t1ProfitPct = totalCapital > 0 ? Number(((t1ProfitTotal / totalCapital) * 100).toFixed(1)) : 15.0;
+  const t1ProfitPct = Number((((target1 - entryLTP) / Math.max(entryLTP, 0.05)) * 100).toFixed(1));
 
   // Real-time Target 2 P&L calculation
   const target2 = signal.target2;
-  const t2Points = Number((target2 - currentLTP).toFixed(2));
+  const isTarget2Achieved = currentLTP >= target2;
+  const t2Points = isTarget2Achieved 
+    ? Number((target2 - entryLTP).toFixed(2)) 
+    : Number((target2 - currentLTP).toFixed(2));
   const t2ProfitTotal = Number((t2Points * totalQty).toFixed(2));
-  const t2ProfitPct = totalCapital > 0 ? Number(((t2ProfitTotal / totalCapital) * 100).toFixed(1)) : 30.0;
+  const t2ProfitPct = Number((((target2 - entryLTP) / Math.max(entryLTP, 0.05)) * 100).toFixed(1));
 
   // Real-time Stop Loss P&L calculation
   const stopLoss = signal.stopLoss;
-  const slRiskPoints = Number((currentLTP - stopLoss).toFixed(2));
+  const slRiskPoints = Math.max(0, Number((currentLTP - stopLoss).toFixed(2)));
   const slLossTotal = Number((slRiskPoints * totalQty).toFixed(2));
-  const slLossPct = totalCapital > 0 ? Number(((slLossTotal / totalCapital) * 100).toFixed(1)) : 12.0;
+  const slLossPct = Number((((entryLTP - stopLoss) / Math.max(entryLTP, 0.05)) * 100).toFixed(1));
 
   // Expiry breakeven spot price
   const breakevenSpot = signal.recommendedType === 'CE' 
@@ -462,6 +470,16 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         />
       )}
 
+      {/* Pre & After-Market Prediction vs Live Opening Validation Engine */}
+      <PredictionValidationCard
+        ticker={ticker}
+        analytics={signal.afterMarketAnalytics}
+        signal={signal}
+        optionChain={chain || []}
+        metrics={metrics}
+        theme={theme}
+      />
+
       {/* Live / Settled Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-2">
@@ -688,16 +706,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <ArrowUpRight className="w-3 h-3" />
               Target 1
             </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
-              +{t1ProfitPct}%
+            <span className={`text-[10px] font-mono px-1 rounded ${
+              isTarget1Achieved 
+                ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30' 
+                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+            }`}>
+              {isTarget1Achieved ? '🎯 HIT' : `+${t1ProfitPct}%`}
             </span>
           </div>
           <div className="my-1.5">
             <div className="text-lg sm:text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
-              +{t1Points.toFixed(2)} pts
+              {isTarget1Achieved ? 'ACHIEVED' : `+${t1Points.toFixed(2)} pts`}
             </div>
             <div className="text-[10px] sm:text-[11px] text-emerald-700/80 dark:text-emerald-300/80 font-mono">
-              Exit @ {ticker.currency}{target1.toFixed(2)}
+              {isTarget1Achieved ? `Target reached @ ${ticker.currency}${target1.toFixed(2)}` : `Exit @ ${ticker.currency}${target1.toFixed(2)}`}
             </div>
           </div>
           <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
@@ -706,7 +728,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <span className="truncate mr-1 text-[9.5px] text-emerald-400/90" title={signal.target1Basis || `Spot Target`}>
               {signal.spotTarget1 ? `Spot: ${ticker.currency}${signal.spotTarget1.toLocaleString()}` : `R:R ${signal.riskRewardRatio}`}
             </span>
-            <span className="shrink-0">R:R {signal.riskRewardRatio}</span>
+            <span className="shrink-0">{isTarget1Achieved ? 'Target 1 Secured' : `R:R ${signal.riskRewardRatio}`}</span>
           </div>
         </div>
 
@@ -719,16 +741,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <ArrowUpRight className="w-3 h-3" />
               Target 2
             </span>
-            <span className="text-[10px] font-mono px-1 rounded bg-sky-500/10 text-sky-600 dark:text-sky-300">
-              +{t2ProfitPct}%
+            <span className={`text-[10px] font-mono px-1 rounded ${
+              isTarget2Achieved 
+                ? 'bg-sky-500/20 text-sky-400 font-bold border border-sky-500/30' 
+                : 'bg-sky-500/10 text-sky-600 dark:text-sky-300'
+            }`}>
+              {isTarget2Achieved ? '🚀 HIT' : `+${t2ProfitPct}%`}
             </span>
           </div>
           <div className="my-1.5">
             <div className="text-lg sm:text-2xl font-bold font-mono text-sky-600 dark:text-sky-400 tracking-tight">
-              +{t2Points.toFixed(2)} pts
+              {isTarget2Achieved ? 'ACHIEVED' : `+${t2Points.toFixed(2)} pts`}
             </div>
             <div className="text-[10px] sm:text-[11px] text-sky-700/80 dark:text-sky-300/80 font-mono">
-              Exit @ {ticker.currency}{target2.toFixed(2)}
+              {isTarget2Achieved ? `Runner reached @ ${ticker.currency}${target2.toFixed(2)}` : `Exit @ ${ticker.currency}${target2.toFixed(2)}`}
             </div>
           </div>
           <div className={`text-[10px] text-slate-500 dark:text-slate-400 pt-1 flex items-center justify-between font-mono border-t ${
@@ -737,7 +763,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <span className="truncate mr-1 text-[9.5px] text-sky-400/90" title={signal.target2Basis || `Major Wall`}>
               {signal.spotTarget2 ? `Spot: ${ticker.currency}${signal.spotTarget2.toLocaleString()}` : 'Extended Wall'}
             </span>
-            <span className="shrink-0">Runner</span>
+            <span className="shrink-0">{isTarget2Achieved ? 'Runner Secured' : 'Runner'}</span>
           </div>
         </div>
       </div>

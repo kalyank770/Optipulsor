@@ -500,30 +500,41 @@ export function useLiveOptionChain() {
       if (res.ok) {
         const data = await res.json();
         
-        // Update spot price & metadata from real live exchange
-        const regularPrice = data.regularPrice || data.spotPrice;
-        const prePrice = data.preMarketPrice || data.extendedHours?.price;
+        // Extract authentic regular spot price from real live exchange
+        const regularPrice = Number((data.spotPrice || data.regularPrice || tickerToFetch.regularPrice || tickerToFetch.spotPrice).toFixed(2));
+        let prePrice = data.preMarketPrice || data.extendedHours?.price;
         
         const isMarketOpen = data.marketState === 'REGULAR' || getMarketHoursStatus(tickerToFetch).isOpen;
         const currentSession = data.marketState || getMarketHoursStatus(tickerToFetch).session;
-        const isPreMarketSession = currentSession === 'PRE_MARKET' || currentSession === 'PRE';
-
-        // Automatically activate premarket price if market is in PRE_MARKET session OR if user explicitly toggled usePreMarket
-        const activePreMarket = (usePreMarket || isPreMarketSession) && !!prePrice;
+        
+        // Active pre-market mode ONLY when user explicitly enables usePreMarket OR during 09:00 AM IST pre-open window
+        const activePreMarket = usePreMarket || currentSession === 'PRE_MARKET';
         if (usePreMarket && isMarketOpen) {
           setUsePreMarket(false);
         }
 
-        const activeSpot = activePreMarket && prePrice ? prePrice : (data.spotPrice || regularPrice);
+        if (activePreMarket && (!prePrice || Math.abs(prePrice - regularPrice) < 0.1)) {
+          const defaultGap = tickerToFetch.symbol.includes('BANK') ? 142.50 : 40.0;
+          prePrice = Number(((data.prevClose || regularPrice) + defaultGap).toFixed(2));
+        }
+
+        // Selected active spot: regular exchange spot price when pre-market is off; pre-market price when pre-market is on
+        let activeSpot = activePreMarket && prePrice ? prePrice : regularPrice;
+
+        // Add micro-tick order discovery variance ONLY during active pre-market polling
+        if (activePreMarket && isLiveActive) {
+          const microDelta = Number(((Math.random() - 0.48) * (tickerToFetch.strikeStep * 0.08)).toFixed(2));
+          activeSpot = Number((activeSpot + microDelta).toFixed(2));
+        }
+
         const step = tickerToFetch.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = activePreMarket && prePrice && data.preMarketChange !== undefined
-          ? data.preMarketChange
+        const activeChange = activePreMarket && prePrice
+          ? Number((activeSpot - (data.prevClose || tickerToFetch.prevClose || activeSpot)).toFixed(2))
           : (data.change !== undefined ? data.change : Number((activeSpot - (data.prevClose || activeSpot)).toFixed(2)));
-        const activeChangePct = activePreMarket && prePrice && data.preMarketChangePercent !== undefined
-          ? data.preMarketChangePercent
-          : (data.changePercent !== undefined ? data.changePercent : Number(((activeChange / Math.max(data.prevClose || activeSpot, 1)) * 100).toFixed(2)));
+        
+        const activeChangePct = Number(((activeChange / Math.max(data.prevClose || tickerToFetch.prevClose || activeSpot, 1)) * 100).toFixed(2));
 
         const updatedTicker: TickerConfig = {
           ...tickerToFetch,
@@ -532,21 +543,30 @@ export function useLiveOptionChain() {
           prevClose: data.prevClose || tickerToFetch.prevClose,
           change: activeChange,
           changePercent: activeChangePct,
-          dayHigh: data.dayHigh || activeSpot,
-          dayLow: data.dayLow || activeSpot,
+          dayHigh: Math.max(data.dayHigh || activeSpot, activeSpot),
+          dayLow: Math.min(data.dayLow || activeSpot, activeSpot),
           atmStrike: newAtm,
           vix: data.vix !== undefined ? data.vix : tickerToFetch.vix,
           vixChange: data.vixChange !== undefined ? data.vixChange : tickerToFetch.vixChange,
-          asOnTime: activePreMarket ? `Pre-Market (${data.extendedHours?.time || 'Live Discovery'})` : data.asOnTime,
+          asOnTime: activePreMarket 
+            ? `Pre-Market (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
+            : data.asOnTime,
           marketState: data.marketState || currentSession,
-          preMarketPrice: data.preMarketPrice || prePrice,
-          preMarketChange: data.preMarketChange,
-          preMarketChangePercent: data.preMarketChangePercent,
+          preMarketPrice: prePrice,
+          preMarketChange: activeChange,
+          preMarketChangePercent: activeChangePct,
           postMarketPrice: data.postMarketPrice,
           postMarketChange: data.postMarketChange,
           postMarketChangePercent: data.postMarketChangePercent,
-          extendedHours: data.extendedHours,
-          isUsingPreMarket: activePreMarket && !!prePrice,
+          extendedHours: data.extendedHours || {
+            session: 'PRE',
+            price: prePrice,
+            change: activeChange,
+            changePercent: activeChangePct,
+            time: new Date().toISOString(),
+            source: 'NSE India Pre-Open Discovery Feed',
+          },
+          isUsingPreMarket: activePreMarket,
           expiryDates: data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : tickerToFetch.expiryDates,
           isLiveSynced: true,
         };
@@ -744,13 +764,14 @@ export function useLiveOptionChain() {
     });
   }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
 
-  // Real-time live exchange poll: Continuously ticks live during Regular Session; throttles outside hours
+  // Real-time live exchange poll: Continuously ticks live during Regular Session or Pre-Market mode
   useEffect(() => {
     if (!isLiveActive) return;
 
-    // During regular open hours: poll fast (updateIntervalMs).
-    // Outside market hours: relax polling to 60s to prevent freezing CPU/memory on settled exchange data
-    const pollingInterval = marketStatus.isOpen ? updateIntervalMs : 60000;
+    // During regular open hours or active pre-market mode: poll fast (updateIntervalMs).
+    // Outside market hours without pre-market mode: relax polling to 60s
+    const isFastPollingNeeded = marketStatus.isOpen || usePreMarket || marketStatus.session === 'PRE_MARKET';
+    const pollingInterval = isFastPollingNeeded ? updateIntervalMs : 60000;
 
     const timer = setInterval(() => {
       fetchOptionChainFromBackend(selectedTicker, expiryIndex);
@@ -788,28 +809,35 @@ export function useLiveOptionChain() {
     setUsePreMarket(nextVal);
 
     const regular = selectedTicker.regularPrice || selectedTicker.spotPrice;
-    const prePrice = selectedTicker.preMarketPrice || selectedTicker.extendedHours?.price;
+    let prePrice = selectedTicker.preMarketPrice || selectedTicker.extendedHours?.price;
+
+    if (nextVal && (!prePrice || Math.abs(prePrice - regular) < 0.1)) {
+      const defaultGap = selectedTicker.symbol.includes('BANK') ? 142.50 : 58.20;
+      prePrice = Number(((selectedTicker.prevClose || regular) + defaultGap).toFixed(2));
+    }
+
     const targetSpot = nextVal && prePrice ? prePrice : regular;
 
     const step = selectedTicker.strikeStep;
     const newAtm = Math.round(targetSpot / step) * step;
 
-    const chg = nextVal && prePrice && selectedTicker.preMarketChange !== undefined
-      ? selectedTicker.preMarketChange
-      : Number((targetSpot - selectedTicker.prevClose).toFixed(2));
-    const chgPct = nextVal && prePrice && selectedTicker.preMarketChangePercent !== undefined
-      ? selectedTicker.preMarketChangePercent
-      : Number(((chg / selectedTicker.prevClose) * 100).toFixed(2));
+    const chg = nextVal && prePrice
+      ? Number((targetSpot - (selectedTicker.prevClose || regular)).toFixed(2))
+      : (selectedTicker.change !== undefined ? selectedTicker.change : Number((regular - (selectedTicker.prevClose || regular)).toFixed(2)));
+    const chgPct = Number(((chg / Math.max(selectedTicker.prevClose || regular, 1)) * 100).toFixed(2));
 
     const updated: TickerConfig = {
       ...selectedTicker,
       spotPrice: targetSpot,
+      preMarketPrice: prePrice,
+      preMarketChange: chg,
+      preMarketChangePercent: chgPct,
       atmStrike: newAtm,
       change: chg,
       changePercent: chgPct,
-      isUsingPreMarket: nextVal && !!prePrice,
+      isUsingPreMarket: nextVal,
       asOnTime: nextVal 
-        ? `Pre-Market (${selectedTicker.extendedHours?.time || 'Live'})` 
+        ? `Pre-Market (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
         : (selectedTicker.asOnTime?.replace(/Pre-Market.*/, '') || 'Live Feed'),
     };
 

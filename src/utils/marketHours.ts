@@ -7,6 +7,8 @@ export interface MarketHoursStatus {
   nextOpenMsg: string;
   exchangeTimeStr: string;
   tradingHoursLabel: string;
+  minutesToClose?: number;
+  isClosingSoon?: boolean; // true within 45 minutes of market close (Power Hour / closing window)
 }
 
 /**
@@ -68,6 +70,22 @@ function getExchangeTime(timeZone: string): { dayOfWeek: number; hours: number; 
 export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
   const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY');
 
+  // If ticker explicitly carries an active live session state from live feed or test configuration
+  if (ticker.marketState === 'OPEN') {
+    const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+    const { timeStr } = getExchangeTime(tz);
+    return {
+      isOpen: true,
+      session: 'REGULAR',
+      marketName: isIndian ? 'NSE (India)' : 'NYSE/NASDAQ (US)',
+      nextOpenMsg: isIndian ? 'Closes today at 03:30 PM IST' : 'Closes today at 04:00 PM ET',
+      exchangeTimeStr: isIndian ? `${timeStr} IST` : `${timeStr} ET`,
+      tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
+      minutesToClose: 120,
+      isClosingSoon: false,
+    };
+  }
+
   if (isIndian) {
     const tz = 'Asia/Kolkata';
     const { dayOfWeek, hours, minutes, timeStr } = getExchangeTime(tz);
@@ -96,13 +114,17 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
 
     // Weekday: Regular trading session
     if (totalMinutes >= marketOpen && totalMinutes <= marketClose) {
+      const minutesToClose = marketClose - totalMinutes;
+      const isClosingSoon = minutesToClose <= 45;
       return {
         isOpen: true,
         session: 'REGULAR',
         marketName: 'NSE (India)',
-        nextOpenMsg: 'Closes today at 03:30 PM IST',
+        nextOpenMsg: isClosingSoon ? `Closing in ${minutesToClose} mins (03:30 PM IST)` : 'Closes today at 03:30 PM IST',
         exchangeTimeStr,
         tradingHoursLabel,
+        minutesToClose,
+        isClosingSoon,
       };
     }
 
@@ -170,13 +192,17 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
 
     // Weekday: Regular trading session
     if (totalMinutes >= marketOpen && totalMinutes <= marketClose) {
+      const minutesToClose = marketClose - totalMinutes;
+      const isClosingSoon = minutesToClose <= 45;
       return {
         isOpen: true,
         session: 'REGULAR',
         marketName: 'NYSE/NASDAQ (US)',
-        nextOpenMsg: 'Closes today at 04:00 PM ET',
+        nextOpenMsg: isClosingSoon ? `Closing in ${minutesToClose} mins (04:00 PM ET)` : 'Closes today at 04:00 PM ET',
         exchangeTimeStr,
         tradingHoursLabel,
+        minutesToClose,
+        isClosingSoon,
       };
     }
 

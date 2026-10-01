@@ -456,6 +456,7 @@ export interface TradeSignal {
   recommendedStrike: number;
   recommendedType: OptionType;
   recommendedContractLTP: number;
+  entryPrice?: number;
   moneyness: Moneyness;
   entryRange: [number, number];
   stopLoss: number;

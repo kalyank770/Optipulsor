@@ -131,6 +131,9 @@ export function generateTradeSignal(
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
   const vix = Math.max(9, ticker.vix || 13);
   const rt = metrics.realtimeIndicators || computeRealtimeIndicators(ticker, chain);
+  const marketStatus = getMarketHoursStatus(ticker);
+  const isClosingSoon = Boolean(marketStatus.isOpen && marketStatus.isClosingSoon);
+  const minutesToClose = marketStatus.minutesToClose ?? 45;
   
   // Nearby strikes around current spot
   const nearbyRows = chain.filter(r => Math.abs(r.strike - atmStrike) <= ticker.strikeStep * 3);
@@ -340,34 +343,61 @@ export function generateTradeSignal(
     }
   }
 
-  // Regime Detection: Differentiate genuine bullish rises from continuous downward falls
+  // Regime Detection: Differentiate genuine bullish rises and intraday recoveries from continuous downward falls
   const isPositiveSession = spotChangePct >= 0.05;
   const isBullishCandles = candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.2;
   const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen + ticker.strikeStep * 0.15 : false;
-  const isConfirmedBullishReversal = recoveryRatio >= 0.65 && spotPrice >= rt.vwap.value && isBullishCandles;
+  const isConfirmedBullishReversal = recoveryRatio >= 0.48 && spotPrice >= rt.vwap.value && isBullishCandles;
 
-  // True Market Raising: Only when in the green, or trading above open with bullish candles, or confirmed 65%+ V-shape reversal
-  const isMarketRaising = isPositiveSession || (isAboveDayOpen && isBullishCandles) || isConfirmedBullishReversal;
-
-  // True Continuous Downtrend: Negative session, trading in lower range, bearish indicator confluence
-  const isContinuousFall = spotChangePct <= -0.05 && recoveryRatio <= 0.55 && (
-    candlePatterns.confluenceBias === 'BEARISH' || 
-    rt.vwap.bias === 'BEARISH' || 
-    rt.ema.alignment === 'BEARISH_STACK' ||
-    (ticker.dayOpen ? spotPrice < ticker.dayOpen : true)
+  // Active Intraday Recovery Rally: When price is surging/recovering off the session day low
+  // Even if spot is still in the red relative to previous close, an active recovery means the market is GOING UP!
+  const isIntradayRecoveryRally = (recoveryPoints >= ticker.strikeStep * 0.40 || recoveryRatio >= 0.30) && (
+    candlePatterns.confluenceBias === 'BULLISH' || 
+    (candlePatterns.m5Score ?? 0) > 0 || 
+    rt.vwap.bias === 'BULLISH' || 
+    rt.ema.alignment === 'BULLISH_STACK' || 
+    recoveryRatio >= 0.40
   );
+
+  // True Market Raising: In the green, or trading above open with bullish candles, or confirmed reversal, or active intraday recovery bounce
+  const isMarketRaising = isPositiveSession || (isAboveDayOpen && isBullishCandles) || isConfirmedBullishReversal || isIntradayRecoveryRally;
+
+  // True Continuous Downtrend: MUST be actively pinned near day low and making lower lows, NOT recovering!
+  // If price has recovered >22% of the range or >35% of a strike step, it is NOT a continuous fall.
+  const isContinuousFall = spotChangePct <= -0.05 && 
+    recoveryRatio <= 0.22 && 
+    recoveryPoints < ticker.strikeStep * 0.35 && 
+    (
+      candlePatterns.confluenceBias === 'BEARISH' || 
+      rt.vwap.bias === 'BEARISH' || 
+      rt.ema.alignment === 'BEARISH_STACK' ||
+      (ticker.dayOpen ? spotPrice < ticker.dayOpen : true)
+    );
 
   // GUARD RAIL 1: Intraday Recovery vs Trend Continuation
   if (isMarketRaising && score < 0) {
-    if (isBullishCandles) {
+    if (isBullishCandles || (candlePatterns.m5Score ?? 0) >= 1.5) {
       score = Math.max(score, 2.5); // Trigger BUY_CE for confirmed rally
     } else {
       score = Math.max(0.6, score + 3.0); // Neutralize false bearishness in a rising market
-      capitalProtectionReason = `Capital Protection: Market is in an active upward rise (${isPositiveSession ? 'in green' : 'rally above open'}). Put option (PE) buying is prohibited during an upward move.`;
+      capitalProtectionReason = `Capital Protection: Market is in an active upward rise (${isPositiveSession ? 'in green' : `recovering +${ticker.currency}${recoveryPoints.toFixed(1)} pts off day low`}). Put option (PE) buying is prohibited during an upward move.`;
     }
   } else if (isContinuousFall && score > -1.0) {
     // If the market is continuously falling, ensure the bearish conviction is preserved so BUY_PE is recommended!
     score = Math.min(score, -2.4);
+  }
+
+  // GUARD RAIL 1B: Closing Bell Proximity & Late-Session Power Hour Squeeze (Final 45 Minutes)
+  if (isClosingSoon) {
+    if (isMarketRaising || isIntradayRecoveryRally || recoveryRatio >= 0.28) {
+      // Market is going up near closing time!
+      // In the final 45 minutes (14:45 - 15:30 IST), short sellers are forced to square off, driving sharp upward squeezes.
+      // Buying Puts (PE) into an upward bounce near the close is a lethal trap (adverse move + extreme 0-DTE theta bleed).
+      if (score < 0) {
+        score = Math.max(0.8, score + 3.5);
+      }
+      capitalProtectionReason = `Capital Protection: Closing bell is nearby (${minutesToClose} mins left). Intraday short covering is driving spot upward (+${ticker.currency}${recoveryPoints.toFixed(1)} pts off session low). Put option (PE) buying is strictly prohibited due to upward spot momentum and rapid 0-DTE theta decay into market close.`;
+    }
   }
 
   // GUARD RAIL 2: Extreme PCR Reversal Trap (Do not short oversold extremes / do not buy calls at overbought peaks)
@@ -379,17 +409,26 @@ export function generateTradeSignal(
     capitalProtectionReason = `Capital Protection: PCR is heavily overbought at ${pcrTotalOI.toFixed(2)} (>1.50). High risk of Call writing wall rejections and institutional profit-taking.`;
   }
 
-  // GUARD RAIL 3: Overhead Call Wall / Support Put Wall Proximity Trap
+  // GUARD RAIL 3: Overhead Call Wall / Support Put Wall Proximity Trap (Hard Clamping)
   const distToCallWall = majorResistanceStrike - spotPrice;
-  if (score >= 2.0 && distToCallWall > 0 && distToCallWall <= ticker.strikeStep * 0.30) {
-    score = score * 0.6; // Soften to caution
-    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToCallWall.toFixed(1)} pts of Major Call Wall (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Chasing CE right under heavy institutional call writers has poor risk-reward; wait for breakout.`;
+  if (score >= 0.8 && distToCallWall > 0 && distToCallWall <= ticker.strikeStep * 0.35) {
+    score = Math.min(score, 0.4); // Hard clamp below entry threshold
+    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToCallWall.toFixed(1)} pts of Major Call Wall (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Chasing CE right under heavy institutional call writers has poor risk-reward; wait for clean breakout.`;
   }
 
   const distToPutWall = spotPrice - majorSupportStrike;
-  if (score <= -2.0 && distToPutWall > 0 && distToPutWall <= ticker.strikeStep * 0.30) {
-    score = score * 0.6; // Soften to caution
+  if (score <= -0.8 && distToPutWall > 0 && distToPutWall <= ticker.strikeStep * 0.35) {
+    score = Math.max(score, -0.4); // Hard clamp above entry threshold
     capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToPutWall.toFixed(1)} pts of Major Put Wall (${ticker.currency}${majorSupportStrike.toLocaleString()}). Chasing PE right onto heavy institutional put writing floor risks sudden relief bounces.`;
+  }
+
+  // GUARD RAIL 3B: Low-Volume Lunch Lull & Narrow Deadband Consolidation Trap
+  // Directional options decay rapidly with zero trend velocity when volume is compressed
+  const isVolumeCompressed = Boolean(rt.volumeAnalytics && rt.volumeAnalytics.totalVolumeMultiplier < 0.65);
+  const isDeadbandConsolidation = Math.abs(spotChangePct) < 0.20 && Math.abs(recoveryRatio - 0.50) < 0.15;
+  if (isVolumeCompressed && isDeadbandConsolidation && Math.abs(score) < 3.0) {
+    score = score * 0.4;
+    capitalProtectionReason = `Capital Protection: Market is in a low-volume consolidation deadband (Volume: ${((rt.volumeAnalytics?.totalVolumeMultiplier || 0.6) * 100).toFixed(0)}% of 20MA). Directional option buying during compressed volume leads to severe theta bleed; stand aside in WAIT.`;
   }
 
   // GUARD RAIL 4: Day High / Day Low Breakout / Exhaustion Trap
@@ -492,28 +531,40 @@ export function generateTradeSignal(
   if (isMarketRaising) {
     // MARKET IS GENUINELY RAISING:
     // Put (PE) buying is strictly forbidden. The system only permits BUY_CE (if momentum confirms) or WAIT_NEUTRAL.
-    if (score >= 1.0 && (bullMatches >= 1 || isBullishCandles)) {
+    if (score >= 1.4 && (bullMatches >= 3 || (bullMatches >= 2 && isBullishCandles))) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(65, Math.round(58 + (bullMatches / 7) * 36)));
+      confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
       strength = bullMatches >= 4 ? 'STRONG' : 'MODERATE';
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
       strength = 'CAUTION';
+      if (!capitalProtectionReason) {
+        capitalProtectionReason = `Capital Protection: Market is moving upward, but multi-factor confluence is incomplete (${bullMatches}/7 confirming). Standing aside in WAIT to avoid premature entries.`;
+      }
     }
   } else if (isContinuousFall) {
     // MARKET IS CONTINUOUSLY FALLING / BREAKING DOWN:
-    // Primary regime for option buyers: Recommend BUY_PE to capitalize on the downward momentum!
-    action = 'BUY_PE';
-    confidence = Math.min(94, Math.max(68, Math.round(62 + (bearMatches / 7) * 32)));
-    strength = bearMatches >= 4 ? 'STRONG' : 'MODERATE';
+    // Primary regime for option buyers: Recommend BUY_PE only if confirmed by 3+ bear factors!
+    if (score <= -1.4 && bearMatches >= 3 && !isMarketRaising) {
+      action = 'BUY_PE';
+      confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
+      strength = bearMatches >= 4 ? 'STRONG' : 'MODERATE';
+    } else {
+      action = 'WAIT_NEUTRAL';
+      confidence = 54;
+      strength = 'CAUTION';
+      if (!capitalProtectionReason) {
+        capitalProtectionReason = `Capital Protection: Market is weak, but bear confluence is incomplete (${bearMatches}/7 confirming). Standing aside in WAIT to avoid trap breakdowns.`;
+      }
+    }
   } else if (prevAction === 'BUY_CE') {
     // ACTIVE LONG (CE) POSITION:
-    if (score >= 0.7 && bullMatches >= 3) {
+    if (score >= 0.9 && bullMatches >= 3 && !isContinuousFall) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(64, Math.round(58 + (bullMatches / 7) * 36)));
       strength = bullMatches >= 5 && score >= 3.8 ? 'STRONG' : 'MODERATE';
-    } else if (score <= -2.5 && bearMatches >= 4) {
+    } else if (score <= -2.5 && bearMatches >= 4 && isContinuousFall) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
       strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
@@ -521,14 +572,17 @@ export function generateTradeSignal(
       action = 'WAIT_NEUTRAL';
       confidence = 54;
       strength = 'CAUTION';
+      if (!capitalProtectionReason) {
+        capitalProtectionReason = `Capital Protection: Call momentum has exhausted (Score: ${score.toFixed(1)}, Confluence: ${bullMatches}/7). Exiting to WAIT to protect gains and avoid theta bleed.`;
+      }
     }
   } else if (prevAction === 'BUY_PE') {
     // ACTIVE SHORT (PE) POSITION:
-    if (score <= -0.7 && bearMatches >= 2) {
+    if (score <= -0.9 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(64, Math.round(58 + (bearMatches / 7) * 36)));
       strength = bearMatches >= 4 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
-    } else if (score >= 2.2 && (bullMatches >= 4 || isMarketRaising)) {
+    } else if (score >= 2.5 && (bullMatches >= 4 || isMarketRaising)) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
       strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
@@ -536,26 +590,36 @@ export function generateTradeSignal(
       action = 'WAIT_NEUTRAL';
       confidence = 54;
       strength = 'CAUTION';
+      if (!capitalProtectionReason) {
+        capitalProtectionReason = `Capital Protection: Put momentum has exhausted (Score: ${score.toFixed(1)}, Confluence: ${bearMatches}/7). Exiting to WAIT to protect gains and avoid theta bleed.`;
+      }
     }
   } else {
-    // CURRENTLY IN WAIT_NEUTRAL (Fresh Entry Filtering):
-    if (score >= 0.7 && bullMatches >= 1) {
+    // CURRENTLY IN WAIT_NEUTRAL (Fresh Entry Filtering - STRICTEST DISCIPLINE):
+    // Forbid entering during conflicting chop where both bull and bear factors exist
+    const isConflictChop = bullMatches >= 2 && bearMatches >= 2;
+    if (!isConflictChop && score >= 1.5 && bullMatches >= 3 && !isContinuousFall) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(62, Math.round(56 + (bullMatches / 7) * 38)));
-      strength = bullMatches >= 5 && score >= 3.0 ? 'STRONG' : 'MODERATE';
-    } else if (score <= -0.7 && bearMatches >= 1) {
+      confidence = Math.min(94, Math.max(65, Math.round(58 + (bullMatches / 7) * 36)));
+      strength = bullMatches >= 5 && score >= 3.2 ? 'STRONG' : 'MODERATE';
+    } else if (!isConflictChop && score <= -1.5 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
-      confidence = Math.min(94, Math.max(62, Math.round(56 + (bearMatches / 7) * 38)));
-      strength = bearMatches >= 5 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
+      confidence = Math.min(94, Math.max(65, Math.round(58 + (bearMatches / 7) * 36)));
+      strength = bearMatches >= 5 && Math.abs(score) >= 3.2 ? 'STRONG' : 'MODERATE';
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 52;
       strength = 'CAUTION';
+      if (!capitalProtectionReason) {
+        capitalProtectionReason = isConflictChop
+          ? `Capital Protection: Market is in conflicting choppy consolidation (${bullMatches} Bullish vs ${bearMatches} Bearish signals). Taking directional option trades in chop causes rapid theta decay; stand aside in WAIT.`
+          : `Capital Protection: Confluence threshold not met (Bull: ${bullMatches}/7, Bear: ${bearMatches}/7, Score: ${score.toFixed(1)}). Professional discipline requires minimum 3 confirming factors before risking real capital.`;
+      }
     }
   }
 
-  // Final Safety Valve: If the market is raising, NEVER allow BUY_PE under any circumstance
-  if (isMarketRaising && action === 'BUY_PE') {
+  // Final Safety Valve: If the market is raising or bouncing off lows, NEVER allow BUY_PE under any circumstance
+  if ((isMarketRaising || isIntradayRecoveryRally || (isClosingSoon && recoveryRatio >= 0.25)) && action === 'BUY_PE') {
     action = 'WAIT_NEUTRAL';
   }
 
@@ -570,12 +634,12 @@ export function generateTradeSignal(
     recommendedType = 'CE';
   } else {
     // WAIT_NEUTRAL:
-    if (isMarketRaising) {
-      recommendedType = 'CE'; // In a raising market, reference contract MUST be CE!
-    } else if (isContinuousFall || spotChangePct <= -0.08) {
+    if (isMarketRaising || isIntradayRecoveryRally || recoveryRatio >= 0.30) {
+      recommendedType = 'CE'; // In an upward moving, rising, or recovering market, reference contract MUST be CE!
+    } else if (isContinuousFall) {
       recommendedType = 'PE';
     } else {
-      recommendedType = (previousSignal && previousSignal.action !== 'WAIT_NEUTRAL') ? previousSignal.recommendedType : 'CE';
+      recommendedType = (previousSignal && previousSignal.action !== 'WAIT_NEUTRAL') ? previousSignal.recommendedType : (recoveryRatio >= 0.45 ? 'CE' : 'PE');
     }
   }
 
@@ -915,8 +979,8 @@ export function generateTradeSignal(
   const pullbackBuffer = Math.max(tick, roundToTick(candlePatterns.m2.atr * 0.20 * delta));
   const bidPrice = contract?.bidPrice && contract.bidPrice > 0 ? contract.bidPrice : roundToTick(premium - spreadBuffer);
   const askPrice = contract?.askPrice && contract.askPrice > 0 ? contract.askPrice : roundToTick(premium + spreadBuffer);
-  const entryLow = Math.max(tick, roundToTick(Math.min(bidPrice, premium - pullbackBuffer)));
-  const entryHigh = roundToTick(Math.max(askPrice, premium + tick * 2));
+  let entryLow = Math.max(tick, roundToTick(Math.min(bidPrice, premium - pullbackBuffer)));
+  let entryHigh = roundToTick(Math.max(askPrice, premium + tick * 2));
 
   // Probability calculations based on confluence & momentum
   const target1Probability = Math.min(94, Math.max(65, Math.round(62 + (confidence * 0.25) + (Math.abs(directionalTacticalMomentum) * 1.5))));
@@ -1008,8 +1072,8 @@ export function generateTradeSignal(
   };
 
   // Real-world execution entry zone:
-  const entryRange: [number, number] = [entryLow, entryHigh];
-  const rrRatio = `1 : ${(target1Delta / Math.max(actualRisk, tick)).toFixed(1)}`;
+  let entryRange: [number, number] = [entryLow, entryHigh];
+  let rrRatio = `1 : ${(target1Delta / Math.max(actualRisk, tick)).toFixed(1)}`;
 
   // Multi-Factor Quantitative Rationale Points
   const rationalePoints: TradeSignal['rationalePoints'] = [];
@@ -1288,7 +1352,7 @@ export function generateTradeSignal(
   }
 
   // Compute Adjacent Strike Spectrum (2 strikes below and 2 strikes above predicted strike with Profit Probability %)
-  const adjacentStrikes = computeAdjacentStrikeSpectrum(
+  let adjacentStrikes = computeAdjacentStrikeSpectrum(
     targetStrike,
     recommendedType,
     ticker,
@@ -1302,28 +1366,34 @@ export function generateTradeSignal(
   );
 
   // Compute After-Market & Pre-Market Opening Analytics
-  const marketStatus = getMarketHoursStatus(ticker);
   const afterMarketAnalytics = computeAfterMarketOpeningAnalytics(ticker, marketStatus, rt.vwap.value, interMarketTelemetry, metrics);
 
   // When market is in After-Market / Closed session:
   // Show the strike price that will hit tomorrow once the market opens based on today's full day chart + aftermarket analysis
   if (!marketStatus.isOpen && afterMarketAnalytics.tomorrowHitStrike) {
     const hit = afterMarketAnalytics.tomorrowHitStrike;
-    action = hit.action;
     targetStrike = hit.strike;
     recommendedType = hit.type;
+
+    if (hit.action === 'WAIT_FIRST_15M') {
+      action = 'WAIT_NEUTRAL';
+      confidence = 58;
+      strength = 'CAUTION';
+    } else {
+      action = hit.action;
+      confidence = Math.max(confidence, 82);
+      strength = 'STRONG';
+    }
 
     const hitRow = chain.find(r => r.strike === targetStrike);
     const hitContract = recommendedType === 'CE' ? hitRow?.ce : hitRow?.pe;
     if (hitContract && hitContract.ltp > 0) {
       premium = hitContract.ltp;
+      moneyness = hitContract.moneyness;
     } else {
       premium = hit.estimatedOpeningPremium;
     }
 
-    target1 = hit.target1;
-    target2 = hit.target2;
-    stopLoss = hit.stopLoss;
     spotTarget1 = hit.projectedSpotAtHit;
     spotTarget2 = recommendedType === 'CE' 
       ? Number((spotTarget1 + ticker.strikeStep * 0.8).toFixed(2)) 
@@ -1331,11 +1401,60 @@ export function generateTradeSignal(
     spotStopLoss = recommendedType === 'CE'
       ? Number((ticker.spotPrice - ticker.strikeStep * 0.4).toFixed(2))
       : Number((ticker.spotPrice + ticker.strikeStep * 0.4).toFixed(2));
-    
-    confidence = Math.max(confidence, 82);
-    strength = 'STRONG';
 
-    summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, Range: ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayLow?.toLocaleString()} - ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayHigh?.toLocaleString()}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty drift (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts), opening will test ${targetStrike} ${recommendedType}. Recommending ${targetStrike} ${recommendedType} @ ₹${premium.toFixed(2)} | Target 1: ₹${target1.toFixed(2)}, Target 2: ₹${target2.toFixed(2)} | SL: ₹${stopLoss.toFixed(2)}.`;
+    // Dynamic targets strictly anchored to the actual live contract premium
+    const t1GainRate = 0.35; // +35% opening target
+    const t2GainRate = 0.70; // +70% runner extension
+    const slLossRate = 0.18; // -18% invalidation SL
+
+    const target1Gain = Math.max(tick * 3, roundToTick(premium * t1GainRate));
+    const target2Gain = Math.max(target1Gain + tick * 4, roundToTick(premium * t2GainRate));
+    const slLoss = Math.max(tick * 2, roundToTick(premium * slLossRate));
+
+    target1 = roundToTick(premium + target1Gain);
+    target2 = roundToTick(premium + target2Gain);
+    stopLoss = Math.max(tick, roundToTick(premium - slLoss));
+
+    const finalTarget1Delta = roundToTick(target1 - premium);
+    const finalActualRisk = roundToTick(premium - stopLoss);
+    rrRatio = `1 : ${(finalTarget1Delta / Math.max(finalActualRisk, tick)).toFixed(1)}`;
+
+    const spreadBuffer = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
+    entryLow = Math.max(tick, roundToTick(premium - spreadBuffer));
+    entryHigh = roundToTick(premium + spreadBuffer);
+    entryRange = [entryLow, entryHigh];
+
+    if (action === 'WAIT_NEUTRAL') {
+      summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts): Expecting flat / range-bound opening. Suggesting WAIT / NEUTRAL for the first 15 minutes (09:15 - 09:30 AM). Professional discipline requires waiting for the 15m opening range breakout before committing real capital. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
+    } else {
+      summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, Range: ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayLow?.toLocaleString()} - ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayHigh?.toLocaleString()}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty drift (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts), opening will test ${targetStrike} ${recommendedType}. Recommending ${targetStrike} ${recommendedType} @ ${ticker.currency}${premium.toFixed(2)} | Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((finalTarget1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((finalActualRisk / premium) * 100).toFixed(1)}%).`;
+    }
+
+    // Synchronize targetExitSynthesis grounding with updated opening strike and premium
+    if (targetExitSynthesis?.entryExitGrounding) {
+      targetExitSynthesis.entryExitGrounding.optimalEntryZone = [entryLow, entryHigh];
+      targetExitSynthesis.entryExitGrounding.target1OptionPayoff = target1;
+      targetExitSynthesis.entryExitGrounding.target2OptionPayoff = target2;
+      targetExitSynthesis.entryExitGrounding.target1SpotLevel = spotTarget1;
+      targetExitSynthesis.entryExitGrounding.target2SpotLevel = spotTarget2;
+      targetExitSynthesis.entryExitGrounding.stopLossSpotLevel = spotStopLoss;
+      targetExitSynthesis.entryExitGrounding.riskPerLot = Number((finalActualRisk * ticker.lotSize).toFixed(2));
+      targetExitSynthesis.entryExitGrounding.maxRiskAmount = Number((finalActualRisk * ticker.lotSize).toFixed(2));
+    }
+
+    // Recompute adjacent strike spectrum around the updated targetStrike
+    adjacentStrikes = computeAdjacentStrikeSpectrum(
+      targetStrike,
+      recommendedType,
+      ticker,
+      chain,
+      spotTarget1,
+      spotTarget2,
+      spotStopLoss,
+      netNewsImpactMultiplier,
+      candlePatterns.confluenceScore,
+      expiryIndex
+    );
   }
 
   // Rationale 11: After-Market Opening Projection
@@ -1354,6 +1473,7 @@ export function generateTradeSignal(
     recommendedStrike: targetStrike,
     recommendedType,
     recommendedContractLTP: premium,
+    entryPrice: premium,
     moneyness,
     entryRange: [entryLow, entryHigh],
     stopLoss,
@@ -1443,11 +1563,13 @@ export function computeAdjacentStrikeSpectrum(
     const theta = Math.abs(contract?.greeks.theta ?? bs.theta);
 
     // Live or BS LTP
+    const tick = isIndian ? 0.05 : 0.01;
+    const roundToTick = (val: number) => Number((Math.round(val / tick) * tick).toFixed(2));
     const rawLtp = contract?.ltp ?? Number(bs.price.toFixed(2));
-    const ltp = Math.max(0.05, Number((Math.round(rawLtp * 20) / 20).toFixed(2)));
+    const ltp = Math.max(tick, roundToTick(rawLtp));
     const prevClose = contract?.prevClose ?? ltp;
     const change = contract?.change ?? Number((ltp - prevClose).toFixed(2));
-    const changePercent = contract?.changePercent ?? Number(((change / Math.max(prevClose, 0.05)) * 100).toFixed(2));
+    const changePercent = contract?.changePercent ?? Number(((change / Math.max(prevClose, tick)) * 100).toFixed(2));
     const openInterest = contract?.openInterest ?? 25000;
     const oiChange = contract?.oiChange ?? 1200;
     const volume = contract?.volume ?? 15000;
@@ -1470,19 +1592,22 @@ export function computeAdjacentStrikeSpectrum(
 
     // Re-price option at Target 1, Target 2, and Stop Loss Spot prices
     const spotDistT1 = Math.abs(spotTarget1 - S);
-    const target1GreekGain = Math.max(0.5, delta * spotDistT1 + 0.5 * gamma * Math.pow(spotDistT1, 2) - theta * 0.15);
-    const target1Price = Number((Math.round((ltp + target1GreekGain) * 20) / 20).toFixed(2));
-    const target1GainPercent = Number((((target1Price - ltp) / ltp) * 100).toFixed(1));
+    const minGain1 = isIndian ? 0.5 : 0.05;
+    const target1GreekGain = Math.max(minGain1, delta * spotDistT1 + 0.5 * gamma * Math.pow(spotDistT1, 2) - theta * 0.15);
+    const target1Price = roundToTick(ltp + target1GreekGain);
+    const target1GainPercent = Number((((target1Price - ltp) / Math.max(ltp, tick)) * 100).toFixed(1));
 
     const spotDistT2 = Math.abs(spotTarget2 - S);
-    const target2GreekGain = Math.max(1.0, delta * spotDistT2 + 0.5 * gamma * Math.pow(spotDistT2, 2) - theta * 0.30);
-    const target2Price = Number((Math.round((ltp + target2GreekGain) * 20) / 20).toFixed(2));
-    const target2GainPercent = Number((((target2Price - ltp) / ltp) * 100).toFixed(1));
+    const minGain2 = isIndian ? 1.0 : 0.10;
+    const target2GreekGain = Math.max(minGain2, delta * spotDistT2 + 0.5 * gamma * Math.pow(spotDistT2, 2) - theta * 0.30);
+    const target2Price = roundToTick(ltp + target2GreekGain);
+    const target2GainPercent = Number((((target2Price - ltp) / Math.max(ltp, tick)) * 100).toFixed(1));
 
     const spotDistSL = Math.abs(S - spotStopLoss);
-    const slLoss = Math.min(ltp * 0.35, Math.max(0.5, delta * spotDistSL * 0.85));
-    const stopLossPrice = Math.max(0.05, Number((Math.round((ltp - slLoss) * 20) / 20).toFixed(2)));
-    const stopLossRiskPercent = Number((((ltp - stopLossPrice) / ltp) * 100).toFixed(1));
+    const minLoss = isIndian ? 0.5 : 0.05;
+    const slLoss = Math.min(ltp * 0.35, Math.max(minLoss, delta * spotDistSL * 0.85));
+    const stopLossPrice = Math.max(tick, roundToTick(ltp - slLoss));
+    const stopLossRiskPercent = Number((((ltp - stopLossPrice) / Math.max(ltp, tick)) * 100).toFixed(1));
 
     const breakevenSpot = isCE ? strike + ltp : strike - ltp;
 
