@@ -85,6 +85,8 @@ export interface TickerConfig {
   postMarketChangePercent?: number;
   extendedHours?: ExtendedHoursData;
   isUsingPreMarket?: boolean;
+  isHoliday?: boolean;
+  holidayName?: string;
 }
 
 export interface RealtimePredictionIndicators {

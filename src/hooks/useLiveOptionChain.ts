@@ -443,15 +443,54 @@ export function useLiveOptionChain() {
     getMarketHoursStatus(POPULAR_TICKERS[0])
   );
 
-  // Periodically evaluate market hours status (every 20s)
+  // Fetch verified official exchange activeness from backend (/api/market-status)
+  const fetchMarketStatusFromBackend = useCallback(async (tickerToFetch = selectedTicker) => {
+    try {
+      const res = await fetch('/api/market-status');
+      if (res.ok) {
+        const data = await res.json();
+        const isIndian = tickerToFetch.currency === '₹' || 
+                         tickerToFetch.symbol.includes('NIFTY') || 
+                         tickerToFetch.symbol.includes('BANK') || 
+                         tickerToFetch.symbol.includes('SENSEX');
+        const exStatus = isIndian ? data.nse : data.us;
+        if (exStatus) {
+          setMarketStatus(prev => ({
+            ...prev,
+            isOpen: exStatus.isOpen,
+            session: exStatus.session,
+            isHoliday: Boolean(exStatus.isHoliday),
+            holidayName: exStatus.holidayName,
+            holidayDescription: exStatus.holidayDescription,
+            marketName: exStatus.marketName || prev.marketName,
+            marketStatusMessage: exStatus.marketStatusMessage,
+            exchangeTimeStr: exStatus.exchangeTimeStr || prev.exchangeTimeStr,
+            tradingHoursLabel: exStatus.tradingHoursLabel || prev.tradingHoursLabel,
+            tradeDate: exStatus.tradeDate,
+            nextTradingDate: exStatus.nextTradingDate,
+            nextTradingDayName: exStatus.nextTradingDayName,
+            nextOpenMsg: exStatus.nextTradingSession || prev.nextOpenMsg,
+            minutesToClose: exStatus.minutesToClose,
+            isClosingSoon: exStatus.isClosingSoon,
+            source: exStatus.source,
+          }));
+        }
+      }
+    } catch {
+      // Local schedule engine remains active
+    }
+  }, [selectedTicker]);
+
+  // Periodically evaluate market hours status (every 20s) with live official exchange sync
   useEffect(() => {
     const checkMarket = () => {
       setMarketStatus(getMarketHoursStatus(selectedTicker));
+      fetchMarketStatusFromBackend(selectedTicker);
     };
     checkMarket();
     const interval = setInterval(checkMarket, 20000);
     return () => clearInterval(interval);
-  }, [selectedTicker]);
+  }, [selectedTicker, fetchMarketStatusFromBackend]);
 
   // Audio tone context for signals
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -504,11 +543,26 @@ export function useLiveOptionChain() {
         const regularPrice = Number((data.spotPrice || data.regularPrice || tickerToFetch.regularPrice || tickerToFetch.spotPrice).toFixed(2));
         let prePrice = data.preMarketPrice || data.extendedHours?.price;
         
-        const isMarketOpen = data.marketState === 'REGULAR' || getMarketHoursStatus(tickerToFetch).isOpen;
-        const currentSession = data.marketState || getMarketHoursStatus(tickerToFetch).session;
+        const hoursStatus = getMarketHoursStatus(tickerToFetch);
+        const isHoliday = Boolean(hoursStatus.isHoliday || data.isHoliday);
+        const isMarketOpen = !isHoliday && data.marketState !== 'CLOSED' && hoursStatus.isOpen;
+        const currentSession = isHoliday ? 'CLOSED' : (data.marketState === 'CLOSED' ? 'CLOSED' : (data.marketState || hoursStatus.session));
+
+        // Immediately sync market hours state
+        setMarketStatus(prev => ({
+          ...prev,
+          isOpen: isMarketOpen,
+          session: currentSession,
+          isHoliday,
+          holidayName: data.holidayName || hoursStatus.holidayName,
+          holidayDescription: hoursStatus.holidayDescription,
+          marketStatusMessage: data.marketStatusMessage || hoursStatus.marketStatusMessage,
+          tradeDate: data.tradeDate || hoursStatus.tradeDate,
+          nextOpenMsg: hoursStatus.nextOpenMsg,
+        }));
         
         // Active pre-market mode ONLY when user explicitly enables usePreMarket OR during 09:00 AM IST pre-open window
-        const activePreMarket = usePreMarket || currentSession === 'PRE_MARKET';
+        const activePreMarket = !isHoliday && (usePreMarket || currentSession === 'PRE_MARKET');
         if (usePreMarket && isMarketOpen) {
           setUsePreMarket(false);
         }
@@ -521,8 +575,8 @@ export function useLiveOptionChain() {
         // Selected active spot: regular exchange spot price when pre-market is off; pre-market price when pre-market is on
         let activeSpot = activePreMarket && prePrice ? prePrice : regularPrice;
 
-        // Add micro-tick order discovery variance ONLY during active pre-market polling
-        if (activePreMarket && isLiveActive) {
+        // Add micro-tick order discovery variance ONLY during live active trading sessions
+        if (activePreMarket && isLiveActive && isMarketOpen && !isHoliday) {
           const microDelta = Number(((Math.random() - 0.48) * (tickerToFetch.strikeStep * 0.08)).toFixed(2));
           activeSpot = Number((activeSpot + microDelta).toFixed(2));
         }
@@ -551,7 +605,9 @@ export function useLiveOptionChain() {
           asOnTime: activePreMarket 
             ? `Pre-Market (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
             : data.asOnTime,
-          marketState: data.marketState || currentSession,
+          marketState: currentSession,
+          isHoliday,
+          holidayName: hoursStatus.holidayName || data.holidayName,
           preMarketPrice: prePrice,
           preMarketChange: activeChange,
           preMarketChangePercent: activeChangePct,

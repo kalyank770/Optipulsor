@@ -34,7 +34,8 @@ import {
   Percent,
   ChevronDown,
   ChevronUp,
-  Power
+  Power,
+  Calendar
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -184,7 +185,11 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
               <span className="uppercase font-semibold tracking-wider text-[11px]">
-                {marketStatus && !marketStatus.isOpen ? "Tomorrow's Opening Prediction" : 'Trade Recommendation'}
+                {marketStatus?.isHoliday 
+                  ? `Next Trading Session Prediction (${marketStatus.nextTradingDayName || 'Monday'} Open)`
+                  : marketStatus && !marketStatus.isOpen 
+                  ? "Next Session Opening Prediction" 
+                  : 'Trade Recommendation'}
               </span>
               
               {/* Compact Copy Icon beside header */}
@@ -483,7 +488,14 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       {/* Live / Settled Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-2">
-          {marketStatus?.isOpen !== false ? (
+          {marketStatus?.isHoliday ? (
+            <>
+              <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+                HOLIDAY SETTLED
+              </span>
+            </>
+          ) : marketStatus?.isOpen !== false ? (
             <>
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -518,7 +530,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             'bg-slate-900 text-white'
           }`}>
             <span className="text-slate-400 text-[11px]">
-              {marketStatus?.isOpen !== false ? 'LTP:' : 'Settled Close:'}
+              {marketStatus?.isOpen && !marketStatus?.isHoliday ? 'LTP:' : 'Settled Close:'}
             </span>
             <span className="text-base sm:text-lg font-bold">
               {ticker.currency}{currentLTP.toFixed(2)}

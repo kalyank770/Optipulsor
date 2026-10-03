@@ -1,4 +1,5 @@
 import { TickerConfig } from '../types/options';
+import { checkMarketHoliday } from './marketHolidays';
 
 export interface MarketHoursStatus {
   isOpen: boolean;
@@ -9,6 +10,14 @@ export interface MarketHoursStatus {
   tradingHoursLabel: string;
   minutesToClose?: number;
   isClosingSoon?: boolean; // true within 45 minutes of market close (Power Hour / closing window)
+  isHoliday?: boolean;
+  holidayName?: string;
+  holidayDescription?: string;
+  marketStatusMessage?: string;
+  source?: string;
+  tradeDate?: string;
+  nextTradingDate?: string;
+  nextTradingDayName?: string;
 }
 
 /**
@@ -68,12 +77,41 @@ function getExchangeTime(timeZone: string): { dayOfWeek: number; hours: number; 
  * - US Markets (NYSE/NASDAQ): Mon-Fri 09:30 AM - 04:00 PM ET
  */
 export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
-  const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY');
+  const isIndian = ticker.currency === '₹' || 
+                   ticker.symbol.includes('NIFTY') || 
+                   ticker.symbol.includes('BANK') || 
+                   ticker.symbol.includes('SENSEX');
+  const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const { timeStr, dateStr } = getExchangeTime(tz);
 
-  // If ticker explicitly carries an active live session state from live feed or test configuration
+  // 1. Check Official Exchange Trading Holidays First
+  const now = new Date();
+  const holiday = checkMarketHoliday(now, isIndian);
+  if (holiday.isHoliday || ticker.isHoliday) {
+    const holidayName = holiday.holidayName || ticker.holidayName || 'Exchange Trading Holiday';
+    const holidayDesc = holiday.description || `${isIndian ? 'National Stock Exchange of India (NSE)' : 'US Stock Exchanges'} is CLOSED today for ${holidayName}. Regular trading is halted across all Cash, Futures & Options (F&O) segments.`;
+    return {
+      isOpen: false,
+      session: 'CLOSED',
+      marketName: isIndian ? 'NSE (India)' : 'NYSE/NASDAQ (US)',
+      isHoliday: true,
+      holidayName,
+      holidayDescription: holidayDesc,
+      marketStatusMessage: `Exchange Closed · ${holidayName}`,
+      nextOpenMsg: holiday.nextTradingDate 
+        ? `Closed for ${holidayName}. Opens ${holiday.nextTradingDayName} (${holiday.nextTradingDate}) at ${isIndian ? '09:15 AM IST' : '09:30 AM ET'}`
+        : `Closed for ${holidayName}. Opens next trading session.`,
+      nextTradingDate: holiday.nextTradingDate,
+      nextTradingDayName: holiday.nextTradingDayName,
+      tradeDate: dateStr,
+      exchangeTimeStr: isIndian ? `${timeStr} IST` : `${timeStr} ET`,
+      tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
+      source: 'Official Exchange Trading Holiday Calendar',
+    };
+  }
+
+  // 2. If ticker explicitly carries an active live session state from live feed or test configuration
   if (ticker.marketState === 'OPEN') {
-    const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
-    const { timeStr } = getExchangeTime(tz);
     return {
       isOpen: true,
       session: 'REGULAR',
@@ -83,6 +121,18 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
       tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
       minutesToClose: 120,
       isClosingSoon: false,
+    };
+  }
+
+  if (ticker.marketState === 'CLOSED') {
+    return {
+      isOpen: false,
+      session: 'CLOSED',
+      marketName: isIndian ? 'NSE (India)' : 'NYSE/NASDAQ (US)',
+      nextOpenMsg: isIndian ? 'Regular trading opens at 09:15 AM IST' : 'Regular trading opens at 09:30 AM ET',
+      exchangeTimeStr: isIndian ? `${timeStr} IST` : `${timeStr} ET`,
+      tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
+      source: 'Verified Exchange State: CLOSED',
     };
   }
 

@@ -3,6 +3,178 @@ import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+// Official Exchange Trading Holiday Calendars
+const INDIAN_MARKET_HOLIDAYS: Record<string, string> = {
+  // 2025
+  '2025-01-26': 'Republic Day',
+  '2025-02-26': 'Maha Shivratri',
+  '2025-03-14': 'Holi',
+  '2025-03-31': 'Id-Ul-Fitr (Ramzan Id)',
+  '2025-04-10': 'Mahavir Jayanti',
+  '2025-04-14': 'Dr. Baba Saheb Ambedkar Jayanti',
+  '2025-04-18': 'Good Friday',
+  '2025-05-01': 'Maharashtra Day',
+  '2025-06-07': 'Bakri Id (Id-Ul-Adha)',
+  '2025-07-06': 'Muharram',
+  '2025-08-15': 'Independence Day',
+  '2025-10-02': 'Mahatma Gandhi Jayanti',
+  '2025-10-21': 'Dussehra (Vijayadashami)',
+  '2025-10-22': 'Diwali Balipratipada',
+  '2025-11-05': 'Guru Nanak Jayanti',
+  '2025-12-25': 'Christmas',
+
+  // 2026
+  '2026-01-26': 'Republic Day',
+  '2026-02-17': 'Maha Shivratri',
+  '2026-03-04': 'Holi',
+  '2026-03-27': 'Ram Navami',
+  '2026-03-31': 'Mahavir Jayanti',
+  '2026-04-03': 'Good Friday',
+  '2026-04-14': 'Dr. Baba Saheb Ambedkar Jayanti',
+  '2026-05-01': 'Maharashtra Day',
+  '2026-05-28': 'Bakri Id (Id-Ul-Adha)',
+  '2026-06-26': 'Muharram',
+  '2026-08-15': 'Independence Day',
+  '2026-09-04': 'Milad-un-Nabi (Id-e-Milad)',
+  '2026-10-02': 'Mahatma Gandhi Jayanti',
+  '2026-10-20': 'Dussehra (Vijayadashami)',
+  '2026-11-08': 'Diwali (Laxmi Pujan - Muhurat Trading Only)',
+  '2026-11-10': 'Diwali Balipratipada',
+  '2026-11-24': 'Guru Nanak Jayanti',
+  '2026-12-25': 'Christmas',
+
+  // 2027
+  '2027-01-26': 'Republic Day',
+  '2027-03-08': 'Maha Shivratri',
+  '2027-03-23': 'Holi',
+  '2027-03-26': 'Good Friday',
+  '2027-04-14': 'Dr. Baba Saheb Ambedkar Jayanti',
+  '2027-05-01': 'Maharashtra Day',
+  '2027-08-15': 'Independence Day',
+  '2027-10-02': 'Mahatma Gandhi Jayanti',
+  '2027-10-10': 'Dussehra',
+  '2027-10-29': 'Diwali',
+  '2027-11-14': 'Guru Nanak Jayanti',
+  '2027-12-25': 'Christmas',
+};
+
+const US_MARKET_HOLIDAYS: Record<string, string> = {
+  // 2025
+  '2025-01-01': "New Year's Day",
+  '2025-01-20': 'Martin Luther King Jr. Day',
+  '2025-02-17': "Washington's Birthday (Presidents' Day)",
+  '2025-04-18': 'Good Friday',
+  '2025-05-26': 'Memorial Day',
+  '2025-06-19': 'Juneteenth National Independence Day',
+  '2025-07-04': 'Independence Day',
+  '2025-09-01': 'Labor Day',
+  '2025-11-27': 'Thanksgiving Day',
+  '2025-12-25': 'Christmas Day',
+
+  // 2026
+  '2026-01-01': "New Year's Day",
+  '2026-01-19': 'Martin Luther King Jr. Day',
+  '2026-02-16': "Washington's Birthday (Presidents' Day)",
+  '2026-04-03': 'Good Friday',
+  '2026-05-25': 'Memorial Day',
+  '2026-06-19': 'Juneteenth National Independence Day',
+  '2026-07-03': 'Independence Day (Observed)',
+  '2026-09-07': 'Labor Day',
+  '2026-11-26': 'Thanksgiving Day',
+  '2026-12-25': 'Christmas Day',
+
+  // 2027
+  '2027-01-01': "New Year's Day",
+  '2027-01-18': 'Martin Luther King Jr. Day',
+  '2027-02-15': "Washington's Birthday (Presidents' Day)",
+  '2027-03-26': 'Good Friday',
+  '2027-05-31': 'Memorial Day',
+  '2027-06-18': 'Juneteenth (Observed)',
+  '2027-07-05': 'Independence Day (Observed)',
+  '2027-09-06': 'Labor Day',
+  '2027-11-25': 'Thanksgiving Day',
+  '2027-12-24': 'Christmas Day (Observed)',
+};
+
+function checkMarketHoliday(date: Date, isIndian: boolean = true) {
+  const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const dateStr = formatter.format(date);
+  const parts = dateStr.split('-');
+  const monthDay = `${parts[1]}-${parts[2]}`;
+  const exchange = isIndian ? 'NSE' : 'NYSE';
+
+  if (isIndian) {
+    let holidayName = INDIAN_MARKET_HOLIDAYS[dateStr];
+    if (!holidayName) {
+      if (monthDay === '10-02') holidayName = 'Mahatma Gandhi Jayanti';
+      else if (monthDay === '01-26') holidayName = 'Republic Day';
+      else if (monthDay === '08-15') holidayName = 'Independence Day';
+      else if (monthDay === '05-01') holidayName = 'Maharashtra Day';
+      else if (monthDay === '12-25') holidayName = 'Christmas';
+    }
+
+    if (holidayName) {
+      const nextDate = getNextTradingDate(date, true);
+      return {
+        isHoliday: true,
+        holidayName,
+        exchange: 'NSE',
+        nextTradingDate: nextDate.dateStr,
+        nextTradingDayName: nextDate.dayName,
+        description: `National Stock Exchange of India (NSE) is CLOSED today for ${holidayName}. Regular trading resumes ${nextDate.dayName} (${nextDate.dateStr}) at 09:15 AM IST.`,
+      };
+    }
+  } else {
+    let holidayName = US_MARKET_HOLIDAYS[dateStr];
+    if (!holidayName) {
+      if (monthDay === '01-01') holidayName = "New Year's Day";
+      else if (monthDay === '06-19') holidayName = 'Juneteenth National Independence Day';
+      else if (monthDay === '07-04') holidayName = 'Independence Day';
+      else if (monthDay === '12-25') holidayName = 'Christmas Day';
+    }
+
+    if (holidayName) {
+      const nextDate = getNextTradingDate(date, false);
+      return {
+        isHoliday: true,
+        holidayName,
+        exchange: 'NYSE',
+        nextTradingDate: nextDate.dateStr,
+        nextTradingDayName: nextDate.dayName,
+        description: `US Stock Exchanges (NYSE/NASDAQ) are CLOSED today for ${holidayName}. Regular trading resumes ${nextDate.dayName} (${nextDate.dateStr}) at 09:30 AM ET.`,
+      };
+    }
+  }
+
+  return { isHoliday: false, exchange };
+}
+
+function getNextTradingDate(currentDate: Date, isIndian: boolean): { dateStr: string; dayName: string } {
+  const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const checkDate = new Date(currentDate.getTime());
+
+  for (let i = 1; i <= 10; i++) {
+    checkDate.setDate(checkDate.getDate() + 1);
+    const dayFormatter = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' });
+    const dayName = dayFormatter.format(checkDate);
+    if (dayName === 'Sat' || dayName === 'Sun') continue;
+
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const dateStr = formatter.format(checkDate);
+    const map = isIndian ? INDIAN_MARKET_HOLIDAYS : US_MARKET_HOLIDAYS;
+    if (!map[dateStr]) {
+      const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone, day: '2-digit', month: 'short', year: 'numeric' });
+      return { dateStr: dateFormatter.format(checkDate), dayName };
+    }
+  }
+  return { dateStr: 'Next Business Day', dayName: 'Monday' };
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +187,214 @@ app.use(express.json());
 // Comprehensive Health Check Endpoints for Cloud Run Rollouts and Probes
 app.get(['/api/health', '/health', '/_health', '/healthz', '/ping'], (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Live Official Exchange Market Activeness Checker (NSE & US)
+let cachedNseStatus: any = null;
+let lastNseStatusFetch = 0;
+
+function getExchangeClock(timeZone: string) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(now);
+
+  let weekday = 'Mon', h = 0, m = 0, s = 0, year = '', month = '', day = '';
+  for (const p of parts) {
+    if (p.type === 'weekday') weekday = p.value;
+    if (p.type === 'hour') h = parseInt(p.value, 10);
+    if (p.type === 'minute') m = parseInt(p.value, 10);
+    if (p.type === 'second') s = parseInt(p.value, 10);
+    if (p.type === 'year') year = p.value;
+    if (p.type === 'month') month = p.value;
+    if (p.type === 'day') day = p.value;
+  }
+  const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+  const totalMinutes = h * 60 + m;
+  const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  return { weekday, h, m, s, totalMinutes, isWeekend, timeStr, dateStr: `${day} ${month} ${year}` };
+}
+
+async function fetchLiveNseMarketStatus() {
+  const now = Date.now();
+  if (cachedNseStatus && now - lastNseStatusFetch < 30 * 1000) {
+    return cachedNseStatus;
+  }
+
+  const holidayInfo = checkMarketHoliday(new Date(), true);
+  const ist = getExchangeClock('Asia/Kolkata');
+
+  // Case 1: Official National / Gazetted NSE Trading Holiday (e.g. Mahatma Gandhi Jayanti, Diwali, Holi)
+  if (holidayInfo.isHoliday) {
+    cachedNseStatus = {
+      isOpen: false,
+      session: 'CLOSED',
+      marketState: 'CLOSED',
+      isHoliday: true,
+      holidayName: holidayInfo.holidayName,
+      holidayDescription: holidayInfo.description,
+      marketStatusMessage: `Exchange Closed · ${holidayInfo.holidayName}`,
+      exchange: 'NSE',
+      marketName: 'NSE (India)',
+      tradeDate: ist.dateStr,
+      exchangeTimeStr: `${ist.timeStr} IST`,
+      tradingHoursLabel: '09:15 - 15:30 IST',
+      nextTradingDate: holidayInfo.nextTradingDate,
+      nextTradingDayName: holidayInfo.nextTradingDayName,
+      nextTradingSession: `Opens ${holidayInfo.nextTradingDayName} (${holidayInfo.nextTradingDate}) at 09:15 AM IST`,
+      source: 'NSE India Official Gazetted Trading Holiday Calendar',
+      timestamp: new Date().toISOString(),
+    };
+    lastNseStatusFetch = now;
+    return cachedNseStatus;
+  }
+
+  // Case 2: Weekend (Saturday / Sunday)
+  if (ist.isWeekend) {
+    cachedNseStatus = {
+      isOpen: false,
+      session: 'CLOSED',
+      marketState: 'CLOSED',
+      isHoliday: false,
+      marketStatusMessage: 'Exchange Closed · Weekend',
+      exchange: 'NSE',
+      marketName: 'NSE (India)',
+      tradeDate: ist.dateStr,
+      exchangeTimeStr: `${ist.timeStr} IST`,
+      tradingHoursLabel: '09:15 - 15:30 IST',
+      nextTradingDate: holidayInfo.nextTradingDate || 'Monday',
+      nextTradingDayName: holidayInfo.nextTradingDayName || 'Mon',
+      nextTradingSession: `Opens Monday at 09:15 AM IST`,
+      source: 'NSE Trading Schedule (Weekend)',
+      timestamp: new Date().toISOString(),
+    };
+    lastNseStatusFetch = now;
+    return cachedNseStatus;
+  }
+
+  // Case 3: Regular Weekday - Check NSE Real Exchange API first
+  let officialNseState: any = null;
+  try {
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    const nseRes = await fetch('https://www.nseindia.com/api/marketStatus', {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.nseindia.com/',
+      },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (nseRes.ok) {
+      const nseJson = await nseRes.json();
+      const capMarket = nseJson?.marketState?.find((m: any) => m.market === 'Capital Market') || nseJson?.marketState?.[0];
+      if (capMarket) {
+        officialNseState = capMarket;
+      }
+    }
+  } catch (_e) {
+    // Graceful fallback to exchange clock
+  }
+
+  const openM = 9 * 60 + 15;
+  const closeM = 15 * 60 + 30;
+  const preM = 9 * 60;
+  const postM = 16 * 60;
+
+  let session: 'REGULAR' | 'PRE_MARKET' | 'POST_MARKET' | 'CLOSED' = 'CLOSED';
+  let isOpen = false;
+
+  if (ist.totalMinutes >= openM && ist.totalMinutes <= closeM) {
+    // If official NSE API responded with Closed, trust official exchange
+    if (officialNseState && officialNseState.marketStatus?.toLowerCase() === 'close') {
+      isOpen = false;
+      session = 'CLOSED';
+    } else {
+      isOpen = true;
+      session = 'REGULAR';
+    }
+  } else if (ist.totalMinutes >= preM && ist.totalMinutes < openM) {
+    session = 'PRE_MARKET';
+  } else if (ist.totalMinutes > closeM && ist.totalMinutes <= postM) {
+    session = 'POST_MARKET';
+  } else {
+    session = 'CLOSED';
+  }
+
+  const minutesToClose = isOpen ? closeM - ist.totalMinutes : undefined;
+  const isClosingSoon = isOpen && minutesToClose !== undefined && minutesToClose <= 45;
+
+  let statusMsg = isOpen ? (isClosingSoon ? `Closing in ${minutesToClose} mins (03:30 PM IST)` : 'Regular Trading Active') :
+    session === 'PRE_MARKET' ? 'Pre-Open Session Active (09:00 - 09:15 AM IST)' :
+    session === 'POST_MARKET' ? 'Post-Market Settlement (15:30 - 16:00 IST)' : 'Market Closed (After-Market)';
+
+  if (officialNseState?.marketStatusMessage) {
+    statusMsg = officialNseState.marketStatusMessage;
+  }
+
+  cachedNseStatus = {
+    isOpen,
+    session,
+    marketState: isOpen ? 'REGULAR' : (session === 'PRE_MARKET' ? 'PRE' : 'CLOSED'),
+    isHoliday: false,
+    marketStatusMessage: statusMsg,
+    exchange: 'NSE',
+    marketName: 'NSE (India)',
+    tradeDate: officialNseState?.tradeDate || ist.dateStr,
+    exchangeTimeStr: `${ist.timeStr} IST`,
+    tradingHoursLabel: '09:15 - 15:30 IST',
+    minutesToClose,
+    isClosingSoon,
+    nextTradingSession: isOpen ? 'Closes today at 03:30 PM IST' : 'Opens next session at 09:15 AM IST',
+    source: officialNseState ? 'NSE India Official Live Market Status API' : 'NSE Official Exchange Schedule Engine',
+    timestamp: new Date().toISOString(),
+  };
+
+  lastNseStatusFetch = now;
+  return cachedNseStatus;
+}
+
+// API: Official Real-Time Market Activeness Endpoint
+app.get('/api/market-status', async (_req: Request, res: Response) => {
+  try {
+    const nseStatus = await fetchLiveNseMarketStatus();
+    const usHoliday = checkMarketHoliday(new Date(), false);
+    const nyClock = getExchangeClock('America/New_York');
+
+    const usOpenM = 9 * 60 + 30;
+    const usCloseM = 16 * 60;
+    const isUsOpen = !usHoliday.isHoliday && !nyClock.isWeekend && nyClock.totalMinutes >= usOpenM && nyClock.totalMinutes <= usCloseM;
+
+    res.json({
+      nse: nseStatus,
+      us: {
+        isOpen: isUsOpen,
+        session: isUsOpen ? 'REGULAR' : (usHoliday.isHoliday ? 'CLOSED' : (nyClock.isWeekend ? 'CLOSED' : 'CLOSED')),
+        marketState: isUsOpen ? 'REGULAR' : 'CLOSED',
+        isHoliday: usHoliday.isHoliday,
+        holidayName: usHoliday.holidayName,
+        holidayDescription: usHoliday.description,
+        exchange: 'NYSE/NASDAQ',
+        marketName: 'NYSE/NASDAQ (US)',
+        exchangeTimeStr: `${nyClock.timeStr} ET`,
+        tradingHoursLabel: '09:30 - 16:00 ET',
+        marketStatusMessage: usHoliday.isHoliday ? `Exchange Closed · ${usHoliday.holidayName}` : (isUsOpen ? 'Regular Trading Active' : 'Market Closed'),
+        nextTradingSession: usHoliday.nextTradingDate ? `${usHoliday.nextTradingDayName} (${usHoliday.nextTradingDate}) at 09:30 AM ET` : undefined,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: errorMsg });
+  }
 });
 
 // Symbol mapping for Yahoo Finance
@@ -383,12 +763,27 @@ async function fetchLiveQuote(rawSymbol: string) {
         const dayHigh = Number((q.regularMarketDayHigh ?? spotPrice).toFixed(2));
         const dayLow = Number((q.regularMarketDayLow ?? spotPrice).toFixed(2));
         const marketTime = q.regularMarketTime ? q.regularMarketTime * 1000 : Date.now();
-        const marketState = q.marketState || 'REGULAR';
+        const isINR = q.currency === 'INR' || rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
+        const holiday = checkMarketHoliday(new Date(), isINR);
+        const tz = isINR ? 'Asia/Kolkata' : 'America/New_York';
+        const ist = getExchangeClock(tz);
+
+        const tradeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(marketTime));
+        const todayDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+        const isTradedToday = tradeDateStr === todayDateStr;
+
+        let marketState = (q.marketState || 'REGULAR').toUpperCase();
+        if (holiday.isHoliday || ist.isWeekend) {
+          marketState = 'CLOSED';
+        } else if (!isTradedToday && ist.totalMinutes >= (isINR ? 9 * 60 + 30 : 9 * 60 + 45)) {
+          // If past morning open but last trade recorded on exchange was previous day, market is closed today
+          marketState = 'CLOSED';
+        }
 
         // Extract Pre-Market and Post-Market
-        const preMarketPrice = q.preMarketPrice ? Number(q.preMarketPrice.toFixed(2)) : undefined;
-        const preMarketChange = q.preMarketChange ? Number(q.preMarketChange.toFixed(2)) : (preMarketPrice && prevClose ? Number((preMarketPrice - prevClose).toFixed(2)) : undefined);
-        const preMarketChangePercent = q.preMarketChangePercent ? Number(q.preMarketChangePercent.toFixed(2)) : (preMarketChange && prevClose ? Number(((preMarketChange / prevClose) * 100).toFixed(2)) : undefined);
+        let preMarketPrice = q.preMarketPrice ? Number(q.preMarketPrice.toFixed(2)) : undefined;
+        let preMarketChange = q.preMarketChange ? Number(q.preMarketChange.toFixed(2)) : (preMarketPrice && prevClose ? Number((preMarketPrice - prevClose).toFixed(2)) : undefined);
+        let preMarketChangePercent = q.preMarketChangePercent ? Number(q.preMarketChangePercent.toFixed(2)) : (preMarketChange && prevClose ? Number(((preMarketChange / prevClose) * 100).toFixed(2)) : undefined);
 
         const postMarketPrice = q.postMarketPrice ? Number(q.postMarketPrice.toFixed(2)) : undefined;
         const postMarketChange = q.postMarketChange ? Number(q.postMarketChange.toFixed(2)) : (postMarketPrice && spotPrice ? Number((postMarketPrice - spotPrice).toFixed(2)) : undefined);
@@ -396,7 +791,23 @@ async function fetchLiveQuote(rawSymbol: string) {
 
         // Extended Hours Active Session
         let extendedHours: any = undefined;
-        if (preMarketPrice !== undefined) {
+
+        if (holiday.isHoliday || ist.isWeekend || marketState === 'CLOSED') {
+          // When exchange is closed or on holiday, disable active pre-market simulation
+          preMarketPrice = undefined;
+          preMarketChange = undefined;
+          preMarketChangePercent = undefined;
+          extendedHours = {
+            session: 'CLOSED',
+            price: spotPrice,
+            change: 0,
+            changePercent: 0,
+            time: new Date().toISOString(),
+            source: holiday.isHoliday 
+              ? `Exchange Closed · Holiday (${holiday.holidayName})` 
+              : ist.isWeekend ? 'Exchange Closed · Weekend' : 'Exchange Closed (After-Market)',
+          };
+        } else if (preMarketPrice !== undefined) {
           extendedHours = {
             session: 'PRE',
             price: preMarketPrice,
@@ -445,7 +856,6 @@ async function fetchLiveQuote(rawSymbol: string) {
           }
         }
 
-        const isINR = q.currency === 'INR' || rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
         const formattedTime = new Date(marketTime).toLocaleString(isINR ? 'en-IN' : 'en-US', {
           timeZone: isINR ? 'Asia/Kolkata' : 'America/New_York',
           day: '2-digit',
@@ -471,6 +881,8 @@ async function fetchLiveQuote(rawSymbol: string) {
           formattedTime,
           currency: isINR ? '₹' : '$',
           marketState,
+          isHoliday: holiday.isHoliday,
+          holidayName: holiday.holidayName,
           preMarketPrice: preMarketPrice ?? (extendedHours?.session === 'PRE' ? extendedHours.price : undefined),
           preMarketChange: preMarketChange ?? (extendedHours?.session === 'PRE' ? extendedHours.change : undefined),
           preMarketChangePercent: preMarketChangePercent ?? (extendedHours?.session === 'PRE' ? extendedHours.changePercent : undefined),
@@ -515,6 +927,36 @@ async function fetchLiveQuote(rawSymbol: string) {
   const marketTime = meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
 
   const isINR = meta.currency === 'INR' || rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
+  const holiday = checkMarketHoliday(new Date(), isINR);
+  const tradeDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: isINR ? 'Asia/Kolkata' : 'America/New_York' }).format(new Date(marketTime));
+  const todayDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: isINR ? 'Asia/Kolkata' : 'America/New_York' }).format(new Date());
+  const isTradedToday = tradeDateStr === todayDateStr;
+
+  let computedMarketState = 'CLOSED';
+  if (!holiday.isHoliday && isTradedToday) {
+    const tz = isINR ? 'Asia/Kolkata' : 'America/New_York';
+    const nowParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    }).formatToParts(new Date());
+    let h = 0, m = 0, wd = 'Mon';
+    for (const p of nowParts) {
+      if (p.type === 'hour') h = parseInt(p.value, 10);
+      if (p.type === 'minute') m = parseInt(p.value, 10);
+      if (p.type === 'weekday') wd = p.value;
+    }
+    const isWk = wd !== 'Sat' && wd !== 'Sun';
+    const totalM = h * 60 + m;
+    const openM = isINR ? (9 * 60 + 15) : (9 * 60 + 30);
+    const closeM = isINR ? (15 * 60 + 30) : (16 * 60);
+    if (isWk && totalM >= openM && totalM <= closeM) {
+      computedMarketState = 'REGULAR';
+    }
+  }
+
   const istDate = new Date(marketTime);
   const istString = istDate.toLocaleString(isINR ? 'en-IN' : 'en-US', {
     timeZone: isINR ? 'Asia/Kolkata' : 'America/New_York',
@@ -538,9 +980,11 @@ async function fetchLiveQuote(rawSymbol: string) {
     dayHigh,
     dayLow,
     marketTime,
-    formattedTime: istString,
+    formattedTime: holiday.isHoliday ? `Closed (${holiday.holidayName})` : istString,
     currency: isINR ? '₹' : '$',
-    marketState: 'REGULAR',
+    marketState: computedMarketState,
+    isHoliday: holiday.isHoliday,
+    holidayName: holiday.holidayName,
   };
 }
 
@@ -557,7 +1001,7 @@ app.get('/api/quote/:symbol', async (req: Request, res: Response) => {
 });
 
 // 1a. API: Direct Official NSE India Live Pre-Market Endpoint
-app.get('/api/nse/pre-market/:symbol', async (req: Request, res: Response) => {
+app.get(['/api/nse/pre-market/:symbol', '/api/pre-market/:symbol'], async (req: Request, res: Response) => {
   try {
     const rawSymbol = req.params.symbol.trim();
     const nseData = await fetchNseLivePreMarket(rawSymbol);
@@ -1389,6 +1833,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               currency: '₹',
               asOnTime: quote.formattedTime,
               marketState: quote.marketState,
+              isHoliday: quote.isHoliday,
+              holidayName: quote.holidayName,
+              marketStatusMessage: quote.isHoliday ? `Exchange Closed · ${quote.holidayName}` : (quote.marketState === 'CLOSED' ? 'Market Closed' : 'Market Open'),
               preMarketPrice: quote.preMarketPrice,
               preMarketChange: quote.preMarketChange,
               preMarketChangePercent: quote.preMarketChangePercent,
@@ -1560,6 +2007,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       currency: '₹',
       asOnTime: quote.formattedTime,
       marketState: quote.marketState,
+      isHoliday: quote.isHoliday,
+      holidayName: quote.holidayName,
+      marketStatusMessage: quote.isHoliday ? `Exchange Closed · ${quote.holidayName}` : (quote.marketState === 'CLOSED' ? 'Market Closed' : 'Market Open'),
       preMarketPrice: quote.preMarketPrice,
       preMarketChange: quote.preMarketChange,
       preMarketChangePercent: quote.preMarketChangePercent,
@@ -1940,13 +2390,9 @@ app.get('/api/news', async (req: Request, res: Response) => {
 async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
   const hasDist = fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  // Explicitly check for Cloud Run deployment environments
-  const isCloudRun = Boolean(process.env.K_SERVICE || process.env.K_REVISION || process.env.CLOUD_RUN_JOB);
-  const isDevScript = process.env.npm_lifecycle_event === 'dev';
-  const isDev = !isCloudRun && (isDevScript || (!hasDist && process.env.NODE_ENV !== 'production'));
-
-  if (!isDev && hasDist) {
+  if (isProduction && hasDist) {
     // Production: serve built static files from dist
     app.use(express.static(distPath, {
       index: false,
@@ -1967,7 +2413,7 @@ async function startServer() {
       }
     });
   } else {
-    // Development or fallback: dynamically mount Vite in-process
+    // Development mode (or fallback): dynamically mount Vite in-process for on-the-fly TSX/CSS compilation
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
@@ -1989,7 +2435,7 @@ async function startServer() {
 
   const HOST = '0.0.0.0';
   const server = app.listen(PORT, HOST, () => {
-    console.log(`Server listening on http://${HOST}:${PORT} (isDev: ${isDev}, hasDist: ${hasDist}, isCloudRun: ${isCloudRun})`);
+    console.log(`Server listening on http://${HOST}:${PORT} (isProduction: ${isProduction}, hasDist: ${hasDist})`);
   });
 
   server.on('error', (err: any) => {

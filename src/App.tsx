@@ -27,7 +27,9 @@ import {
   TrendingDown,
   Clock,
   Power,
-  X
+  X,
+  Calendar,
+  RefreshCw
 } from 'lucide-react';
 
 export type WorkspaceTab = 'chain' | 'quant' | 'performance' | 'news';
@@ -200,8 +202,51 @@ export default function App() {
 
       {/* Main Workspace Area */}
       <main className="flex-1 max-w-[1600px] w-full mx-auto px-2.5 sm:px-6 py-3 sm:py-5 space-y-4 sm:space-y-6 pb-12 sm:pb-16">
-        {/* Pre-Market Discovery Banner if active */}
-        {usePreMarket && (
+        {/* Official Exchange Trading Holiday Notice Banner */}
+        {marketStatus?.isHoliday && (
+          <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/40 border border-amber-500/40 rounded-xl p-3 sm:p-4 text-xs shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 mt-0.5">
+                <Calendar className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-sm sm:text-base text-amber-200">
+                    Official Exchange Trading Holiday: {marketStatus.holidayName}
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-amber-500/25 text-amber-300 border border-amber-500/50 uppercase">
+                    {marketStatus.marketName} CLOSED
+                  </span>
+                </div>
+                <p className="text-slate-300 text-xs sm:text-[13px] leading-relaxed max-w-3xl">
+                  {marketStatus.holidayDescription || `National Stock Exchange of India (NSE) is CLOSED today for ${marketStatus.holidayName}. Regular trading is halted across all Cash, Futures & Options (F&O) derivatives segments.`}
+                </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-mono text-slate-400">
+                  <span className="text-amber-300 font-semibold">
+                    Next Active Session: {marketStatus.nextOpenMsg || 'Monday at 09:15 AM IST'}
+                  </span>
+                  <span className="text-slate-600">·</span>
+                  <span>Data Status: <strong className="text-slate-200">Official Settled Closing Quotes from Last Active Session</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+              <button
+                onClick={syncLiveExchange}
+                disabled={isSyncing}
+                title="Verify real market activeness with official exchange endpoint"
+                className="px-3 py-2 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 hover:border-slate-600 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>Verify Exchange Activeness</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Pre-Market Discovery Banner if active and not holiday */}
+        {usePreMarket && !marketStatus?.isHoliday && (
           <div className="bg-amber-950/40 border border-amber-500/30 rounded-lg p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5">
               <Zap className="w-4 h-4 text-amber-400 shrink-0" />
