@@ -119,3 +119,79 @@ export function calculateBlackScholes(
     vega: Number(vega.toFixed(3)),
   };
 }
+
+/**
+ * Accurately calculates exact remaining calendar DTE and annualized T
+ * synchronized across Option Chain, Signal Engine, and Multi-Timeframe Forecasts
+ */
+export function getTickerExpiryDTE(
+  ticker: { expiryDates?: string[]; asOnTime?: string },
+  expiryIndex: number = 0
+): { daysToExpiry: number; T: number; formattedExpiryDate: string } {
+  const dates = ticker.expiryDates || [];
+  const expiryDateStr = dates[expiryIndex] || dates[0] || '';
+
+  let asOfDate = new Date();
+  if (ticker.asOnTime) {
+    const asOnMatch = ticker.asOnTime.match(/(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{4})/);
+    if (asOnMatch) {
+      const d = parseInt(asOnMatch[1], 10);
+      const mStr = asOnMatch[2].toLowerCase();
+      const y = parseInt(asOnMatch[3], 10);
+      const months: Record<string, number> = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      };
+      if (months[mStr] !== undefined) {
+        asOfDate = new Date(y, months[mStr], d, 15, 30, 0);
+      }
+    }
+  }
+
+  let formattedExpiryDate = expiryDateStr;
+  let expiryDateObj: Date | null = null;
+
+  if (expiryDateStr) {
+    const match = expiryDateStr.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+    if (match) {
+      const d = parseInt(match[1], 10);
+      const mStr = match[2].toLowerCase();
+      const y = parseInt(match[3], 10);
+      const months: Record<string, number> = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      };
+      if (months[mStr] !== undefined) {
+        expiryDateObj = new Date(y, months[mStr], d, 15, 30, 0);
+        formattedExpiryDate = `${String(d).padStart(2, '0')} ${match[2]} ${y}`;
+      }
+    }
+
+    if (!expiryDateObj) {
+      const cleanStr = expiryDateStr.replace(/\(.*?\)/g, '').trim();
+      const parsed = new Date(cleanStr);
+      if (!isNaN(parsed.getTime())) {
+        expiryDateObj = parsed;
+        formattedExpiryDate = cleanStr;
+      }
+    }
+  }
+
+  let daysToExpiry = 3;
+  if (expiryDateObj) {
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const asOfMidnight = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), asOfDate.getDate()).getTime();
+    const expiryMidnight = new Date(expiryDateObj.getFullYear(), expiryDateObj.getMonth(), expiryDateObj.getDate()).getTime();
+    const daysDiff = Math.round((expiryMidnight - asOfMidnight) / msPerDay);
+    daysToExpiry = Math.max(0, daysDiff);
+  } else {
+    daysToExpiry = Math.max(1, expiryIndex === 0 ? 3 : expiryIndex * 7);
+  }
+
+  // If expiring today (0 days), use 0.15 (fraction of market day remaining)
+  const effectiveDays = daysToExpiry === 0 ? 0.15 : daysToExpiry;
+  const T = Math.max(0.0003, effectiveDays / 365);
+
+  return { daysToExpiry, T, formattedExpiryDate };
+}
+

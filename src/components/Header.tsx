@@ -5,7 +5,9 @@ import {
   Moon,
   Power,
   Zap,
-  Calendar
+  Calendar,
+  Compass,
+  TrendingUp
 } from 'lucide-react';
 import { TickerConfig } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
@@ -28,6 +30,8 @@ interface HeaderProps {
   marketStatus?: MarketHoursStatus;
   usePreMarket?: boolean;
   onTogglePreMarket?: () => void;
+  activeTab?: string;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   marketStatus,
   usePreMarket = false,
   onTogglePreMarket,
+  activeTab = 'chain',
+  onSelectTab,
 }) => {
   const isPositive = selectedTicker.change >= 0;
 
@@ -52,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             onClick={onGoHome}
             className="text-base sm:text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors flex items-center gap-2 cursor-pointer group"
-            title="OptiPulse V2.0 - Scroll to Top"
+            title="OptiPulse V3.0 - Scroll to Top"
           >
             {/* Custom Scalable Professional SVG Logo (Options Payoff & Trading Candlesticks) */}
             <svg 
@@ -117,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V2.0</span>
+            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V3.0</span>
           </button>
           <span className="hidden sm:inline-block text-xs font-mono text-slate-500 border-l border-slate-800 pl-2.5">
             {marketStatus?.isHoliday ? 'NSE Settled Derivatives (Holiday)' : 'NSE Live Derivatives'}
@@ -195,14 +201,15 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 shrink-0">
             <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-[#020617] flex items-center gap-1.5 shadow-sm">
-              <span>NIFTY 50</span>
+              <span>{selectedTicker.symbol === 'NIFTY 50' ? 'NIFTY 50' : selectedTicker.symbol}</span>
               <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-[#020617] font-mono font-bold">
-                NSE INDEX
+                NSE {selectedTicker.category ? selectedTicker.category.toUpperCase() : 'INDEX'}
               </span>
             </div>
-            <span className="hidden sm:inline-block text-xs font-medium text-slate-400">
+
+            <span className="hidden md:inline-block text-xs font-medium text-slate-400">
               {marketStatus?.isHoliday 
-                ? `National Stock Exchange · Closed (Holiday: ${marketStatus.holidayName}) · Settled Derivatives` 
+                ? `National Stock Exchange · Closed (Holiday: ${marketStatus.holidayName})` 
                 : 'National Stock Exchange · Live F&O Derivatives'}
             </span>
           </div>

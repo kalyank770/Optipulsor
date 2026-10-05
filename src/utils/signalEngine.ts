@@ -13,12 +13,13 @@ import {
   RealtimePredictionIndicators
 } from '../types/options';
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
-import { calculateBlackScholes } from './blackScholes';
+import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
 import { computeRealtimeIndicators } from './technicalIndicators';
 import { analyzeNiftyConstituents, NIFTY_DERIVATIVE_COMPANIES } from '../data/niftyConstituents';
 import { getInterMarketTelemetry } from '../data/globalMacroData';
 import { computeAfterMarketOpeningAnalytics } from './afterMarketEngine';
 import { getMarketHoursStatus } from './marketHours';
+import { computeMultiTimeframePredictions } from './htfPredictionEngine';
 
 /**
  * Computes market metrics from an option chain
@@ -123,7 +124,7 @@ export function generateTradeSignal(
   ticker: TickerConfig,
   metrics: MarketMetrics,
   chain: OptionChainRow[],
-  newsItems: NewsItem[],
+  newsItems: NewsItem[] = [],
   previousSignal?: TradeSignal,
   expiryIndex: number = 0,
   liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
@@ -816,18 +817,11 @@ export function generateTradeSignal(
   const newsPointsAdjustment = Number((directionalNewsBias * dailyExpectedMove * 0.08).toFixed(1));
 
   // Dynamic Time to Expiry (DTE) & Horizon Scaling for Cross-Expiry Spectrum:
-  // Near-weekly = tactical intraday horizon; next-weekly & monthly = multi-day swing horizon
+  // Synchronized with Option Chain and Exchange Calendar
   const isIndian = ticker.currency === '₹';
   const r = isIndian ? 0.065 : 0.045;
-  const now = new Date();
-  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60;
-  const istHours = (utcHours + 5.5) % 24;
-  const hoursLeftToday = Math.max(0.2, Math.min(6.25, 15.5 - istHours));
-  const intradayTradingDays = Math.max(0.05, Number((hoursLeftToday / 6.25).toFixed(3)));
-
-  const tradingDaysArray = [intradayTradingDays, 5.0, 10.0, 15.0, 20.0, 40.0];
-  const tradingDays = tradingDaysArray[expiryIndex] || (expiryIndex === 0 ? intradayTradingDays : (expiryIndex * 5.0));
-  const horizonScale = Math.min(2.4, Math.max(1.0, Math.sqrt(tradingDays / 2.0)));
+  const { daysToExpiry, T } = getTickerExpiryDTE(ticker, expiryIndex);
+  const horizonScale = Math.min(2.4, Math.max(1.0, Math.sqrt(Math.max(1, daysToExpiry) / 3.0)));
 
   // Volatility & ATR based technical bounds scaled by expiry horizon
   const minMove1 = Math.max(step * 0.40, dailyExpectedMove * 0.16 * horizonScale);
@@ -900,7 +894,6 @@ export function generateTradeSignal(
   // --- 5. CALIBRATED REAL-WORLD OPTION TARGETS VIA ANCHORED BLACK-SCHOLES & GREEKS ---
   // Evaluates relative delta shifts anchored to actual live market LTP (premium),
   // ensuring the option targets are 100% mathematically faithful to the spot price movements.
-  const T = isIndian ? Math.max(0.002, tradingDays / 252) : Math.max(0.005, (tradingDays * 1.4) / 365);
   const ivDecimal = Math.max(0.05, Math.min(0.95, (contract?.iv || (isIndian ? 11.5 : 18.0)) / 100));
 
   // Current theoretical price baseline at current spot
@@ -1487,6 +1480,23 @@ export function generateTradeSignal(
     });
   }
 
+  // --- 8. HIGHER-TIMEFRAME & EXPIRY PREDICTION ENGINE (1H, 1D, 1W & EXPIRIES) ---
+  const htfPredictions = computeMultiTimeframePredictions(ticker, metrics, chain);
+
+  if (htfPredictions.confluenceScore >= 30 && action === 'BUY_CE') {
+    rationalePoints.push({
+      title: `HTF Multi-Timeframe Alignment (${htfPredictions.overallHTFBias.replace(/_/g, ' ')})`,
+      verdict: 'BULLISH',
+      description: `${htfPredictions.confluenceSummary} Next 1D target: ₹${htfPredictions.next1Day.projectedSpotTarget.toLocaleString()}.`,
+    });
+  } else if (htfPredictions.confluenceScore <= -30 && action === 'BUY_PE') {
+    rationalePoints.push({
+      title: `HTF Multi-Timeframe Alignment (${htfPredictions.overallHTFBias.replace(/_/g, ' ')})`,
+      verdict: 'BEARISH',
+      description: `${htfPredictions.confluenceSummary} Next 1D target: ₹${htfPredictions.next1Day.projectedSpotTarget.toLocaleString()}.`,
+    });
+  }
+
   return {
     action,
     strength,
@@ -1527,6 +1537,7 @@ export function generateTradeSignal(
     volumeAnalytics: rt.volumeAnalytics,
     afterMarketAnalytics,
     sidewaysMarketAnalysis,
+    htfPredictions,
   };
 }
 
@@ -1690,10 +1701,15 @@ export function computeAdjacentStrikeSpectrum(
   const S = ticker.spotPrice;
   const isIndian = ticker.currency === '₹';
   const r = isIndian ? 0.065 : 0.045;
-  const tradingDaysArray = [1.8, 6.8, 11.8, 16.8, 21.8, 41.8];
-  const tradingDays = tradingDaysArray[expiryIndex] || (isIndian ? 2.4 : 5.0);
-  const T = isIndian ? Math.max(0.002, tradingDays / 252) : Math.max(0.005, (tradingDays * 1.4) / 365);
-  const baseIV = isIndian ? (ticker.symbol.includes('BANK') ? 0.128 : 0.1106) : ticker.vix / 100;
+  const { daysToExpiry, T } = getTickerExpiryDTE(ticker, expiryIndex);
+  const rawVix = Math.max(14.50, ticker.vix || 15.22);
+  let baseIV = (rawVix * 1.019) / 100;
+  if (isIndian) {
+    if (daysToExpiry <= 2) baseIV = (rawVix * 1.019) / 100;
+    else if (daysToExpiry <= 9) baseIV = (rawVix * 0.901) / 100;
+    else if (daysToExpiry <= 16) baseIV = (rawVix * 0.903) / 100;
+    else baseIV = (rawVix * 0.887) / 100;
+  }
   const isCE = predictedType === 'CE';
 
   const offsets: (-2 | -1 | 0 | 1 | 2)[] = [-2, -1, 0, 1, 2];
@@ -1713,9 +1729,13 @@ export function computeAdjacentStrikeSpectrum(
       ? (strike < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM')
       : (strike > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM');
 
-    // Implied Volatility
-    const m = (strike - S) / S;
-    const ivSkew = isIndian ? baseIV + (m < 0 ? -m * 0.12 : m * 0.08) : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
+    // Implied Volatility calibrated to exact exchange smile
+    const m = (strike - S) / Math.max(S, 1);
+    const ivSkew = isIndian
+      ? (isCE 
+          ? Math.max(0.06, baseIV + (m < 0 ? -m * 0.06 : m * 0.04))
+          : Math.max(0.06, (baseIV * 1.06) + (m < 0 ? -m * 0.14 : m * 0.05)))
+      : Math.max(0.06, baseIV + (m < 0 ? -m * 0.25 : m * 0.12));
     const iv = contract?.iv ?? Number((ivSkew * 100).toFixed(1));
 
     // Black-Scholes Greeks

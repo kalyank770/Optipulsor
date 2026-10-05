@@ -52,6 +52,7 @@ interface SignalCardProps {
   usePreMarket?: boolean;
   onTogglePreMarket?: () => void;
   marketStatus?: MarketHoursStatus;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({
@@ -66,6 +67,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   usePreMarket = false,
   onTogglePreMarket,
   marketStatus,
+  onSelectTab,
 }) => {
   const isLight = theme === 'light';
   const [copied, setCopied] = useState(false);
@@ -649,6 +651,76 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         metrics={metrics}
         theme={theme}
       />
+
+      {/* Higher-Timeframe (1H · 1D · 1W) & Expiry Predictions Synopsis Banner */}
+      {signal.htfPredictions && (
+        <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-emerald-950/20 border border-emerald-500/30 text-xs shadow-sm space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="p-1 rounded bg-emerald-500/20 text-emerald-400">
+                <Compass className="w-3.5 h-3.5" />
+              </div>
+              <span className="font-bold text-white text-xs sm:text-sm">
+                1H · 1D · 1W Chart Candle Patterns &amp; Expiry Predictions
+              </span>
+              <span className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded border ${
+                signal.htfPredictions.overallHTFBias.includes('BULLISH')
+                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+                  : signal.htfPredictions.overallHTFBias.includes('BEARISH')
+                  ? 'bg-rose-950/60 text-rose-300 border-rose-500/40'
+                  : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}>
+                {signal.htfPredictions.overallHTFBias.replace(/_/g, ' ')}
+              </span>
+            </div>
+
+            {onSelectTab && (
+              <button
+                onClick={() => {
+                  onSelectTab('htf');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold cursor-pointer transition-all self-end sm:self-auto shadow-xs"
+              >
+                <span>Open Full 1H · 1D · 1W &amp; Expiries Page →</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono text-[11px]">
+            <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block font-sans uppercase">Next 1H Outcome</span>
+              <strong className={signal.htfPredictions.next1Hour.predictedBias === 'BULLISH' ? 'text-emerald-400' : signal.htfPredictions.next1Hour.predictedBias === 'BEARISH' ? 'text-rose-400' : 'text-slate-300'}>
+                ₹{signal.htfPredictions.next1Hour.projectedSpotTarget} ({signal.htfPredictions.next1Hour.predictedBias})
+              </strong>
+            </div>
+            <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block font-sans uppercase">Next 1D Outcome</span>
+              <strong className={signal.htfPredictions.next1Day.predictedBias === 'BULLISH' ? 'text-emerald-400' : signal.htfPredictions.next1Day.predictedBias === 'BEARISH' ? 'text-rose-400' : 'text-slate-300'}>
+                ₹{signal.htfPredictions.next1Day.projectedSpotTarget} ({signal.htfPredictions.next1Day.predictedBias})
+              </strong>
+            </div>
+            <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block font-sans uppercase">Next 1W Outcome</span>
+              <strong className={signal.htfPredictions.next1Week.predictedBias === 'BULLISH' ? 'text-emerald-400' : signal.htfPredictions.next1Week.predictedBias === 'BEARISH' ? 'text-rose-400' : 'text-slate-300'}>
+                ₹{signal.htfPredictions.next1Week.projectedSpotTarget} ({signal.htfPredictions.next1Week.predictedBias})
+              </strong>
+            </div>
+            <div className="p-2 rounded bg-slate-950/80 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block font-sans uppercase">1-Wk Expiry Target</span>
+              <strong className="text-amber-300">
+                ₹{signal.htfPredictions.week1Expiry.projectedSettlementSpot} ({signal.htfPredictions.week1Expiry.recommendedStrike} {signal.htfPredictions.week1Expiry.recommendedType})
+              </strong>
+            </div>
+            <div className="p-2 rounded bg-slate-950/80 border border-slate-800 col-span-2 sm:col-span-1">
+              <span className="text-[9px] text-slate-500 block font-sans uppercase">2-Wk Expiry Target</span>
+              <strong className="text-sky-300">
+                ₹{signal.htfPredictions.week2Expiry.projectedSettlementSpot} ({signal.htfPredictions.week2Expiry.recommendedStrike} {signal.htfPredictions.week2Expiry.recommendedType})
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Live / Settled Contract Strip */}
       <div className="mt-3 p-3 rounded-lg bg-slate-950 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">

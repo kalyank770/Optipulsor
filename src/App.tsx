@@ -10,6 +10,8 @@ import { NewsWidget } from './components/NewsWidget';
 import { OptionPayoffModal } from './components/OptionPayoffModal';
 import { RealtimeQuantSection } from './components/RealtimeQuantSection';
 import { GroundedPayoffSection } from './components/GroundedPayoffSection';
+import { HTFPredictionsWorkstation } from './components/HTFPredictionsWorkstation';
+import { computeMultiTimeframePredictions } from './utils/htfPredictionEngine';
 import { OptionContract, OptionType } from './types/options';
 import { POPULAR_TICKERS } from './data/marketTickers';
 import { 
@@ -29,10 +31,11 @@ import {
   Power,
   X,
   Calendar,
-  RefreshCw
+  RefreshCw,
+  Compass
 } from 'lucide-react';
 
-export type WorkspaceTab = 'chain' | 'quant' | 'performance' | 'news';
+export type WorkspaceTab = 'chain' | 'htf' | 'quant' | 'performance' | 'news';
 
 export default function App() {
   const {
@@ -174,6 +177,11 @@ export default function App() {
     return newsBullCount > newsBearCount ? 'BULLISH' : newsBearCount > newsBullCount ? 'BEARISH' : 'NEUTRAL';
   }, [newsBullCount, newsBearCount]);
 
+  // Higher-Timeframe Multi-Horizon & Expiry Predictions (1H, 1D, 1W & Expiries)
+  const htfPredictions = useMemo(() => {
+    return signal.htfPredictions || computeMultiTimeframePredictions(selectedTicker, metrics, chain);
+  }, [signal.htfPredictions, selectedTicker, metrics, chain]);
+
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -198,6 +206,8 @@ export default function App() {
         marketStatus={marketStatus}
         usePreMarket={usePreMarket}
         onTogglePreMarket={toggleUsePreMarket}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab as WorkspaceTab)}
       />
 
       {/* Main Workspace Area */}
@@ -272,24 +282,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Primary Trade Recommendation Signal Card */}
-        <section aria-label="Trade Signal" id="section-signal">
-          <SignalCard
-            signal={signal}
-            ticker={selectedTicker}
-            metrics={metrics}
-            chain={chain}
-            onSelectContractForSimulation={handleSelectContract}
-            isSyncing={isSyncing}
-            theme="dark"
-            currentExpiryIndex={expiryIndex}
-            onSelectExpiry={handleSelectExpiry}
-            usePreMarket={usePreMarket}
-            onTogglePreMarket={toggleUsePreMarket}
-            marketStatus={marketStatus}
-          />
-        </section>
-
         {/* Workstation Tab Navigation Bar */}
         <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-14 z-30 backdrop-blur-md">
           <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar text-xs font-medium">
@@ -309,7 +301,21 @@ export default function App() {
               </span>
             </button>
 
-            {/* Tab 2: Quant & Order Flow */}
+            {/* Tab 2: 1H · 1D · 1W & Expiry Predictions */}
+            <button
+              onClick={() => setActiveTab('htf')}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+                activeTab === 'htf'
+                  ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Compass className="w-4 h-4 text-emerald-400" />
+              <span>1H · 1D · 1W &amp; Expiries</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+
+            {/* Tab 3: Quant & Order Flow */}
             <button
               onClick={() => setActiveTab('quant')}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
@@ -322,7 +328,7 @@ export default function App() {
               <span>Order Flow & Quant</span>
             </button>
 
-            {/* Tab 3: Strike History & Stats */}
+            {/* Tab 4: Strike History & Stats */}
             <button
               onClick={() => setActiveTab('performance')}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
@@ -338,7 +344,7 @@ export default function App() {
               </span>
             </button>
 
-            {/* Tab 4: News & Catalysts */}
+            {/* Tab 5: News & Catalysts */}
             <button
               onClick={() => setActiveTab('news')}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] relative ${
@@ -356,9 +362,28 @@ export default function App() {
           </div>
         </div>
 
-        {/* WORKSPACE VIEW 1: OPTION CHAIN & MARKET DEPTH */}
+        {/* WORKSPACE VIEW 1: OPTION CHAIN & MARKET DEPTH (INCLUDES PRIMARY LIVE SIGNAL CARD) */}
         {activeTab === 'chain' && (
-          <section id="section-chain" className="space-y-4 animate-fade-in">
+          <section id="section-chain" className="space-y-4 sm:space-y-6 animate-fade-in">
+            {/* Primary Trade Recommendation Signal Card */}
+            <div aria-label="Trade Signal" id="section-signal">
+              <SignalCard
+                signal={signal}
+                ticker={selectedTicker}
+                metrics={metrics}
+                chain={chain}
+                onSelectContractForSimulation={handleSelectContract}
+                isSyncing={isSyncing}
+                theme="dark"
+                currentExpiryIndex={expiryIndex}
+                onSelectExpiry={handleSelectExpiry}
+                usePreMarket={usePreMarket}
+                onTogglePreMarket={toggleUsePreMarket}
+                marketStatus={marketStatus}
+                onSelectTab={(tab) => setActiveTab(tab as WorkspaceTab)}
+              />
+            </div>
+
             <div className="bg-slate-900/90 border border-slate-800/90 rounded-xl p-3 sm:p-4 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2.5">
@@ -441,6 +466,17 @@ export default function App() {
                 theme="dark"
               />
             </div>
+          </section>
+        )}
+
+        {/* WORKSPACE VIEW 2: DEDICATED 1H · 1D · 1W & COMING 2 EXPIRIES PREDICTIONS PAGE */}
+        {activeTab === 'htf' && (
+          <section id="section-htf" className="space-y-4 animate-fade-in">
+            <HTFPredictionsWorkstation
+              predictions={htfPredictions}
+              ticker={selectedTicker}
+              onSelectContractForSimulation={handleSelectContract}
+            />
           </section>
         )}
 

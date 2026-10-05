@@ -492,7 +492,10 @@ export interface TradeSignal {
   volumeAnalytics?: VolumeAnalyticsData;
   afterMarketAnalytics?: import('../utils/afterMarketEngine').AfterMarketOpeningAnalytics;
   sidewaysMarketAnalysis?: SidewaysMarketAnalysis;
+  htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
 }
+
+export * from './htfPredictions';
 
 export interface SidewaysMarketAnalysis {
   isSideways: boolean;

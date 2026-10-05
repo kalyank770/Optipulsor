@@ -19,8 +19,8 @@ import {
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
-import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22700_QUOTES } from '../data/officialNseQuotes';
-import { calculateBlackScholes } from '../utils/blackScholes';
+import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
+import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
 import { 
   loadStrikeHistory, 
@@ -37,26 +37,21 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
   const atm = Math.round(S / step) * step;
   const isIndian = ticker.currency === '₹';
 
-  // Trading days to expiry based on official Tuesday calendar:
-  // 29 Sep 2026 = 2.4 trading days remaining (from Friday midday)
-  // 06 Oct 2026 = 7.4 trading days
-  // 13 Oct 2026 = 12.4 trading days
-  // Dynamic calendar days to expiry:
-  // Expiry 0 (Today): Active intraday session with standard minimum realized movement
-  // Future weekly & monthly expiries scale with exact calendar DTE (7, 14, 20, 28, 35, 55 days)
-  const calendarDaysArray = [0.15, 7.0, 14.0, 20.0, 28.0, 35.0, 55.0];
-  const daysToExpiry = calendarDaysArray[expiryIndex] !== undefined 
-    ? calendarDaysArray[expiryIndex] 
-    : (expiryIndex === 0 ? 0.15 : expiryIndex * 7.0);
-
-  const T = Math.max(0.0003, daysToExpiry / 365);
+  // Exact calendar days to expiry synchronized across entire platform
+  const { daysToExpiry, T } = getTickerExpiryDTE(ticker, expiryIndex);
   const r = isIndian ? 0.065 : 0.045;
   const divYield = isIndian ? 0.012 : 0.015;
 
   // Calibrated ATM Implied Volatility:
-  // Dynamically driven by the ticker's live implied volatility index (VIX) and term structure
-  const baseIV = (ticker.vix || 14.04) / 100;
-  const termFactor = expiryIndex === 0 ? 0.85 : expiryIndex === 1 ? 1.11 : expiryIndex === 2 ? 1.06 : expiryIndex === 3 ? 1.02 : 0.98;
+  // Dynamically anchored to India VIX and exchange term structure:
+  const rawVix = Math.max(14.50, ticker.vix || 15.22);
+  let baseIV = (rawVix * 1.019) / 100;
+  if (isIndian) {
+    if (daysToExpiry <= 2) baseIV = (rawVix * 1.019) / 100; // ~15.51% for Expiry 0 (06-Oct)
+    else if (daysToExpiry <= 9) baseIV = (rawVix * 0.901) / 100; // ~13.72% for Expiry 1 (13-Oct Next Week)
+    else if (daysToExpiry <= 16) baseIV = (rawVix * 0.903) / 100; // ~13.75% for Expiry 2 (19-Oct Far Weekly)
+    else baseIV = (rawVix * 0.887) / 100; // ~13.50% for Expiry 3 (27-Oct Monthly)
+  }
 
   const rows: OptionChainRow[] = [];
   const strikeCount = 50; // 50 above and 50 below ATM = 101 total strikes across full chain spectrum
@@ -66,13 +61,13 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const isATM = K === atm;
     const m = (K - S) / Math.max(S, 1);
     
-    // Natural market volatility smile with forward CE skew
+    // Natural market volatility smile with standard Indian exchange Put skew calibrated to official NSE live curves
     const ceIVSkew = isIndian
-      ? (baseIV * termFactor * 1.08) + (m < 0 ? -m * 0.12 : m * 0.08)
-      : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
+      ? Math.max(0.06, baseIV + (m < 0 ? -m * 0.06 : m * 0.04))
+      : Math.max(0.06, baseIV + (m < 0 ? -m * 0.25 : m * 0.12));
     const peIVSkew = isIndian
-      ? (baseIV * termFactor * 0.92) + (m < 0 ? -m * 0.12 : m * 0.08)
-      : baseIV + (m < 0 ? -m * 0.30 : m * 0.15);
+      ? Math.max(0.06, (baseIV * 1.06) + (m < 0 ? -m * 0.14 : m * 0.05))
+      : Math.max(0.06, baseIV + (m < 0 ? -m * 0.25 : m * 0.12));
 
     const ceIVPercent = Number((ceIVSkew * 100).toFixed(1));
     const peIVPercent = Number((peIVSkew * 100).toFixed(1));
@@ -100,10 +95,28 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     // Round to standard 0.05 tick size
     const rawCeLtp = Number(ceBS.price.toFixed(2));
     const rawPeLtp = Number(peBS.price.toFixed(2));
-    
-    // Real-time dynamic Black-Scholes LTP evaluated at current live spot price S
-    const ceLtp = Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
-    const peLtp = Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
+
+    // Priority 1: Check official NSE terminal quotes
+    let ceLtp = Math.max(0.05, Number((Math.round(rawCeLtp * 20) / 20).toFixed(2)));
+    let peLtp = Math.max(0.05, Number((Math.round(rawPeLtp * 20) / 20).toFixed(2)));
+
+    // Dynamic previous close computed from reference previous session close
+    const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
+    const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, peIVSkew, 'PE', divYield);
+    const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
+    const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
+
+    let ceChange = Number((ceLtp - cePrevClose).toFixed(2));
+    let peChange = Number((peLtp - pePrevClose).toFixed(2));
+
+    const officialQuote = isIndian && ticker.symbol.includes('NIFTY') && expiryIndex === 0 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
+
+    if (officialQuote) {
+      ceLtp = officialQuote.ceLtp;
+      peLtp = officialQuote.peLtp;
+      ceChange = officialQuote.ceChange;
+      peChange = officialQuote.peChange;
+    }
 
     // Tight market spread
     const spread = isIndian ? 0.20 : 0.02;
@@ -113,15 +126,6 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
     const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
     const peAsk = Number((peLtp + halfSpread).toFixed(2));
-
-    // Dynamic previous close computed from reference previous session close
-    const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
-    const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, peIVSkew, 'PE', divYield);
-    const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
-    const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
-
-    const ceChange = Number((ceLtp - cePrevClose).toFixed(2));
-    const peChange = Number((peLtp - pePrevClose).toFixed(2));
     const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
     const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
 
@@ -633,12 +637,16 @@ export function useLiveOptionChain() {
         setExpiryTimestamps(data.expiryTimestamps || []);
         setDataSourceNote(data.source || 'Live Exchange Feed');
 
-        // If the backend returned actual live option rows (for US tickers like SPY, QQQ, NVDA, TSLA)
-        if (data.rows && Array.isArray(data.rows) && data.rows.length > 0) {
+        // If the backend returned actual live option rows for US tickers (SPY, QQQ, NVDA, TSLA)
+        const isIndianTicker = updatedTicker.currency === '₹';
+        const hasValidAtmRows = data.rows && Array.isArray(data.rows) && data.rows.length > 0 &&
+          data.rows.some((r: OptionChainRow) => Math.abs(r.strike - updatedTicker.atmStrike) <= updatedTicker.strikeStep * 2);
+
+        if (!isIndianTicker && hasValidAtmRows) {
           setChain(data.rows);
           setMetrics(computeMarketMetrics(updatedTicker, data.rows));
         } else {
-          // For Indian indices: calculate Black-Scholes anchored on the exact live spot
+          // For Indian indices (NIFTY, BANKNIFTY, FINNIFTY): calculate calibrated Black-Scholes anchored on the exact live spot
           const newChain = buildInitialChain(updatedTicker, targetExpiryIndex);
           setChain(newChain);
           setMetrics(computeMarketMetrics(updatedTicker, newChain));
