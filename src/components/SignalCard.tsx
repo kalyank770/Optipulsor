@@ -203,7 +203,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
               <span className="text-slate-600">·</span>
               <span className="font-mono text-slate-300">
-                Spot Close: <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                {marketStatus?.isOpen && !marketStatus?.isHoliday ? 'Live Spot:' : 'Settled Close:'} <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
               </span>
             </div>
 
