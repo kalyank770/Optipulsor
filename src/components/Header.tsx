@@ -138,6 +138,8 @@ export const Header: React.FC<HeaderProps> = ({
               className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-mono font-semibold rounded border transition-colors ${
                 marketStatus.isHoliday
                   ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
+                  : marketStatus.isCasSession
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
                   : marketStatus.isOpen
                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                   : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
@@ -145,6 +147,11 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {marketStatus.isHoliday ? (
                 <Calendar className="w-3.5 h-3.5 text-amber-400" />
+              ) : marketStatus.isCasSession ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
               ) : marketStatus.isOpen ? (
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -156,10 +163,14 @@ export const Header: React.FC<HeaderProps> = ({
               <span>
                 {marketStatus.isHoliday 
                   ? `Holiday: ${marketStatus.holidayName || 'Exchange Closed'}` 
+                  : marketStatus.isCasSession
+                  ? 'Closing Auction (CAS)'
                   : marketStatus.isOpen 
                   ? 'Live Session' 
                   : marketStatus.session === 'PRE_MARKET' 
                   ? 'Pre-Market Active' 
+                  : marketStatus.session === 'POST_MARKET'
+                  ? 'Post-Market Session'
                   : 'Market Closed (Settled)'}
               </span>
             </div>

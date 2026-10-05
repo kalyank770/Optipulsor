@@ -35,7 +35,8 @@ import {
   ChevronDown,
   ChevronUp,
   Power,
-  Calendar
+  Calendar,
+  Clock
 } from 'lucide-react';
 
 interface SignalCardProps {
@@ -187,6 +188,8 @@ export const SignalCard: React.FC<SignalCardProps> = ({
               <span className="uppercase font-semibold tracking-wider text-[11px]">
                 {marketStatus?.isHoliday 
                   ? `Next Trading Session Prediction (${marketStatus.nextTradingDayName || 'Monday'} Open)`
+                  : marketStatus?.isCasSession
+                  ? 'Closing Auction (CAS)'
                   : marketStatus && !marketStatus.isOpen 
                   ? "Next Session Opening Prediction" 
                   : 'Trade Recommendation'}
@@ -203,7 +206,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
               <span className="text-slate-600">·</span>
               <span className="font-mono text-slate-300">
-                {marketStatus?.isOpen && !marketStatus?.isHoliday ? 'Live Spot:' : 'Settled Close:'} <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                {marketStatus?.isOpen && !marketStatus?.isHoliday ? 'Live Spot:' : 'Spot:'} <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
               </span>
             </div>
 
@@ -261,6 +264,22 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 </span>
               )}
 
+              {/* Sideways Market Scenario Badge */}
+              {signal.sidewaysMarketAnalysis?.isSideways && (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/70 text-amber-300 flex items-center gap-1.5 font-mono shadow-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span>SIDEWAYS / RANGE CHOP ({signal.sidewaysMarketAnalysis.compressionPercentage}% SQUEEZE)</span>
+                </span>
+              )}
+
+              {/* Closing Auction (CAS) Badge */}
+              {marketStatus?.isCasSession && (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/80 text-amber-300 flex items-center gap-1.5 font-mono shadow-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span>CAS (3:30 – 3:40 PM)</span>
+                </span>
+              )}
+
               {/* Pre-Market Predictor Active Badge & Turn Off Button */}
               {(usePreMarket || ticker.isUsingPreMarket) && (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs">
@@ -282,6 +301,22 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Closing Auction (CAS · 3:30 - 3:40 PM) Notice */}
+      {marketStatus?.isCasSession && (
+        <div className="mt-3 px-3.5 py-2.5 rounded-lg bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-3 flex-wrap font-sans">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+            <div>
+              <span className="font-bold text-amber-300">Closing Auction (CAS · 3:30–3:40 PM): </span>
+              <span className="text-slate-300 text-xs">Continuous F&amp;O closed. Final settlement price being discovered.</span>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-amber-300 px-2 py-0.5 rounded bg-amber-900/60 border border-amber-500/30 shrink-0">
+            Settles at 3:40 PM
+          </span>
+        </div>
+      )}
 
       {/* Dynamic Trade Lifecycle & Institutional Trade Intelligence Banner */}
       {(() => {
@@ -415,6 +450,136 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         }
 
         if (stage === 'NEUTRAL_WAIT' || isNeutral) {
+          if (signal.sidewaysMarketAnalysis?.isSideways) {
+            const sw = signal.sidewaysMarketAnalysis;
+            return (
+              <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-br from-amber-950/40 via-slate-900/90 to-amber-950/20 border border-amber-500/40 text-amber-200 text-xs shadow-lg space-y-3 font-sans">
+                {/* Header Title & Regime Type */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/25 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                      <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-amber-300 text-xs sm:text-sm flex items-center gap-2 flex-wrap">
+                        <span>⏸️ Active Scenario: Sideways Range-Bound Equilibrium</span>
+                        <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-normal">
+                          {sw.regimeType.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-amber-200/80 font-mono">
+                        Theta Decay Market · Both CE & PE Option Buying Strictly Prohibited
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-xs">
+                    <span className="text-slate-400 text-[11px]">Sideways Confidence:</span>
+                    <span className="font-bold text-amber-300 px-2 py-0.5 rounded bg-amber-950 border border-amber-500/30">
+                      {sw.sidewaysConfidence}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4-Box Range Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
+                  <div className="p-2 rounded-lg bg-slate-900/90 border border-rose-500/30">
+                    <span className="text-[10px] text-slate-400 uppercase block font-sans">🛑 Resistance Ceiling</span>
+                    <span className="text-sm font-extrabold text-rose-400 block mt-0.5">
+                      {ticker.currency}{sw.rangeCeiling.toLocaleString()}
+                    </span>
+                    <span className="text-[9.5px] text-slate-400 block truncate">Major Call Wall</span>
+                  </div>
+
+                  <div className="p-2 rounded-lg bg-slate-900/90 border border-amber-500/30">
+                    <span className="text-[10px] text-slate-400 uppercase block font-sans">🎯 Range Pin Strike</span>
+                    <span className="text-sm font-extrabold text-amber-300 block mt-0.5">
+                      {ticker.currency}{sw.rangePinStrike.toLocaleString()}
+                    </span>
+                    <span className="text-[9.5px] text-slate-400 block truncate">Max Pain / ATM Center</span>
+                  </div>
+
+                  <div className="p-2 rounded-lg bg-slate-900/90 border border-emerald-500/30">
+                    <span className="text-[10px] text-slate-400 uppercase block font-sans">🛡️ Support Floor</span>
+                    <span className="text-sm font-extrabold text-emerald-400 block mt-0.5">
+                      {ticker.currency}{sw.rangeFloor.toLocaleString()}
+                    </span>
+                    <span className="text-[9.5px] text-slate-400 block truncate">Major Put Wall</span>
+                  </div>
+
+                  <div className="p-2 rounded-lg bg-slate-900/90 border border-sky-500/30">
+                    <span className="text-[10px] text-slate-400 uppercase block font-sans">📏 Range Span</span>
+                    <span className="text-sm font-extrabold text-sky-400 block mt-0.5">
+                      {sw.rangeSpanPoints} pts
+                    </span>
+                    <span className="text-[9.5px] text-slate-400 block truncate">{sw.compressionPercentage}% Volatility Squeeze</span>
+                  </div>
+                </div>
+
+                {/* Compression Progress Bar */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-amber-200/90">
+                    <span>Range Compression Level</span>
+                    <span className="font-bold text-amber-300">{sw.compressionPercentage}% Compressed (Low Realized Volatility)</span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-amber-500 to-rose-500 rounded-full transition-all duration-500"
+                      style={{ width: `${sw.compressionPercentage}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Diagnostic Reasons (Why it is Sideways Today) */}
+                <div className="space-y-1.5 pt-1 border-t border-amber-500/20">
+                  <span className="text-[11px] font-bold text-white uppercase tracking-wider block font-mono">
+                    Why Today's Market Is Sideways:
+                  </span>
+                  <ul className="space-y-1 text-slate-300 text-xs">
+                    {sw.reasons.map((r, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="text-amber-400 mt-0.5 font-bold">•</span>
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Option Buyer vs Option Seller Playbook */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1 border-t border-amber-500/20">
+                  <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-200">
+                    <div className="font-bold text-rose-300 text-xs flex items-center gap-1 font-mono">
+                      <span>🚫 Option Buyer Warning:</span>
+                    </div>
+                    <p className="text-[11px] text-rose-200/90 mt-1 leading-snug">
+                      {sw.optionBuyerStrategy}
+                    </p>
+                  </div>
+                  <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-200">
+                    <div className="font-bold text-emerald-300 text-xs flex items-center gap-1 font-mono">
+                      <span>💼 Option Seller / Hedger Strategy:</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-200/90 mt-1 leading-snug">
+                      {sw.optionSellerStrategy}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Breakout Watch Triggers & Power Hour Note */}
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-700/80 text-[11px] font-mono flex flex-wrap items-center justify-between gap-2 text-slate-300">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-slate-400 font-sans">Breakout Triggers:</span>
+                    <span className="text-emerald-400 font-bold">Bullish: Spot &gt; {ticker.currency}{sw.breakoutWatchLevels.bullishBreakoutTrigger}</span>
+                    <span className="text-slate-500">|</span>
+                    <span className="text-rose-400 font-bold">Bearish: Spot &lt; {ticker.currency}{sw.breakoutWatchLevels.bearishBreakdownTrigger}</span>
+                  </div>
+                  <span className="text-amber-300/90 text-[10px] font-sans">
+                    ⏰ {sw.breakoutWatchLevels.powerHourNote}
+                  </span>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div className="mt-3 p-3 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">

@@ -473,6 +473,7 @@ export function useLiveOptionChain() {
             minutesToClose: exStatus.minutesToClose,
             isClosingSoon: exStatus.isClosingSoon,
             source: exStatus.source,
+            isCasSession: Boolean(exStatus.isCasSession),
           }));
         }
       }
@@ -559,6 +560,7 @@ export function useLiveOptionChain() {
           marketStatusMessage: data.marketStatusMessage || hoursStatus.marketStatusMessage,
           tradeDate: data.tradeDate || hoursStatus.tradeDate,
           nextOpenMsg: hoursStatus.nextOpenMsg,
+          isCasSession: Boolean(hoursStatus.isCasSession || data.isCasSession),
         }));
         
         // Active pre-market mode ONLY when user explicitly enables usePreMarket OR during 09:00 AM IST pre-open window

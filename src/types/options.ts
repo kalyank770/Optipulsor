@@ -491,6 +491,26 @@ export interface TradeSignal {
   interMarketTelemetry?: InterMarketTelemetry;
   volumeAnalytics?: VolumeAnalyticsData;
   afterMarketAnalytics?: import('../utils/afterMarketEngine').AfterMarketOpeningAnalytics;
+  sidewaysMarketAnalysis?: SidewaysMarketAnalysis;
+}
+
+export interface SidewaysMarketAnalysis {
+  isSideways: boolean;
+  sidewaysConfidence: number; // 0 - 100%
+  regimeType: 'NARROW_DEADBAND_CHOP' | 'VOLATILITY_COMPRESSION' | 'EXPIRY_PINNING' | 'RANGE_BOUND_EQUILIBRIUM' | 'NORMAL_TRENDING';
+  rangeCeiling: number; // Upper Resistance / Call Wall
+  rangeFloor: number; // Lower Support / Put Wall
+  rangePinStrike: number; // Center Max Pain / Pin Strike
+  rangeSpanPoints: number; // Ceiling - Floor points
+  compressionPercentage: number; // % range compression vs standard daily ATR
+  reasons: string[]; // Specific diagnostic points explaining why today is sideways
+  optionBuyerStrategy: string; // Specific playbook for option buyers
+  optionSellerStrategy: string; // Non-directional playbook for option sellers
+  breakoutWatchLevels: {
+    bullishBreakoutTrigger: number;
+    bearishBreakdownTrigger: number;
+    powerHourNote: string;
+  };
 }
 
 export interface NewsItem {

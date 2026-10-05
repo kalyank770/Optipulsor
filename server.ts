@@ -306,13 +306,15 @@ async function fetchLiveNseMarketStatus() {
 
   const openM = 9 * 60 + 15;
   const closeM = 15 * 60 + 30;
+  const casEndM = 15 * 60 + 40;
   const preM = 9 * 60;
   const postM = 16 * 60;
 
   let session: 'REGULAR' | 'PRE_MARKET' | 'POST_MARKET' | 'CLOSED' = 'CLOSED';
   let isOpen = false;
+  let isCasSession = false;
 
-  if (ist.totalMinutes >= openM && ist.totalMinutes <= closeM) {
+  if (ist.totalMinutes >= openM && ist.totalMinutes < closeM) {
     // If official NSE API responded with Closed, trust official exchange
     if (officialNseState && officialNseState.marketStatus?.toLowerCase() === 'close') {
       isOpen = false;
@@ -323,7 +325,10 @@ async function fetchLiveNseMarketStatus() {
     }
   } else if (ist.totalMinutes >= preM && ist.totalMinutes < openM) {
     session = 'PRE_MARKET';
-  } else if (ist.totalMinutes > closeM && ist.totalMinutes <= postM) {
+  } else if (ist.totalMinutes >= closeM && ist.totalMinutes < casEndM) {
+    session = 'POST_MARKET';
+    isCasSession = true;
+  } else if (ist.totalMinutes >= casEndM && ist.totalMinutes <= postM) {
     session = 'POST_MARKET';
   } else {
     session = 'CLOSED';
@@ -331,12 +336,14 @@ async function fetchLiveNseMarketStatus() {
 
   const minutesToClose = isOpen ? closeM - ist.totalMinutes : undefined;
   const isClosingSoon = isOpen && minutesToClose !== undefined && minutesToClose <= 45;
+  const casMinutesLeft = isCasSession ? Math.max(1, casEndM - ist.totalMinutes) : undefined;
 
   let statusMsg = isOpen ? (isClosingSoon ? `Closing in ${minutesToClose} mins (03:30 PM IST)` : 'Regular Trading Active') :
     session === 'PRE_MARKET' ? 'Pre-Open Session Active (09:00 - 09:15 AM IST)' :
-    session === 'POST_MARKET' ? 'Post-Market Settlement (15:30 - 16:00 IST)' : 'Market Closed (After-Market)';
+    isCasSession ? 'Closing Auction (CAS · 3:30 - 3:40 PM)' :
+    session === 'POST_MARKET' ? 'Post-Market Trading (3:40 - 4:00 PM)' : 'Market Closed';
 
-  if (officialNseState?.marketStatusMessage) {
+  if (officialNseState?.marketStatusMessage && !isCasSession) {
     statusMsg = officialNseState.marketStatusMessage;
   }
 
@@ -345,6 +352,7 @@ async function fetchLiveNseMarketStatus() {
     session,
     marketState: isOpen ? 'REGULAR' : (session === 'PRE_MARKET' ? 'PRE' : 'CLOSED'),
     isHoliday: false,
+    isCasSession,
     marketStatusMessage: statusMsg,
     exchange: 'NSE',
     marketName: 'NSE (India)',
@@ -353,7 +361,7 @@ async function fetchLiveNseMarketStatus() {
     tradingHoursLabel: '09:15 - 15:30 IST',
     minutesToClose,
     isClosingSoon,
-    nextTradingSession: isOpen ? 'Closes today at 03:30 PM IST' : 'Opens next session at 09:15 AM IST',
+    nextTradingSession: isOpen ? 'Closes today at 03:30 PM IST' : (isCasSession ? 'Closing Auction ends at 03:40 PM IST' : 'Opens next session at 09:15 AM IST'),
     source: officialNseState ? 'NSE India Official Live Market Status API' : 'NSE Official Exchange Schedule Engine',
     timestamp: new Date().toISOString(),
   };

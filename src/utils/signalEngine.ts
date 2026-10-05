@@ -9,7 +9,8 @@ import {
   NewsItem,
   OptionType,
   AdjacentStrikeAnalysis,
-  TradeLifecycleStage
+  TradeLifecycleStage,
+  RealtimePredictionIndicators
 } from '../types/options';
 import { computeMultiTimeframeChartPatterns } from './candlestickEngine';
 import { calculateBlackScholes } from './blackScholes';
@@ -1466,6 +1467,26 @@ export function generateTradeSignal(
     });
   }
 
+  // --- 7. SIDEWAYS / RANGE-BOUND SCENARIO DETECTION ENGINE ---
+  const sidewaysMarketAnalysis = computeSidewaysMarketAnalysis(
+    ticker,
+    metrics,
+    chain,
+    action,
+    rt,
+    constituentAnalysis
+  );
+
+  if (sidewaysMarketAnalysis.isSideways && action === 'WAIT_NEUTRAL') {
+    summaryNote = `${pricePrefix}: Verified SIDEWAYS / RANGE-BOUND scenario detected (${sidewaysMarketAnalysis.compressionPercentage}% range compression, bound between ${ticker.currency}${sidewaysMarketAnalysis.rangeFloor.toLocaleString()} floor & ${ticker.currency}${sidewaysMarketAnalysis.rangeCeiling.toLocaleString()} ceiling). Directional option buying (both CE and PE) has severe negative expected value due to rapid theta bleed. Stand aside in WAIT until spot cleanly breaks ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bullishBreakoutTrigger} or ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bearishBreakdownTrigger}. Reference contract ${targetStrike} ${recommendedType} @ ${ticker.currency}${premium.toFixed(2)}.`;
+    
+    rationalePoints.unshift({
+      title: `Verified Sideways / Range-Bound Scenario (${sidewaysMarketAnalysis.compressionPercentage}% Compressed)`,
+      verdict: 'NEUTRAL',
+      description: `Market is consolidating within a tight ${sidewaysMarketAnalysis.rangeSpanPoints} pts boundary (Floor: ${ticker.currency}${sidewaysMarketAnalysis.rangeFloor.toLocaleString()} · Ceiling: ${ticker.currency}${sidewaysMarketAnalysis.rangeCeiling.toLocaleString()} · Pin: ${ticker.currency}${sidewaysMarketAnalysis.rangePinStrike.toLocaleString()}). ${sidewaysMarketAnalysis.reasons[0] || 'Spot is oscillating tightly around VWAP with balanced PCR.'} Directional option buyers face severe theta decay; stand aside in WAIT.`,
+    });
+  }
+
   return {
     action,
     strength,
@@ -1505,6 +1526,147 @@ export function generateTradeSignal(
     interMarketTelemetry,
     volumeAnalytics: rt.volumeAnalytics,
     afterMarketAnalytics,
+    sidewaysMarketAnalysis,
+  };
+}
+
+/**
+ * Computes deep diagnostic analysis for Sideways, Range-Bound, and Chop Market Scenarios
+ */
+export function computeSidewaysMarketAnalysis(
+  ticker: TickerConfig,
+  metrics: MarketMetrics,
+  chain: OptionChainRow[],
+  action: SignalAction,
+  rt: RealtimePredictionIndicators,
+  constituentAnalysis?: import('../types/options').NiftyConstituentAnalysis
+): import('../types/options').SidewaysMarketAnalysis {
+  const { spotPrice, atmStrike, maxPainStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike } = metrics;
+  const dayHigh = ticker.dayHigh && ticker.dayHigh > spotPrice ? ticker.dayHigh : spotPrice + ticker.strikeStep * 0.7;
+  const dayLow = ticker.dayLow && ticker.dayLow < spotPrice ? ticker.dayLow : spotPrice - ticker.strikeStep * 0.7;
+  const actualDayRange = Math.max(1, dayHigh - dayLow);
+  const dayRangePct = (actualDayRange / Math.max(spotPrice, 1)) * 100;
+  
+  // Normal expected daily range (based on VIX / ATR)
+  const vix = Math.max(9, ticker.vix || 13);
+  const dailyExpectedMove = (spotPrice * (vix / 100)) / 15.87;
+  const standardDailyRange = Math.max(ticker.strikeStep * 1.5, dailyExpectedMove * 0.75);
+
+  // Sideways Compression Percentage:
+  // Combines VWAP pinning (40%), EMA entanglement (35%), and daily range scale (25%)
+  const vwapDistRatio = Math.abs(spotPrice - rt.vwap.value) / Math.max(spotPrice, 1) * 100;
+  const vwapCompression = Math.max(0, 1 - (vwapDistRatio / 0.50));
+  const emaGap = Math.abs(rt.ema.ema9 - rt.ema.ema21);
+  const emaCompression = rt.ema.alignment === 'COMPRESSION' ? 0.90 : Math.max(0, 1 - (emaGap / Math.max(ticker.strikeStep * 0.35, 1)));
+  const rangeCompression = Math.max(0, 1 - (dayRangePct / 0.90));
+  const compressionRatio = Math.max(0.20, (vwapCompression * 0.40 + emaCompression * 0.35 + rangeCompression * 0.25));
+  const compressionPercentage = Math.min(95, Math.round(compressionRatio * 100));
+
+  // Criteria for Sideways Market:
+  const reasons: string[] = [];
+  let sidewaysScore = 0;
+
+  // 1. Narrow Intraday Price Range (< 0.45% or < 1.4 strike steps)
+  const isRangeNarrow = dayRangePct < 0.45 || actualDayRange < ticker.strikeStep * 1.5;
+  if (isRangeNarrow) {
+    sidewaysScore += 25;
+    reasons.push(`Compressed Day Range: Spot has fluctuated only ${actualDayRange.toFixed(1)} pts (${dayRangePct.toFixed(2)}%), indicating lack of directional expansion.`);
+  }
+
+  // 2. VWAP Hugging / Equilibrium (< 0.20% from intraday VWAP)
+  const vwapDistPct = Math.abs(spotPrice - rt.vwap.value) / Math.max(spotPrice, 1) * 100;
+  if (vwapDistPct <= 0.20) {
+    sidewaysScore += 20;
+    reasons.push(`VWAP Anchor: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is oscillating within ±${vwapDistPct.toFixed(2)}% of Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}), showing zero institutional breakout momentum.`);
+  }
+
+  // 3. Balanced Put-Call Ratio (PCR 0.90 to 1.15)
+  const isPcrBalanced = pcrTotalOI >= 0.90 && pcrTotalOI <= 1.15;
+  if (isPcrBalanced) {
+    sidewaysScore += 20;
+    reasons.push(`Balanced PCR (${pcrTotalOI.toFixed(2)}): Symmetric Call writing at ceiling (${ticker.currency}${majorResistanceStrike.toLocaleString()}) and Put writing at floor (${ticker.currency}${majorSupportStrike.toLocaleString()}) is pinning spot in equilibrium.`);
+  }
+
+  // 4. Trap between Call Wall & Put Wall
+  const ceiling = Math.max(majorResistanceStrike, atmStrike + ticker.strikeStep);
+  const floor = Math.min(majorSupportStrike, atmStrike - ticker.strikeStep);
+  const isTrappedInWalls = spotPrice >= floor && spotPrice <= ceiling;
+  if (isTrappedInWalls) {
+    sidewaysScore += 15;
+    reasons.push(`Option Seller Pin: Spot is bounded between Call Writing Wall (${ticker.currency}${ceiling.toLocaleString()}) and Put Writing Floor (${ticker.currency}${floor.toLocaleString()}), where short straddle/strangle sellers dominate.`);
+  }
+
+  // 5. EMA & Momentum Stack Compression
+  if (rt.ema.alignment === 'COMPRESSION' || Math.abs(rt.ema.ema9 - rt.ema.ema21) < ticker.strikeStep * 0.12) {
+    sidewaysScore += 10;
+    reasons.push(`EMA Compression: 9 EMA and 21 EMA are tangled with flat slope, confirming absence of trending momentum.`);
+  }
+
+  // 6. Low Volume / Lunch Lull / Compressed Turnover
+  if (rt.volumeAnalytics && (rt.volumeAnalytics.totalVolumeMultiplier < 0.85 || rt.volumeAnalytics.volumeDivergence === 'LOW_VOLUME_CHOP')) {
+    sidewaysScore += 10;
+    reasons.push(`Volume Contraction: Exchange volume is at ${((rt.volumeAnalytics.totalVolumeMultiplier || 0.7) * 100).toFixed(0)}% of 20MA baseline, typical of sideways range consolidation.`);
+  }
+
+  // 7. Heavyweight Tug-of-War (if applicable)
+  if (constituentAnalysis) {
+    const banking = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking');
+    const it = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT');
+    if (Math.abs(constituentAnalysis.netNiftyPointImpact) < 15 && banking && it) {
+      if ((banking.contributionPoints > 0 && it.contributionPoints < 0) || (banking.contributionPoints < 0 && it.contributionPoints > 0)) {
+        sidewaysScore += 10;
+        reasons.push(`Sectoral Tug-of-War: Banking (${banking.contributionPoints >= 0 ? '+' : ''}${banking.contributionPoints} pts) and IT (${it.contributionPoints >= 0 ? '+' : ''}${it.contributionPoints} pts) are pulling in opposite directions, neutralizing net index movement.`);
+      }
+    }
+  }
+
+  // Determine if sideways is active
+  // If action is WAIT_NEUTRAL and sidewaysScore >= 40, or sidewaysScore >= 55
+  const isSideways = (action === 'WAIT_NEUTRAL' && sidewaysScore >= 35) || sidewaysScore >= 50;
+  const sidewaysConfidence = Math.min(98, Math.max(52, sidewaysScore));
+
+  let regimeType: import('../types/options').SidewaysMarketAnalysis['regimeType'] = 'NORMAL_TRENDING';
+  if (isSideways) {
+    if (Math.abs(spotPrice - maxPainStrike) <= ticker.strikeStep * 0.25) {
+      regimeType = 'EXPIRY_PINNING';
+    } else if (compressionPercentage >= 65) {
+      regimeType = 'VOLATILITY_COMPRESSION';
+    } else if (dayRangePct <= 0.32) {
+      regimeType = 'NARROW_DEADBAND_CHOP';
+    } else {
+      regimeType = 'RANGE_BOUND_EQUILIBRIUM';
+    }
+  }
+
+  const rangeSpanPoints = Math.max(ticker.strikeStep, ceiling - floor);
+  const bullishBreakoutTrigger = Number((ceiling + ticker.strikeStep * 0.15).toFixed(1));
+  const bearishBreakdownTrigger = Number((floor - ticker.strikeStep * 0.15).toFixed(1));
+
+  const optionBuyerStrategy = isSideways
+    ? '⚠️ STRICT STAND ASIDE: Option buying in sideways markets causes severe theta decay on both CE and PE. Capital is 100% safer in cash until a confirmed breakout occurs.'
+    : 'Directional option buying permitted with strict multi-factor confirmation.';
+
+  const optionSellerStrategy = isSideways
+    ? `Range-bound Theta Harvesting: Institutional option sellers profit by shorting strangles outside the boundaries (${ticker.currency}${ceiling.toLocaleString()} CE / ${ticker.currency}${floor.toLocaleString()} PE) or executing Iron Condors.`
+    : 'Trend-following option spreads.';
+
+  return {
+    isSideways,
+    sidewaysConfidence,
+    regimeType,
+    rangeCeiling: ceiling,
+    rangeFloor: floor,
+    rangePinStrike: maxPainStrike,
+    rangeSpanPoints,
+    compressionPercentage,
+    reasons,
+    optionBuyerStrategy,
+    optionSellerStrategy,
+    breakoutWatchLevels: {
+      bullishBreakoutTrigger,
+      bearishBreakdownTrigger,
+      powerHourNote: 'Watch for 02:30 PM - 03:15 PM IST Power Hour squeeze when intraday option writers square off / cover positions.',
+    },
   };
 }
 

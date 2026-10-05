@@ -18,6 +18,7 @@ export interface MarketHoursStatus {
   tradeDate?: string;
   nextTradingDate?: string;
   nextTradingDayName?: string;
+  isCasSession?: boolean; // true during Closing Auction Session (15:30 - 15:40 IST)
 }
 
 /**
@@ -162,8 +163,9 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
       };
     }
 
-    // Weekday: Regular trading session
-    if (totalMinutes >= marketOpen && totalMinutes <= marketClose) {
+    // Weekday: Regular trading session (09:15 to 15:30 IST)
+    // Continuous trading terminates at 15:30:00 IST
+    if (totalMinutes >= marketOpen && totalMinutes < marketClose) {
       const minutesToClose = marketClose - totalMinutes;
       const isClosingSoon = minutesToClose <= 45;
       return {
@@ -175,27 +177,47 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
         tradingHoursLabel,
         minutesToClose,
         isClosingSoon,
+        isCasSession: false,
       };
     }
 
-    // Weekday: Pre-market
+    // Weekday: Pre-market (09:00 to 09:15 IST)
     if (totalMinutes >= preMarketStart && totalMinutes < marketOpen) {
       return {
         isOpen: false,
         session: 'PRE_MARKET',
         marketName: 'NSE (India)',
+        marketStatusMessage: 'Pre-Open Session Active (09:00 - 09:15 AM IST)',
         nextOpenMsg: 'Regular trading opens at 09:15 AM IST',
+        exchangeTimeStr,
+        tradingHoursLabel,
+        isCasSession: false,
+      };
+    }
+
+    // Weekday: 03:30 to 03:40 PM -> Closing Auction Session (CAS)
+    if (totalMinutes >= marketClose && totalMinutes < 15 * 60 + 40) {
+      const casMinutesLeft = Math.max(1, (15 * 60 + 40) - totalMinutes);
+      return {
+        isOpen: false,
+        session: 'POST_MARKET',
+        isCasSession: true,
+        marketName: 'NSE (India)',
+        marketStatusMessage: 'Closing Auction (CAS · 3:30 - 3:40 PM)',
+        nextOpenMsg: 'Settles at 3:40 PM IST',
         exchangeTimeStr,
         tradingHoursLabel,
       };
     }
 
-    // Weekday: Post-market closing auction
-    if (totalMinutes > marketClose && totalMinutes <= postMarketClose) {
+    // Weekday: 03:40 to 04:00 PM -> Post-Market Trading Session
+    if (totalMinutes >= 15 * 60 + 40 && totalMinutes <= postMarketClose) {
       return {
         isOpen: false,
         session: 'POST_MARKET',
+        isCasSession: false,
         marketName: 'NSE (India)',
+        marketStatusMessage: 'Post-Market Trading (3:40 - 4:00 PM)',
         nextOpenMsg: dayOfWeek === 5 ? 'Opens Monday at 09:15 AM IST' : 'Opens tomorrow at 09:15 AM IST',
         exchangeTimeStr,
         tradingHoursLabel,
