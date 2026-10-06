@@ -132,7 +132,7 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
 }
 
 /**
- * Load strike history from LocalStorage with seed fallback
+ * Load strike history from LocalStorage with seed fallback and auto-deduplication
  */
 export function loadStrikeHistory(ticker: TickerConfig, chain: OptionChainRow[]): StrikeHistoryItem[] {
   try {
@@ -140,14 +140,37 @@ export function loadStrikeHistory(ticker: TickerConfig, chain: OptionChainRow[])
     if (raw) {
       const parsed: StrikeHistoryItem[] = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const matching = parsed.filter(item => item.tickerSymbol === ticker.symbol);
+        if (matching.length > 0) {
+          // Clean up any historical duplicate entries (from prior versions that created an entry every 10 seconds)
+          const deduplicated: StrikeHistoryItem[] = [];
+          for (const item of matching) {
+            const prev = deduplicated[deduplicated.length - 1];
+            if (
+              prev &&
+              prev.strike === item.strike &&
+              prev.type === item.type &&
+              prev.action === item.action &&
+              Math.abs(prev.timestamp - item.timestamp) < 90000
+            ) {
+              // Redundant short-interval duplicate, skip
+              continue;
+            }
+            deduplicated.push(item);
+          }
+          if (deduplicated.length > 0) {
+            return deduplicated;
+          }
+        }
       }
     }
   } catch {
     // LocalStorage error fallback
   }
 
-  return generateSeedStrikeHistory(ticker, chain);
+  const seeded = generateSeedStrikeHistory(ticker, chain);
+  saveStrikeHistory(ticker.symbol, seeded);
+  return seeded;
 }
 
 /**
@@ -155,7 +178,8 @@ export function loadStrikeHistory(ticker: TickerConfig, chain: OptionChainRow[])
  */
 export function saveStrikeHistory(symbol: string, history: StrikeHistoryItem[]): void {
   try {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}${symbol}`, JSON.stringify(history.slice(0, 50)));
+    const matching = history.filter(h => h.tickerSymbol === symbol);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}${symbol}`, JSON.stringify(matching.slice(0, 50)));
   } catch {
     // LocalStorage error ignore
   }
@@ -188,7 +212,7 @@ export function updateHistoryWithLiveChain(
     let lifecycleStage: TradeLifecycleStage = item.lifecycleStage || 'ACTIVE' as any;
 
     if (highest >= item.target2 || liveLtp >= item.target2) {
-      status = liveLtp >= item.target2 ? 'TARGET_2_HIT' : 'TARGET_2_HIT';
+      status = 'TARGET_2_HIT';
       lifecycleStage = liveLtp < item.target2 ? 'POST_TARGET_RETRACEMENT' : 'TARGET_2_HIT';
     } else if (highest >= item.target1 || liveLtp >= item.target1) {
       status = liveLtp < item.target1 ? 'TARGET_1_RETRACED' : 'TARGET_1_HIT';
@@ -199,6 +223,9 @@ export function updateHistoryWithLiveChain(
     } else if (pnlPercent > 0) {
       status = 'PROFITABLE';
       lifecycleStage = 'EXPANDING_IN_PROFIT';
+    } else if (pnlPercent < 0) {
+      status = 'IN_LOSS';
+      lifecycleStage = 'FRESH_ENTRY';
     } else {
       status = 'ACTIVE';
       lifecycleStage = 'FRESH_ENTRY';
@@ -217,32 +244,78 @@ export function updateHistoryWithLiveChain(
 }
 
 /**
- * Adds a new trade signal recommendation to history if distinct from the latest entry
+ * Adds or updates a trade signal recommendation in history.
+ * If the current active recommendation matches the latest entry, it preserves entry cost
+ * and updates live P&L, rather than resetting or inserting duplicates.
  */
 export function recordSignalInHistory(
   history: StrikeHistoryItem[],
   signal: TradeSignal,
   ticker: TickerConfig
 ): StrikeHistoryItem[] {
-  if (signal.action === 'WAIT_NEUTRAL') return history;
+  if (!signal.recommendedStrike || signal.recommendedStrike <= 0) return history;
+  if (!signal.recommendedContractLTP || signal.recommendedContractLTP <= 0) return history;
 
   const now = Date.now();
-  const latest = history[0];
+  const tickerRecords = history.filter(h => h.tickerSymbol === ticker.symbol);
+  const otherRecords = history.filter(h => h.tickerSymbol !== ticker.symbol);
+  const latest = tickerRecords[0];
 
-  // Prevent duplicate insertion within 15 seconds for identical strike & type
-  if (
-    latest &&
+  // If the latest record is for the EXACT SAME ongoing trade (same strike, type, action):
+  // DO NOT add a duplicate row! Continuously track and update this trade's real progress.
+  const isSameOngoingTrade = latest &&
     latest.strike === signal.recommendedStrike &&
     latest.type === signal.recommendedType &&
-    now - latest.timestamp < 15000
-  ) {
-    return history;
+    latest.action === signal.action;
+
+  if (isSameOngoingTrade) {
+    const liveLtp = signal.recommendedContractLTP;
+    const entry = latest.entryPrice;
+    const highest = Math.max(latest.highestLTP || entry, liveLtp);
+    const pnlPercent = Number((((liveLtp - entry) / entry) * 100).toFixed(1));
+    const maxProfitPercent = Number((((highest - entry) / entry) * 100).toFixed(1));
+
+    let status = latest.status;
+    let lifecycleStage: TradeLifecycleStage = latest.lifecycleStage || 'ACTIVE' as any;
+
+    if (highest >= latest.target2 || liveLtp >= latest.target2) {
+      status = 'TARGET_2_HIT';
+      lifecycleStage = liveLtp < latest.target2 ? 'POST_TARGET_RETRACEMENT' : 'TARGET_2_HIT';
+    } else if (highest >= latest.target1 || liveLtp >= latest.target1) {
+      status = liveLtp < latest.target1 ? 'TARGET_1_RETRACED' : 'TARGET_1_HIT';
+      lifecycleStage = liveLtp < latest.target1 ? 'POST_TARGET_RETRACEMENT' : 'TARGET_1_HIT';
+    } else if (liveLtp <= latest.stopLoss) {
+      status = 'STOP_LOSS_HIT';
+      lifecycleStage = 'STOP_LOSS_HIT';
+    } else if (pnlPercent > 0) {
+      status = 'PROFITABLE';
+      lifecycleStage = 'EXPANDING_IN_PROFIT';
+    } else if (pnlPercent < 0) {
+      status = 'IN_LOSS';
+      lifecycleStage = 'FRESH_ENTRY';
+    }
+
+    const updatedLatest: StrikeHistoryItem = {
+      ...latest,
+      currentLTP: liveLtp,
+      highestLTP: highest,
+      pnlPercent,
+      maxProfitPercent,
+      status,
+      lifecycleStage,
+      confidence: signal.confidence,
+    };
+
+    const updatedTickerRecords = [updatedLatest, ...tickerRecords.slice(1)];
+    saveStrikeHistory(ticker.symbol, updatedTickerRecords);
+    return [...updatedTickerRecords, ...otherRecords];
   }
 
+  // A genuinely new signal has formed (strike changed, action changed, or fresh cycle)
   const newItem: StrikeHistoryItem = {
     id: `sig-${now}-${signal.recommendedStrike}`,
     timestamp: now,
-    timeFormatted: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    timeFormatted: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     tickerSymbol: ticker.symbol,
     action: signal.action,
     strike: signal.recommendedStrike,
@@ -263,9 +336,50 @@ export function recordSignalInHistory(
     riskReward: signal.riskRewardRatio,
   };
 
-  const updated = [newItem, ...history.slice(0, 49)];
-  saveStrikeHistory(ticker.symbol, updated);
-  return updated;
+  const updatedTickerRecords = [newItem, ...tickerRecords.slice(0, 49)];
+  saveStrikeHistory(ticker.symbol, updatedTickerRecords);
+  return [...updatedTickerRecords, ...otherRecords];
+}
+
+/**
+ * Force records the current trade recommendation on demand (e.g., user manual log)
+ */
+export function forceRecordSignalInHistory(
+  history: StrikeHistoryItem[],
+  signal: TradeSignal,
+  ticker: TickerConfig
+): StrikeHistoryItem[] {
+  const now = Date.now();
+  const tickerRecords = history.filter(h => h.tickerSymbol === ticker.symbol);
+  const otherRecords = history.filter(h => h.tickerSymbol !== ticker.symbol);
+
+  const newItem: StrikeHistoryItem = {
+    id: `sig-${now}-${signal.recommendedStrike}`,
+    timestamp: now,
+    timeFormatted: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    tickerSymbol: ticker.symbol,
+    action: signal.action,
+    strike: signal.recommendedStrike,
+    type: signal.recommendedType,
+    moneyness: signal.moneyness,
+    spotPriceAtSignal: ticker.spotPrice,
+    entryPrice: signal.recommendedContractLTP,
+    entryRange: signal.entryRange,
+    target1: signal.target1,
+    target2: signal.target2,
+    stopLoss: signal.stopLoss,
+    currentLTP: signal.recommendedContractLTP,
+    highestLTP: signal.recommendedContractLTP,
+    pnlPercent: 0,
+    maxProfitPercent: 0,
+    status: 'ACTIVE',
+    confidence: signal.confidence,
+    riskReward: signal.riskRewardRatio,
+  };
+
+  const updatedTickerRecords = [newItem, ...tickerRecords.slice(0, 49)];
+  saveStrikeHistory(ticker.symbol, updatedTickerRecords);
+  return [...updatedTickerRecords, ...otherRecords];
 }
 
 /**
@@ -397,62 +511,6 @@ export function deriveStrikeTrendAnalytics(
   const total = tickerHistory.length;
   const cumulativeTrend = computeCumulativeActionTrend(tickerHistory, ticker);
 
-  if (total === 0) {
-    return {
-      overallWinRate: 85.0,
-      target1HitRate: 75.0,
-      target2HitRate: 45.0,
-      avgProfitPerWinningTrade: 38.5,
-      bestPerformingMoneyness: 'ATM',
-      moneynessPerformance: [
-        { moneyness: 'ATM', winRate: 88, avgGain: 42.5, signalCount: 1 },
-        { moneyness: 'ITM', winRate: 92, avgGain: 34.0, signalCount: 1 },
-        { moneyness: 'OTM', winRate: 70, avgGain: 51.0, signalCount: 1 },
-      ],
-      topRankedStrikes: [],
-      cumulativeTrend,
-      activeSignalsCount: 0,
-      totalHistoricalSignals: 0,
-    };
-  }
-
-  // Calculate Win Rate & Target Hits
-  const winningTrades = tickerHistory.filter(h => h.pnlPercent > 0 || h.status.includes('TARGET'));
-  const target1Hits = tickerHistory.filter(h => h.status === 'TARGET_1_HIT' || h.status === 'TARGET_2_HIT');
-  const target2Hits = tickerHistory.filter(h => h.status === 'TARGET_2_HIT');
-  const activeSignals = tickerHistory.filter(h => h.status === 'ACTIVE' || h.status === 'PROFITABLE');
-
-  const winRate = Number(((winningTrades.length / total) * 100).toFixed(1));
-  const t1Rate = Number(((target1Hits.length / total) * 100).toFixed(1));
-  const t2Rate = Number(((target2Hits.length / total) * 100).toFixed(1));
-
-  const avgWinningProfit = winningTrades.length > 0
-    ? Number((winningTrades.reduce((acc, h) => acc + Math.max(h.pnlPercent, h.maxProfitPercent), 0) / winningTrades.length).toFixed(1))
-    : 32.0;
-
-  // Moneyness Performance Breakdown
-  const moneynessTiers: Moneyness[] = ['ITM', 'ATM', 'OTM'];
-  const moneynessPerformance = moneynessTiers.map(m => {
-    const items = tickerHistory.filter(h => h.moneyness === m);
-    if (items.length === 0) {
-      return { moneyness: m, winRate: m === 'ATM' ? 88 : m === 'ITM' ? 92 : 72, avgGain: m === 'ATM' ? 42 : m === 'ITM' ? 32 : 55, signalCount: 0 };
-    }
-    const wins = items.filter(h => h.pnlPercent > 0 || h.status.includes('TARGET'));
-    const mWinRate = Number(((wins.length / items.length) * 100).toFixed(1));
-    const mAvgGain = Number((items.reduce((sum, h) => sum + Math.max(0, h.maxProfitPercent), 0) / items.length).toFixed(1));
-    return {
-      moneyness: m,
-      winRate: mWinRate,
-      avgGain: mAvgGain,
-      signalCount: items.length,
-    };
-  });
-
-  // Best performing moneyness category
-  const bestMoneyness = moneynessPerformance.reduce((prev, curr) => 
-    (curr.winRate * 0.6 + curr.avgGain * 0.4) > (prev.winRate * 0.6 + prev.avgGain * 0.4) ? curr : prev
-  ).moneyness;
-
   // Rank all strikes near spot by derived profit probability
   const step = ticker.strikeStep;
   const atm = ticker.atmStrike;
@@ -520,6 +578,62 @@ export function deriveStrikeTrendAnalytics(
 
   // Sort by profit score descending
   topRankedStrikes.sort((a, b) => b.profitScore - a.profitScore);
+
+  if (total === 0) {
+    return {
+      overallWinRate: 85.0,
+      target1HitRate: 75.0,
+      target2HitRate: 45.0,
+      avgProfitPerWinningTrade: 38.5,
+      bestPerformingMoneyness: 'ATM',
+      moneynessPerformance: [
+        { moneyness: 'ATM', winRate: 88, avgGain: 42.5, signalCount: 1 },
+        { moneyness: 'ITM', winRate: 92, avgGain: 34.0, signalCount: 1 },
+        { moneyness: 'OTM', winRate: 70, avgGain: 51.0, signalCount: 1 },
+      ],
+      topRankedStrikes,
+      cumulativeTrend,
+      activeSignalsCount: 0,
+      totalHistoricalSignals: 0,
+    };
+  }
+
+  // Calculate Win Rate & Target Hits
+  const winningTrades = tickerHistory.filter(h => h.pnlPercent > 0 || h.status.includes('TARGET'));
+  const target1Hits = tickerHistory.filter(h => h.status === 'TARGET_1_HIT' || h.status === 'TARGET_2_HIT');
+  const target2Hits = tickerHistory.filter(h => h.status === 'TARGET_2_HIT');
+  const activeSignals = tickerHistory.filter(h => h.status === 'ACTIVE' || h.status === 'PROFITABLE');
+
+  const winRate = Number(((winningTrades.length / total) * 100).toFixed(1));
+  const t1Rate = Number(((target1Hits.length / total) * 100).toFixed(1));
+  const t2Rate = Number(((target2Hits.length / total) * 100).toFixed(1));
+
+  const avgWinningProfit = winningTrades.length > 0
+    ? Number((winningTrades.reduce((acc, h) => acc + Math.max(h.pnlPercent, h.maxProfitPercent), 0) / winningTrades.length).toFixed(1))
+    : 32.0;
+
+  // Moneyness Performance Breakdown
+  const moneynessTiers: Moneyness[] = ['ITM', 'ATM', 'OTM'];
+  const moneynessPerformance = moneynessTiers.map(m => {
+    const items = tickerHistory.filter(h => h.moneyness === m);
+    if (items.length === 0) {
+      return { moneyness: m, winRate: m === 'ATM' ? 88 : m === 'ITM' ? 92 : 72, avgGain: m === 'ATM' ? 42 : m === 'ITM' ? 32 : 55, signalCount: 0 };
+    }
+    const wins = items.filter(h => h.pnlPercent > 0 || h.status.includes('TARGET'));
+    const mWinRate = Number(((wins.length / items.length) * 100).toFixed(1));
+    const mAvgGain = Number((items.reduce((sum, h) => sum + Math.max(0, h.maxProfitPercent), 0) / items.length).toFixed(1));
+    return {
+      moneyness: m,
+      winRate: mWinRate,
+      avgGain: mAvgGain,
+      signalCount: items.length,
+    };
+  });
+
+  // Best performing moneyness category
+  const bestMoneyness = moneynessPerformance.reduce((prev, curr) => 
+    (curr.winRate * 0.6 + curr.avgGain * 0.4) > (prev.winRate * 0.6 + prev.avgGain * 0.4) ? curr : prev
+  ).moneyness;
 
   return {
     overallWinRate: winRate,

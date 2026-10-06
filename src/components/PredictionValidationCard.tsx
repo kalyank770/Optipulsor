@@ -16,6 +16,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { TickerConfig, TradeSignal, OptionChainRow, MarketMetrics } from '../types/options';
+import { MarketHoursStatus } from '../utils/marketHours';
 import { AfterMarketOpeningAnalytics } from '../utils/afterMarketEngine';
 import { 
   loadAllPredictionRecords, 
@@ -32,6 +33,7 @@ interface PredictionValidationCardProps {
   signal: TradeSignal;
   optionChain: OptionChainRow[];
   metrics: MarketMetrics;
+  marketStatus?: MarketHoursStatus;
   theme?: 'dark' | 'light';
 }
 
@@ -41,6 +43,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
   signal,
   optionChain,
   metrics,
+  marketStatus,
   theme = 'dark'
 }) => {
   const isLight = theme === 'light';
@@ -60,8 +63,9 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
       // Record or refresh prediction snapshot for current ticker
       const snap = recordPredictionSnapshot(ticker, analytics, signal);
       
-      // If market is open or in pre-market, run validation comparison
-      if (optionChain.length > 0) {
+      // Only auto-validate against live market open during live regular open or active pre-market session
+      const isLiveOpenSession = Boolean(marketStatus?.isOpen || marketStatus?.session === 'PRE_MARKET');
+      if (isLiveOpenSession && optionChain.length > 0) {
         const validated = validatePredictionAgainstLiveOpen(ticker, metrics, optionChain, signal);
         if (validated) {
           setActiveRecord(validated);
@@ -76,7 +80,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
 
     setRecords(currentRecords);
     setMetricsData(getParameterAccuracyMetrics());
-  }, [ticker.symbol, ticker.spotPrice, analytics, signal, optionChain.length, metrics]);
+  }, [ticker.symbol, ticker.spotPrice, analytics, signal, optionChain.length, metrics, marketStatus?.isOpen, marketStatus?.session]);
 
   // Run instant manual validation test pass
   const handleRunValidationTest = () => {

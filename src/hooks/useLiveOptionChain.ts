@@ -19,14 +19,16 @@ import {
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
-import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
+import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
 import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
 import { 
   loadStrikeHistory, 
   saveStrikeHistory,
+  generateSeedStrikeHistory,
   updateHistoryWithLiveChain, 
   recordSignalInHistory, 
+  forceRecordSignalInHistory,
   deriveStrikeTrendAnalytics 
 } from '../utils/strikeHistoryEngine';
 import { getMarketHoursStatus, MarketHoursStatus } from '../utils/marketHours';
@@ -104,19 +106,36 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     // Dynamic previous close computed from reference previous session close
     const cePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE', divYield);
     const pePrevBS = calculateBlackScholes(ticker.prevClose, K, T + 1 / 365, r, peIVSkew, 'PE', divYield);
-    const cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
-    const pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
+    let cePrevClose = Math.max(0.05, Number((Math.round(cePrevBS.price * 20) / 20).toFixed(2)));
+    let pePrevClose = Math.max(0.05, Number((Math.round(pePrevBS.price * 20) / 20).toFixed(2)));
 
     let ceChange = Number((ceLtp - cePrevClose).toFixed(2));
     let peChange = Number((peLtp - pePrevClose).toFixed(2));
 
     const officialQuote = isIndian && ticker.symbol.includes('NIFTY') && expiryIndex === 0 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
+    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY') && K === 22900 && NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] ? NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] : undefined;
 
     if (officialQuote) {
       ceLtp = officialQuote.ceLtp;
       peLtp = officialQuote.peLtp;
       ceChange = officialQuote.ceChange;
       peChange = officialQuote.peChange;
+      cePrevClose = Math.max(0.05, Number((ceLtp - ceChange).toFixed(2)));
+      pePrevClose = Math.max(0.05, Number((peLtp - peChange).toFixed(2)));
+    } else if (crossExpiryQuote) {
+      ceLtp = crossExpiryQuote.ceLtp;
+      peLtp = crossExpiryQuote.peLtp;
+      ceChange = crossExpiryQuote.ceChg;
+      peChange = crossExpiryQuote.peChg;
+      cePrevClose = Math.max(0.05, Number((ceLtp - ceChange).toFixed(2)));
+      pePrevClose = Math.max(0.05, Number((peLtp - peChange).toFixed(2)));
+    } else {
+      if (ceLtp <= 0.05 && cePrevClose <= 0.05) {
+        ceChange = 0;
+      }
+      if (peLtp <= 0.05 && pePrevClose <= 0.05) {
+        peChange = 0;
+      }
     }
 
     // Tight market spread
@@ -127,8 +146,8 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceAsk = Number((ceLtp + halfSpread).toFixed(2));
     const peBid = Number(Math.max(0.05, peLtp - halfSpread).toFixed(2));
     const peAsk = Number((peLtp + halfSpread).toFixed(2));
-    const ceChangePercent = Number(((ceChange / cePrevClose) * 100).toFixed(2));
-    const peChangePercent = Number(((peChange / pePrevClose) * 100).toFixed(2));
+    const ceChangePercent = cePrevClose > 0 ? Number(((ceChange / cePrevClose) * 100).toFixed(2)) : 0;
+    const peChangePercent = pePrevClose > 0 ? Number(((peChange / pePrevClose) * 100).toFixed(2)) : 0;
 
     // Derivative buildup classification based on real Price & OI changes
     const ceBuildup: BuildupType = 
@@ -679,7 +698,7 @@ export function useLiveOptionChain() {
           // Re-evaluate signal with updated live catalysts
           setSignal(prev => {
             if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, uniqueArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis);
+              const s = generateTradeSignal(selectedTicker, metrics, chain, uniqueArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, liveGlobalMacro);
               s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, uniqueArticles, expiryIndex, s);
               return s;
             }
@@ -692,7 +711,7 @@ export function useLiveOptionChain() {
     } finally {
       setIsNewsLoading(false);
     }
-  }, [selectedTicker, metrics, chain, expiryIndex, liveConstituentAnalysis]);
+  }, [selectedTicker, metrics, chain, expiryIndex, liveConstituentAnalysis, liveGlobalMacro]);
 
   // Fetch genuine real-time Nifty & Bank Nifty heavyweight derivative constituents
   const fetchHeavyweights = useCallback(async (sym = selectedTicker.symbol) => {
@@ -712,7 +731,7 @@ export function useLiveOptionChain() {
           setLiveConstituentAnalysis(analysisObj);
           setSignal(prev => {
             if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, analysisObj);
+              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, analysisObj, liveGlobalMacro);
               s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, s);
               return s;
             }
@@ -725,7 +744,7 @@ export function useLiveOptionChain() {
     } finally {
       setIsHeavyweightsLoading(false);
     }
-  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex]);
+  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex, liveGlobalMacro]);
 
   // Fetch genuine real-time global macro inter-market telemetry
   const fetchGlobalMacro = useCallback(async (sym = selectedTicker.symbol) => {
@@ -786,9 +805,11 @@ export function useLiveOptionChain() {
       expiryDate: newTicker.expiryDates[0],
     }));
 
-    const tickerHistory = loadStrikeHistory(newTicker, chain);
-    setStrikeHistory(tickerHistory);
-    setStrikeAnalytics(deriveStrikeTrendAnalytics(tickerHistory, newTicker, chain));
+    const initialChainForTicker = buildInitialChain(newTicker, 0);
+    const tickerHistory = loadStrikeHistory(newTicker, initialChainForTicker);
+    const updatedHistory = updateHistoryWithLiveChain(tickerHistory, newTicker, initialChainForTicker);
+    setStrikeHistory(updatedHistory);
+    setStrikeAnalytics(deriveStrikeTrendAnalytics(updatedHistory, newTicker, initialChainForTicker));
 
     fetchOptionChainFromBackend(newTicker, 0);
     fetchRealNews(newTicker.symbol);
@@ -796,11 +817,20 @@ export function useLiveOptionChain() {
     fetchGlobalMacro(newTicker.symbol);
   };
 
+  // Helper to check if a chain belongs to the selected ticker
+  const isChainMatchingSelected = (chainRows: OptionChainRow[]): boolean => {
+    if (!chainRows || chainRows.length === 0) return false;
+    return chainRows.some(row => Math.abs(row.strike - selectedTicker.atmStrike) <= selectedTicker.strikeStep * 2);
+  };
+
   // Sync strike history when selected ticker symbol changes
   useEffect(() => {
-    const history = loadStrikeHistory(selectedTicker, chain.length > 0 ? chain : buildInitialChain(selectedTicker, expiryIndex));
-    setStrikeHistory(history);
-    setStrikeAnalytics(deriveStrikeTrendAnalytics(history, selectedTicker, chain.length > 0 ? chain : buildInitialChain(selectedTicker, expiryIndex)));
+    const isChainForSelected = isChainMatchingSelected(chain);
+    const activeChain = isChainForSelected ? chain : buildInitialChain(selectedTicker, expiryIndex);
+    const history = loadStrikeHistory(selectedTicker, activeChain);
+    const updated = updateHistoryWithLiveChain(history, selectedTicker, activeChain);
+    setStrikeHistory(updated);
+    setStrikeAnalytics(deriveStrikeTrendAnalytics(updated, selectedTicker, activeChain));
   }, [selectedTicker.symbol]);
 
   // Handle expiry change
@@ -824,20 +854,74 @@ export function useLiveOptionChain() {
     fetchOptionChainFromBackend(selectedTicker, idx, targetTimestamp);
   };
 
-  // Update strike history and derive live profitability trends as chain & spot tick
+  // Update strike history as chain & spot tick
   useEffect(() => {
-    if (chain.length === 0) return;
+    if (!isChainMatchingSelected(chain)) return;
+
     setStrikeHistory(prev => {
-      let updated = updateHistoryWithLiveChain(prev, selectedTicker, chain);
-      if (signal && signal.action !== 'WAIT_NEUTRAL') {
+      const base = prev.length > 0 && prev.some(h => h.tickerSymbol === selectedTicker.symbol)
+        ? prev
+        : loadStrikeHistory(selectedTicker, chain);
+      let updated = updateHistoryWithLiveChain(base, selectedTicker, chain);
+      if (signal && signal.recommendedStrike && signal.recommendedContractLTP > 0) {
         updated = recordSignalInHistory(updated, signal, selectedTicker);
       }
       saveStrikeHistory(selectedTicker.symbol, updated);
-      const newAnalytics = deriveStrikeTrendAnalytics(updated, selectedTicker, chain);
-      setStrikeAnalytics(newAnalytics);
       return updated;
     });
-  }, [chain, selectedTicker.spotPrice, signal.action, signal.recommendedStrike]);
+  }, [chain, selectedTicker.spotPrice, signal?.action, signal?.recommendedStrike, signal?.recommendedContractLTP]);
+
+  // Derive strike analytics whenever strike history, ticker or chain updates
+  useEffect(() => {
+    const isChainForSelected = isChainMatchingSelected(chain);
+    const activeChain = isChainForSelected ? chain : buildInitialChain(selectedTicker, expiryIndex);
+    const newAnalytics = deriveStrikeTrendAnalytics(strikeHistory, selectedTicker, activeChain);
+    setStrikeAnalytics(newAnalytics);
+  }, [strikeHistory, selectedTicker, chain, expiryIndex]);
+
+  // Manual trigger: logs the active algorithmic recommendation to history immediately
+  const logCurrentSignalToHistory = useCallback(() => {
+    if (!signal || !signal.recommendedStrike) return;
+    const isChainForSelected = isChainMatchingSelected(chain);
+    const activeChain = isChainForSelected ? chain : buildInitialChain(selectedTicker, expiryIndex);
+    setStrikeHistory(prev => {
+      const base = prev.length > 0 && prev.some(h => h.tickerSymbol === selectedTicker.symbol)
+        ? prev
+        : loadStrikeHistory(selectedTicker, activeChain);
+      const updated = forceRecordSignalInHistory(base, signal, selectedTicker);
+      saveStrikeHistory(selectedTicker.symbol, updated);
+      return updated;
+    });
+  }, [signal, selectedTicker, chain, expiryIndex]);
+
+  // Manual trigger: refreshes live contract tracking and P&L
+  const refreshStrikeHistory = useCallback(() => {
+    const isChainForSelected = isChainMatchingSelected(chain);
+    const activeChain = isChainForSelected ? chain : buildInitialChain(selectedTicker, expiryIndex);
+    setStrikeHistory(prev => {
+      const base = prev.length > 0 && prev.some(h => h.tickerSymbol === selectedTicker.symbol)
+        ? prev
+        : loadStrikeHistory(selectedTicker, activeChain);
+      const updated = updateHistoryWithLiveChain(base, selectedTicker, activeChain);
+      saveStrikeHistory(selectedTicker.symbol, updated);
+      return updated;
+    });
+  }, [selectedTicker, chain, expiryIndex]);
+
+  // Reset strike history to clean calibrated seed records
+  const resetStrikeHistory = useCallback(() => {
+    try {
+      localStorage.removeItem(`optipulse_strike_history_v1_${selectedTicker.symbol}`);
+    } catch {
+      // Ignore
+    }
+    const isChainForSelected = isChainMatchingSelected(chain);
+    const activeChain = isChainForSelected ? chain : buildInitialChain(selectedTicker, expiryIndex);
+    const fresh = generateSeedStrikeHistory(selectedTicker, activeChain);
+    saveStrikeHistory(selectedTicker.symbol, fresh);
+    setStrikeHistory(fresh);
+    setStrikeAnalytics(deriveStrikeTrendAnalytics(fresh, selectedTicker, activeChain));
+  }, [selectedTicker, chain, expiryIndex]);
 
   // Real-time live exchange poll: Continuously ticks live during Regular Session or Pre-Market mode
   useEffect(() => {
@@ -971,6 +1055,9 @@ export function useLiveOptionChain() {
     dataSourceNote,
     marketStatus,
     syncLiveExchange: () => fetchOptionChainFromBackend(selectedTicker, expiryIndex),
+    logCurrentSignalToHistory,
+    refreshStrikeHistory,
+    resetStrikeHistory,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,

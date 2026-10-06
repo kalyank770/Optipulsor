@@ -237,7 +237,13 @@ export function computeAfterMarketOpeningAnalytics(
       tomorrowStrike = Math.ceil((spotClose + step * 0.3) / step) * step;
     }
     projectedSpotAtHit = Number(Math.max(predictedOpeningSpot, tomorrowStrike).toFixed(2));
-    hitReason = `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts), spot will drive upward at 09:15 AM open to hit ${tomorrowStrike} CE.`;
+    const resWall = metrics?.majorResistanceStrike || (spotClose + step);
+    const supFloor = metrics?.majorSupportStrike || (spotClose - step);
+    const isAboveResWall = predictedOpeningSpot >= resWall;
+    
+    hitReason = isAboveResWall
+      ? `Synthesizing today's strong closing structure (+${closeVsVwapPoints} pts above VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts): Spot is projected to gap above the ${ticker.currency}${resWall.toLocaleString()} Call OI Resistance wall towards ${tomorrowStrike} CE. If spot sustains above ${ticker.currency}${resWall.toLocaleString()} in the opening 15 minutes, trapped Call writers will be forced into short covering, driving spot to ${projectedSpotAtHit}. If rejected at open, watch for a gap fade back to ${ticker.currency}${spotClose.toLocaleString()}.`
+      : `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts) below the ${ticker.currency}${resWall.toLocaleString()} OI resistance wall, spot will drive upward at 09:15 AM open to test ${tomorrowStrike} CE.`;
   } else {
     // Bearish Opening: Market will slide/gap down and hit a lower Put strike
     tomorrowAction = 'BUY_PE';
@@ -253,7 +259,13 @@ export function computeAfterMarketOpeningAnalytics(
       tomorrowStrike = Math.floor((spotClose - step * 0.3) / step) * step;
     }
     projectedSpotAtHit = Number(Math.min(predictedOpeningSpot, tomorrowStrike).toFixed(2));
-    hitReason = `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts), spot will breakdown at 09:15 AM open to hit ${tomorrowStrike} PE.`;
+    
+    const supFloor = metrics?.majorSupportStrike || (spotClose - step);
+    const isBelowSupFloor = predictedOpeningSpot <= supFloor;
+
+    hitReason = isBelowSupFloor
+      ? `Synthesizing today's weak closing structure (${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts): Spot is projected to gap down below the ${ticker.currency}${supFloor.toLocaleString()} Put OI Support floor towards ${tomorrowStrike} PE. If breakdown sustains below ${ticker.currency}${supFloor.toLocaleString()} in the first 15 minutes, long unwinding will accelerate spot to ${projectedSpotAtHit}.`
+      : `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts), spot will test ${tomorrowStrike} PE at 09:15 AM open.`;
   }
 
   // Derive estimated opening contract targets for tomorrow's hit strike

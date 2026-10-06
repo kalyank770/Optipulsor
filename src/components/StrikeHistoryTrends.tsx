@@ -28,6 +28,9 @@ interface StrikeHistoryTrendsProps {
   history: StrikeHistoryItem[];
   analytics: StrikeTrendAnalytics;
   onSelectContract: (strike: number, type: OptionType) => void;
+  onLogCurrentSignal?: () => void;
+  onRefreshHistory?: () => void;
+  onResetHistory?: () => void;
   theme?: 'dark' | 'light';
 }
 
@@ -37,12 +40,22 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
   history,
   analytics,
   onSelectContract,
+  onLogCurrentSignal,
+  onRefreshHistory,
+  onResetHistory,
   theme = 'dark',
 }) => {
   const isIndian = ticker.currency === '₹';
   const isLight = theme === 'light';
   const cumulative = analytics.cumulativeTrend;
   const isBullish = cumulative.dominantAction === 'BULLISH_CE';
+  const currentHistory = history.filter(h => h.tickerSymbol === ticker.symbol);
+  const [feedbackNotice, setFeedbackNotice] = React.useState<string | null>(null);
+
+  const showFeedback = (msg: string) => {
+    setFeedbackNotice(msg);
+    setTimeout(() => setFeedbackNotice(null), 3000);
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -428,120 +441,176 @@ export const StrikeHistoryTrends: React.FC<StrikeHistoryTrendsProps> = ({
 
       {/* 4. Suggested Strikes Execution & History Log */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 sm:p-5 shadow-lg">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 border-b border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-800">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <History className="w-4 h-4 text-sky-400" />
               <span>Suggested Strikes History Log</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Live audit of past algorithmic suggestions, real-money entry zones, and target completion status
+              Live audit of algorithmic suggestions, real-money entry zones, and target completion status for {ticker.symbol}
             </p>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            {history.length} Recommendations Recorded
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-mono text-slate-400 mr-1">
+              {currentHistory.length} Logged for {ticker.symbol}
+            </span>
+            {onLogCurrentSignal && (
+              <button
+                onClick={() => {
+                  onLogCurrentSignal();
+                  showFeedback('⚡ Active recommendation logged to history');
+                }}
+                className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-sm shadow-emerald-950"
+                title="Log current trade recommendation to history immediately"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Log Current Signal</span>
+              </button>
+            )}
+            {onRefreshHistory && (
+              <button
+                onClick={() => {
+                  onRefreshHistory();
+                  showFeedback('🔄 Live contract prices and P&L synced');
+                }}
+                className="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                title="Refresh live contract tracking and P&L"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Sync Live P&L</span>
+              </button>
+            )}
+            {onResetHistory && (
+              <button
+                onClick={() => {
+                  onResetHistory();
+                  showFeedback('🧹 Reset history to clean calibrated trades');
+                }}
+                className="px-2.5 py-1 text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                title="Reset log to clean calibrated reference records"
+              >
+                <span>Reset Log</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Action Feedback Banner */}
+        {feedbackNotice && (
+          <div className="mt-2.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center gap-2 animate-fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{feedbackNotice}</span>
+          </div>
+        )}
 
         {/* History Records Table */}
         <div className="mt-3.5 overflow-x-auto">
-          <table className="w-full text-xs font-mono tabular-nums border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 bg-slate-950/90 text-slate-400 text-[11px]">
-                <th className="py-2.5 px-3 text-left font-semibold">Time</th>
-                <th className="py-2.5 px-3 text-left font-semibold">Signal & Strike</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Entry Zone</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Entry LTP</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Target 1 & 2</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Live LTP</th>
-                <th className="py-2.5 px-3 text-right font-semibold">Current P&L</th>
-                <th className="py-2.5 px-3 text-center font-semibold">Outcome Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {history.map((record) => {
-                const isCE = record.type === 'CE';
-                const isPositive = record.pnlPercent >= 0;
+          {currentHistory.length === 0 ? (
+            <div className="py-8 text-center text-slate-400">
+              <History className="w-8 h-8 mx-auto mb-2 text-slate-500 opacity-60" />
+              <p className="text-sm font-medium text-slate-300">No suggestions logged yet for {ticker.symbol}</p>
+              <p className="text-xs text-slate-500 mt-1">Click "Log Current Signal" above to record the active recommendation.</p>
+            </div>
+          ) : (
+            <table className="w-full text-xs font-mono tabular-nums border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-950/90 text-slate-400 text-[11px]">
+                  <th className="py-2.5 px-3 text-left font-semibold">Time</th>
+                  <th className="py-2.5 px-3 text-left font-semibold">Signal & Strike</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Entry Zone</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Entry LTP</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Target 1 & 2</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Live LTP</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Current P&L</th>
+                  <th className="py-2.5 px-3 text-center font-semibold">Outcome Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {currentHistory.map((record) => {
+                  const isCE = record.type === 'CE';
+                  const isPositive = record.pnlPercent >= 0;
 
-                return (
-                  <tr 
-                    key={record.id}
-                    className="hover:bg-slate-800/40 transition-colors"
-                  >
-                    {/* Time */}
-                    <td className="py-2.5 px-3 text-left text-slate-400 text-[11px]">
-                      {record.timeFormatted}
-                    </td>
+                  return (
+                    <tr 
+                      key={record.id}
+                      className="hover:bg-slate-800/40 transition-colors"
+                    >
+                      {/* Time */}
+                      <td className="py-2.5 px-3 text-left text-slate-400 text-[11px]">
+                        {record.timeFormatted}
+                      </td>
 
-                    {/* Signal & Strike */}
-                    <td className="py-2.5 px-3 text-left">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                          isCE ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
-                          'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                      {/* Signal & Strike */}
+                      <td className="py-2.5 px-3 text-left">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                            isCE ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                            'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                          }`}>
+                            {record.action === 'BUY_CE' ? 'CALL' : record.action === 'BUY_PE' ? 'PUT' : 'NEUTRAL'}
+                          </span>
+                          <span className="font-bold text-white text-xs sm:text-sm">
+                            {record.strike} {record.type}
+                          </span>
+                          <span className="text-[10px] text-slate-500">({record.moneyness})</span>
+                        </div>
+                      </td>
+
+                      {/* Entry Zone */}
+                      <td className="py-2.5 px-3 text-right text-slate-300">
+                        {ticker.currency}{record.entryRange[0].toFixed(2)} - {ticker.currency}{record.entryRange[1].toFixed(2)}
+                      </td>
+
+                      {/* Entry Price */}
+                      <td className="py-2.5 px-3 text-right font-semibold text-slate-200">
+                        {ticker.currency}{record.entryPrice.toFixed(2)}
+                      </td>
+
+                      {/* Targets */}
+                      <td className="py-2.5 px-3 text-right text-slate-300">
+                        <span className="text-emerald-400">T1: {ticker.currency}{record.target1.toFixed(2)}</span>
+                        <span className="text-slate-600 mx-1">·</span>
+                        <span className="text-sky-400">T2: {ticker.currency}{record.target2.toFixed(2)}</span>
+                      </td>
+
+                      {/* Live LTP */}
+                      <td className="py-2.5 px-3 text-right font-bold text-white">
+                        {ticker.currency}{record.currentLTP.toFixed(2)}
+                      </td>
+
+                      {/* Current P&L */}
+                      <td className="py-2.5 px-3 text-right font-bold">
+                        <span className={isPositive ? 'text-emerald-400' : 'text-rose-400'}>
+                          {isPositive ? '+' : ''}{record.pnlPercent}%
+                        </span>
+                      </td>
+
+                      {/* Outcome Status */}
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                          record.status === 'TARGET_2_HIT' ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' :
+                          record.status === 'TARGET_1_HIT' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                          record.status === 'TARGET_1_RETRACED' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                          record.status === 'STOP_LOSS_HIT' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' :
+                          record.status === 'PROFITABLE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                          'bg-slate-800 text-slate-300 border-slate-700'
                         }`}>
-                          {record.action === 'BUY_CE' ? 'CALL' : 'PUT'}
+                          {record.status === 'TARGET_2_HIT' && '🚀 TARGET 2 HIT'}
+                          {record.status === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
+                          {record.status === 'TARGET_1_RETRACED' && '⚠️ T1 HIT (RETRACED)'}
+                          {record.status === 'STOP_LOSS_HIT' && '🛑 STOP LOSS'}
+                          {record.status === 'PROFITABLE' && '⚡ IN PROFIT'}
+                          {record.status === 'ACTIVE' && '⏳ ACTIVE'}
+                          {record.status === 'IN_LOSS' && '⚠️ RECOVERY'}
                         </span>
-                        <span className="font-bold text-white text-xs sm:text-sm">
-                          {record.strike} {record.type}
-                        </span>
-                        <span className="text-[10px] text-slate-500">({record.moneyness})</span>
-                      </div>
-                    </td>
-
-                    {/* Entry Zone */}
-                    <td className="py-2.5 px-3 text-right text-slate-300">
-                      {ticker.currency}{record.entryRange[0].toFixed(2)} - {ticker.currency}{record.entryRange[1].toFixed(2)}
-                    </td>
-
-                    {/* Entry Price */}
-                    <td className="py-2.5 px-3 text-right font-semibold text-slate-200">
-                      {ticker.currency}{record.entryPrice.toFixed(2)}
-                    </td>
-
-                    {/* Targets */}
-                    <td className="py-2.5 px-3 text-right text-slate-300">
-                      <span className="text-emerald-400">T1: {ticker.currency}{record.target1.toFixed(2)}</span>
-                      <span className="text-slate-600 mx-1">·</span>
-                      <span className="text-sky-400">T2: {ticker.currency}{record.target2.toFixed(2)}</span>
-                    </td>
-
-                    {/* Live LTP */}
-                    <td className="py-2.5 px-3 text-right font-bold text-white">
-                      {ticker.currency}{record.currentLTP.toFixed(2)}
-                    </td>
-
-                    {/* Current P&L */}
-                    <td className="py-2.5 px-3 text-right font-bold">
-                      <span className={isPositive ? 'text-emerald-400' : 'text-rose-400'}>
-                        {isPositive ? '+' : ''}{record.pnlPercent}%
-                      </span>
-                    </td>
-
-                    {/* Outcome Status */}
-                    <td className="py-2.5 px-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
-                        record.status === 'TARGET_2_HIT' ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' :
-                        record.status === 'TARGET_1_HIT' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
-                        record.status === 'TARGET_1_RETRACED' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
-                        record.status === 'STOP_LOSS_HIT' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' :
-                        record.status === 'PROFITABLE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-                        'bg-slate-800 text-slate-300 border-slate-700'
-                      }`}>
-                        {record.status === 'TARGET_2_HIT' && '🚀 TARGET 2 HIT'}
-                        {record.status === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
-                        {record.status === 'TARGET_1_RETRACED' && '⚠️ T1 HIT (RETRACED)'}
-                        {record.status === 'STOP_LOSS_HIT' && '🛑 STOP LOSS'}
-                        {record.status === 'PROFITABLE' && '⚡ IN PROFIT'}
-                        {record.status === 'ACTIVE' && '⏳ ACTIVE'}
-                        {record.status === 'IN_LOSS' && '⚠️ RECOVERY'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

@@ -62,6 +62,9 @@ export default function App() {
     dataSourceNote,
     marketStatus,
     syncLiveExchange,
+    logCurrentSignalToHistory,
+    refreshStrikeHistory,
+    resetStrikeHistory,
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,
@@ -179,8 +182,17 @@ export default function App() {
 
   // Higher-Timeframe Multi-Horizon & Expiry Predictions (1H, 1D, 1W & Expiries)
   const htfPredictions = useMemo(() => {
-    return signal.htfPredictions || computeMultiTimeframePredictions(selectedTicker, metrics, chain, marketStatus);
-  }, [signal.htfPredictions, selectedTicker, metrics, chain, marketStatus]);
+    return signal.htfPredictions || computeMultiTimeframePredictions(
+      selectedTicker, 
+      metrics, 
+      chain, 
+      marketStatus,
+      signal.interMarketTelemetry,
+      newsFeed,
+      signal.volumeAnalytics,
+      strikeAnalytics
+    );
+  }, [signal.htfPredictions, selectedTicker, metrics, chain, marketStatus, signal.interMarketTelemetry, newsFeed, signal.volumeAnalytics, strikeAnalytics]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -271,9 +283,6 @@ export default function App() {
             >
               <Table2 className="w-4 h-4 text-emerald-400" />
               <span>Trade Dynamics</span>
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/50">
-                {filteredRows.length}
-              </span>
             </button>
 
             {/* Tab 2: 1H · 1D · 1W & Expiry Predictions */}
@@ -535,6 +544,9 @@ export default function App() {
               history={strikeHistory}
               analytics={strikeAnalytics}
               onSelectContract={handleSelectContract}
+              onLogCurrentSignal={logCurrentSignalToHistory}
+              onRefreshHistory={refreshStrikeHistory}
+              onResetHistory={resetStrikeHistory}
               theme="dark"
             />
           </section>

@@ -1629,9 +1629,12 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
 
           // Validate that rawOptionChains contains strikes near current spot S
           if (rawOptionChains.length > 0) {
-            const sampleStrike = (rawOptionChains[0].strikePrice || rawOptionChains[0].callOption?.strikePrice || 0) / 100;
-            if (Math.abs(sampleStrike - S) > 2000) {
-              // Raw chains are for far-year or out-of-bound strikes, discard and generate baseline centered at S
+            const hasNearbyStrike = rawOptionChains.some((item: any) => {
+              const k = (item.strikePrice || item.callOption?.strikePrice || item.putOption?.strikePrice || 0) / 100;
+              return Math.abs(k - S) <= (isBankNifty ? 4000 : 2000);
+            });
+            if (!hasNearbyStrike) {
+              // Raw chains are completely disconnected from spot S, discard
               rawOptionChains = [];
             }
           }
@@ -1704,16 +1707,16 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               // Priority 1: REAL live exchange LTP from NSE market depth
               // Priority 2: Fallback to Black-Scholes only if exchange quote is missing or zero
               const call = item.callOption;
-              const hasRealCallLtp = call?.ltp !== undefined && call?.ltp !== null && call.ltp > 0;
+              const hasRealCallLtp = call?.ltp !== undefined && call?.ltp !== null && call.ltp >= 0.05;
               const ceLtp = hasRealCallLtp
                 ? Number(call.ltp.toFixed(2))
                 : Math.max(0.05, Math.round(computeBSPrice(S, K, T, r, ceIVSkew, 'CE') * 20) / 20);
 
-              const cePrevClose = call?.close && call.close > 0
+              const cePrevClose = (call?.close !== undefined && call.close !== null && call.close > 0)
                 ? Number(call.close.toFixed(2))
                 : (call?.dayChange !== undefined && hasRealCallLtp
-                    ? Number((ceLtp - call.dayChange).toFixed(2))
-                    : Math.max(0.05, Math.round(computeBSPrice(quote.prevClose, K, T + 1 / 365, r, ceIVSkew, 'CE') * 20) / 20));
+                    ? Math.max(0.05, Number((ceLtp - call.dayChange).toFixed(2)))
+                    : (ceLtp > 0 ? ceLtp : 0.05));
 
               const ceChange = call?.dayChange !== undefined && hasRealCallLtp
                 ? Number(call.dayChange.toFixed(2))
@@ -1744,16 +1747,16 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
 
               // Priority 1: REAL live exchange LTP from NSE market depth for Put
               const put = item.putOption;
-              const hasRealPutLtp = put?.ltp !== undefined && put?.ltp !== null && put.ltp > 0;
+              const hasRealPutLtp = put?.ltp !== undefined && put?.ltp !== null && put.ltp >= 0.05;
               const peLtp = hasRealPutLtp
                 ? Number(put.ltp.toFixed(2))
                 : Math.max(0.05, Math.round(computeBSPrice(S, K, T, r, peIVSkew, 'PE') * 20) / 20);
 
-              const pePrevClose = put?.close && put.close > 0
+              const pePrevClose = (put?.close !== undefined && put.close !== null && put.close > 0)
                 ? Number(put.close.toFixed(2))
                 : (put?.dayChange !== undefined && hasRealPutLtp
-                    ? Number((peLtp - put.dayChange).toFixed(2))
-                    : Math.max(0.05, Math.round(computeBSPrice(quote.prevClose, K, T + 1 / 365, r, peIVSkew, 'PE') * 20) / 20));
+                    ? Math.max(0.05, Number((peLtp - put.dayChange).toFixed(2)))
+                    : (peLtp > 0 ? peLtp : 0.05));
 
               const peChange = put?.dayChange !== undefined && hasRealPutLtp
                 ? Number(put.dayChange.toFixed(2))

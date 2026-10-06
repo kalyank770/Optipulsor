@@ -123,11 +123,8 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V3.0</span>
+            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V4.0</span>
           </button>
-          <span className="hidden sm:inline-block text-xs font-mono text-slate-500 border-l border-slate-800 pl-2.5">
-            {marketStatus?.isHoliday ? 'NSE Settled Derivatives (Holiday)' : 'NSE Live Derivatives'}
-          </span>
         </div>
 
         {/* Actions */}
