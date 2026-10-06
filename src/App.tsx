@@ -179,8 +179,8 @@ export default function App() {
 
   // Higher-Timeframe Multi-Horizon & Expiry Predictions (1H, 1D, 1W & Expiries)
   const htfPredictions = useMemo(() => {
-    return signal.htfPredictions || computeMultiTimeframePredictions(selectedTicker, metrics, chain);
-  }, [signal.htfPredictions, selectedTicker, metrics, chain]);
+    return signal.htfPredictions || computeMultiTimeframePredictions(selectedTicker, metrics, chain, marketStatus);
+  }, [signal.htfPredictions, selectedTicker, metrics, chain, marketStatus]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });

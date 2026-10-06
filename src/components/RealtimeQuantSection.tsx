@@ -136,369 +136,235 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
   const { vwap, rsi, macd, ema, gammaExposure, orderFlow, vixVelocity, volumeAnalytics } = indicators;
 
   return (
-    <div className="space-y-5 pt-1 font-sans">
-      {/* SECTION 1: GLOBAL INTER-MARKET TELEMETRY (Inter-Market Correlation Affecting Indian Derivatives) */}
-      <div className="rounded-xl border border-sky-500/30 bg-slate-950/90 p-4 shadow-lg space-y-3">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/30 shrink-0">
-              <Globe className="w-5 h-5 animate-spin-slow" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <span>Inter-Market Telemetry & Global Cues</span>
-                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
-                  Indian F&O Driver
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400 font-mono">
-                Overnight lead & real-time correlation drivers: GIFT Nifty, US Futures, USD/INR, Brent Crude & US Yields
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 font-mono">
-            <span className="text-xs text-slate-400">Global Score:</span>
-            <span className={`px-2.5 py-1 rounded text-xs font-extrabold border ${
-              telemetry.globalCompositeScore >= 15 
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
-                : telemetry.globalCompositeScore <= -15 
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
-                : 'bg-slate-800 text-slate-300 border-slate-700'
-            }`}>
-              {telemetry.globalCompositeScore > 0 ? `+${telemetry.globalCompositeScore}` : telemetry.globalCompositeScore} / 100
-            </span>
-            <span className="text-[10px] font-bold uppercase px-2 py-1 rounded bg-slate-900 border border-slate-800 text-emerald-400">
-              FII: {telemetry.fiiFlowExpectation?.replace(/_/g, ' ') || 'BALANCED'}
-            </span>
-          </div>
-        </div>
-
-        {/* Global Market Driver Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-          {/* 1. GIFT Nifty */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">GIFT NIFTY</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : '22,695.50'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.giftNifty?.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)} ({(telemetry?.giftNifty?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.giftNifty?.changePercent || 0}%)
-            </div>
-          </div>
-
-          {/* 2. S&P 500 Futures */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">S&P 500 FUT</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '5,752.25'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.sp500Futures?.changePercent || 0}%
-            </div>
-          </div>
-
-          {/* 3. USD / INR */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">USD / INR</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">₹{telemetry?.usdInr?.price ? telemetry.usdInr.price.toFixed(2) : '83.52'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.usdInr?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.usdInr?.changePercent || 0}%
-            </div>
-          </div>
-
-          {/* 4. Brent Crude */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">BRENT CRUDE</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">${telemetry?.brentCrude?.price ? telemetry.brentCrude.price.toFixed(2) : '73.20'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.brentCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
-            </div>
-          </div>
-        </div>
-
-        {/* Compact Additional Macro Drivers Row */}
-        <div className="p-2 rounded bg-slate-900/40 border border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex flex-wrap items-center gap-3">
-          <span className="font-semibold text-slate-300">Macro Signals:</span>
-          <span>NASDAQ FUT: <strong className="text-slate-200">{telemetry?.nasdaqFutures?.price ? telemetry.nasdaqFutures.price.toLocaleString() : '20,145.50'} ({(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nasdaqFutures?.changePercent || 0}%)</strong></span>
-          <span>·</span>
-          <span>DXY Index: <strong className="text-slate-200">{telemetry?.dxyIndex?.price ? telemetry.dxyIndex.price.toFixed(2) : '103.20'} ({(telemetry?.dxyIndex?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.dxyIndex?.changePercent || 0}%)</strong></span>
-          <span>·</span>
-          <span>US 10Y Yield: <strong className="text-slate-200">{telemetry?.us10yYield?.price ? telemetry.us10yYield.price.toFixed(2) : '3.72'}% ({(telemetry?.us10yYield?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.us10yYield?.changePercent || 0}%)</strong></span>
-          <span>·</span>
-          <span>Nikkei 225: <strong className="text-slate-200">{telemetry?.nikkei225?.price ? telemetry.nikkei225.price.toLocaleString() : '38,380'} ({(telemetry?.nikkei225?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nikkei225?.changePercent || 0}%)</strong></span>
-        </div>
-
-        {/* Global Summary Insight */}
-        <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-300 leading-relaxed font-sans">
-          <strong className="text-sky-400 mr-1.5 font-mono uppercase">Inter-Market Synthesis:</strong>
-          {telemetry.summaryInsight}
-        </div>
-      </div>
-
-      {/* SECTION 2: VOLUME DYNAMICS & INSTITUTIONAL BUILDUP MATRIX */}
-      {volumeAnalytics && (
-        <div className="rounded-xl border border-emerald-500/30 bg-slate-950/90 p-4 shadow-lg space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
-                <BarChart2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <span>Volume Dynamics & Institutional Buildup</span>
-                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                    High Precision
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 font-mono">
-                  Contract volume vs 20MA baseline, Call/Put buyer flow, and Order Flow Delta pressure
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 font-mono">
-              <span className="text-xs text-slate-400">Accuracy Multiplier:</span>
-              <span className="px-2.5 py-1 rounded text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                {volumeAnalytics.volumeAccuracyMultiplier}x
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs font-mono">
-            {/* 1. Volume Multiplier vs 20MA */}
-            <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-              <div className="text-[11px] text-slate-400 font-bold uppercase font-sans mb-1">Volume Surge Factor</div>
-              <div className="text-lg font-extrabold text-white">
-                {volumeAnalytics.totalVolumeMultiplier}x <span className="text-xs text-slate-400 font-normal">vs 20MA</span>
-              </div>
-              <p className="text-[11px] text-emerald-400 mt-1">
-                {volumeAnalytics.totalVolumeMultiplier >= 1.4 ? '🔥 Institutional Volume Spike' : 'Normal Volume Flow'}
-              </p>
-            </div>
-
-            {/* 2. Order Flow Delta Pressure */}
-            <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-              <div className="text-[11px] text-slate-400 font-bold uppercase font-sans mb-1">Order Flow Delta Imbalance</div>
-              <div className={`text-lg font-extrabold ${volumeAnalytics.buyerSellerPressureDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {volumeAnalytics.buyerSellerPressureDelta >= 0 ? '+' : ''}{volumeAnalytics.buyerSellerPressureDelta}%
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                {volumeAnalytics.buyerSellerPressureDelta >= 10 ? 'Buyers Aggressive' : volumeAnalytics.buyerSellerPressureDelta <= -10 ? 'Sellers Aggressive' : 'Balanced Flow'}
-              </p>
-            </div>
-
-            {/* 3. Buildup Classification */}
-            <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-              <div className="text-[11px] text-slate-400 font-bold uppercase font-sans mb-1">Institutional Buildup</div>
-              <div className="text-sm font-extrabold text-amber-300">
-                {volumeAnalytics.volumeBuildupLabel}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                {volumeAnalytics.volumeDivergence?.replace(/_/g, ' ') || 'BALANCED'}
-              </p>
-            </div>
-
-            {/* 4. PCR Volume vs PCR OI */}
-            <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-              <div className="text-[11px] text-slate-400 font-bold uppercase font-sans mb-1">PCR Volume / OI</div>
-              <div className="text-sm font-extrabold text-sky-300">
-                Vol PCR: {volumeAnalytics.pcrVolume} | OI PCR: {volumeAnalytics.pcrOI}
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                {volumeAnalytics.pcrVolume > volumeAnalytics.pcrOI ? 'Intraday Put Buying Surge' : 'Intraday Call Buying Surge'}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 3: 6 HIGH-DENSITY QUANTITATIVE GAUGES */}
+    <div className="space-y-4 pt-1 font-sans">
+      {/* 6 HIGH-DENSITY CORE QUANTITATIVE GAUGES */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {/* 1. VWAP Structural Channel */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">VWAP Level</div>
-          <div className="text-sm font-extrabold font-mono text-white mt-1">
+        {/* 1. VWAP Level */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">VWAP Level</span>
+          <span className="text-sm font-extrabold font-mono text-white mt-0.5">
             {currency}{vwap.value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-          </div>
-          <div className={`text-[10px] font-mono font-bold mt-1 ${vwap.bias === 'BULLISH' ? 'text-emerald-400' : 'text-rose-400'}`}>
+          </span>
+          <span className={`text-[10px] font-mono font-bold ${vwap.bias === 'BULLISH' ? 'text-emerald-400' : 'text-rose-400'}`}>
             {vwap.bias}
-          </div>
+          </span>
         </div>
 
-        {/* 2. RSI Multi-timeframe Momentum */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">RSI (14)</div>
-          <div className="text-sm font-extrabold font-mono text-sky-300 mt-1">
+        {/* 2. RSI */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">RSI (14)</span>
+          <span className="text-sm font-extrabold font-mono text-sky-300 mt-0.5">
             {rsi.value.toFixed(1)}
-          </div>
-          <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">
             {rsi.condition}
-          </div>
+          </span>
         </div>
 
-        {/* 3. MACD Divergence Histogram */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">MACD Hist</div>
-          <div className={`text-sm font-extrabold font-mono mt-1 ${macd.histogram >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {/* 3. MACD */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">MACD Hist</span>
+          <span className={`text-sm font-extrabold font-mono mt-0.5 ${macd.histogram >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {macd.histogram > 0 ? `+${macd.histogram.toFixed(1)}` : macd.histogram.toFixed(1)}
-          </div>
-          <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">
             {macd.trend?.replace(/_/g, ' ') || 'NEUTRAL'}
-          </div>
+          </span>
         </div>
 
-        {/* 4. EMA Ribbon Alignment */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">EMA Spread</div>
-          <div className={`text-sm font-extrabold font-mono mt-1 ${ema.spread >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+        {/* 4. EMA spread */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">EMA Spread</span>
+          <span className={`text-sm font-extrabold font-mono mt-0.5 ${ema.spread >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {ema.spread > 0 ? `+${ema.spread.toFixed(1)}` : ema.spread.toFixed(1)}
-          </div>
-          <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">
             {ema.alignment}
-          </div>
+          </span>
         </div>
 
-        {/* 5. Gamma Exposure (GEX) */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">Gamma GEX</div>
-          <div className="text-sm font-extrabold font-mono text-purple-300 mt-1">
+        {/* 5. Gamma */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">Gamma GEX</span>
+          <span className="text-sm font-extrabold font-mono text-purple-300 mt-0.5">
             {gammaExposure.netGex > 0 ? `+${(gammaExposure.netGex / 1000000).toFixed(1)}M` : `${(gammaExposure.netGex / 1000000).toFixed(1)}M`}
-          </div>
-          <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">
             {gammaExposure.regime?.replace(/_GAMMA/g, '') || 'BALANCED'}
-          </div>
+          </span>
         </div>
 
-        {/* 6. Order Flow & VIX State */}
-        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[70px]">
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans">VIX Volatility</div>
-          <div className="text-sm font-extrabold font-mono text-amber-300 mt-1">
+        {/* 6. VIX */}
+        <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
+          <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">VIX Volatility</span>
+          <span className="text-sm font-extrabold font-mono text-amber-300 mt-0.5">
             {vixVelocity.vix.toFixed(2)}
-          </div>
-          <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+          </span>
+          <span className="text-[10px] font-mono text-slate-400 truncate">
             {orderFlow.sentiment?.replace(/_DOMINANCE/g, ' DOM') || 'BALANCED'}
-          </div>
+          </span>
         </div>
       </div>
 
-      {/* SECTION 3: IMPLIED VOLATILITY (IV) SURFACE & MISPRICING IDENTIFIER */}
-      {surfaceRows.length > 0 && (
-        <div className="rounded-xl border border-purple-500/30 bg-slate-950/90 p-4 shadow-lg space-y-4">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/30 shrink-0">
-                <Sliders className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <span>Option Mispricing Spectrum & Volatility Arbitrage</span>
-                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                    Vol Skew & Arbitrage
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-400 font-mono">
-                  Real-time volatility skew analysis vs. ATM baseline ({atmIvBaseline}% IV) identifying mispriced options
-                </p>
-              </div>
+      {/* CORE MATRIX GRID: VOLUME DYNAMICS & CORRELATIONS (SIDE-BY-SIDE) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* LEFT COMPACT PANEL: VOLUME & INSTITUTIONAL FLOW */}
+        {volumeAnalytics && (
+          <div className="rounded-xl border border-emerald-500/20 bg-slate-950 p-3.5 space-y-3 shadow-md">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+              <BarChart2 className="w-4 h-4 text-emerald-400" />
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                Volume Dynamics & Institutional Buildup
+              </h4>
+              <span className="ml-auto text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-800/40">
+                {volumeAnalytics.volumeAccuracyMultiplier}x Multiplier
+              </span>
             </div>
 
-            <div className="flex items-center gap-2 text-xs font-mono">
-              <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300">
-                ATM IV Baseline: <strong className="text-purple-300">{atmIvBaseline}%</strong>
+            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-sans">Vol Surge Factor</span>
+                <strong className="text-white text-sm mt-0.5 block">{volumeAnalytics.totalVolumeMultiplier}x</strong>
+                <span className="text-[10px] text-emerald-400 block mt-0.5 truncate">
+                  {volumeAnalytics.totalVolumeMultiplier >= 1.4 ? '🔥 Institutional Spike' : 'Normal Flow'}
+                </span>
+              </div>
+
+              <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-sans">Order Flow Delta</span>
+                <strong className={`text-sm mt-0.5 block ${volumeAnalytics.buyerSellerPressureDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {volumeAnalytics.buyerSellerPressureDelta >= 0 ? '+' : ''}{volumeAnalytics.buyerSellerPressureDelta}%
+                </strong>
+                <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                  {volumeAnalytics.buyerSellerPressureDelta >= 10 ? 'Buyers Active' : volumeAnalytics.buyerSellerPressureDelta <= -10 ? 'Sellers Active' : 'Balanced'}
+                </span>
+              </div>
+
+              <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-sans">Institutional Buildup</span>
+                <strong className="text-amber-300 text-xs mt-0.5 block truncate">{volumeAnalytics.volumeBuildupLabel}</strong>
+                <span className="text-[10px] text-slate-500 block mt-0.5 truncate">{volumeAnalytics.volumeDivergence?.replace(/_/g, ' ') || 'Balanced'}</span>
+              </div>
+
+              <div className="p-2 rounded bg-slate-900 border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-sans">PCR Vol / PCR OI</span>
+                <strong className="text-sky-300 text-xs mt-0.5 block truncate">Vol: {volumeAnalytics.pcrVolume} | OI: {volumeAnalytics.pcrOI}</strong>
+                <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                  {volumeAnalytics.pcrVolume > volumeAnalytics.pcrOI ? 'Put Buying Surge' : 'Call Buying Surge'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RIGHT COMPACT PANEL: INTER-MARKET CUES & GLOBAL SKEW */}
+        <div className="rounded-xl border border-sky-500/20 bg-slate-950 p-3.5 space-y-3 shadow-md">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+            <Globe className="w-4 h-4 text-sky-400" />
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+              Inter-Market Cues & Correlations
+            </h4>
+            <span className="ml-auto text-[10px] font-mono font-bold text-sky-300 bg-sky-950 px-1.5 py-0.2 rounded border border-sky-800/40">
+              Score: {telemetry.globalCompositeScore > 0 ? `+${telemetry.globalCompositeScore}` : telemetry.globalCompositeScore}/100
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10.5px] font-mono">
+            {/* GIFT Nifty */}
+            <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block">GIFT NIFTY</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : '22,695'}</span>
+              <span className={`text-[9.5px] font-bold ${(telemetry?.giftNifty?.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)}
               </span>
-              <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-emerald-400 font-bold">
-                {underpricedPicks.length} Cheap Options Found
+            </div>
+
+            {/* S&P 500 Futures */}
+            <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block">S&P 500 FUT</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '5,752'}</span>
+              <span className={`text-[9.5px] font-bold ${(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.sp500Futures?.changePercent || 0}%
+              </span>
+            </div>
+
+            {/* USD / INR */}
+            <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block">USD / INR</span>
+              <span className="font-bold text-white block mt-0.5">₹{telemetry?.usdInr?.price ? telemetry.usdInr.price.toFixed(2) : '83.52'}</span>
+              <span className={`text-[9.5px] font-bold ${(telemetry?.usdInr?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.usdInr?.changePercent || 0}%
+              </span>
+            </div>
+
+            {/* Brent Crude */}
+            <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-slate-500 block">BRENT CRUDE</span>
+              <span className="font-bold text-white block mt-0.5">${telemetry?.brentCrude?.price ? telemetry.brentCrude.price.toFixed(2) : '73.20'}</span>
+              <span className={`text-[9.5px] font-bold ${(telemetry?.brentCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
               </span>
             </div>
           </div>
 
-          {/* Top Mispriced Option Opportunities Table */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-            {/* Underpriced Options (Vol Cheap / High Leverage Buy) */}
-            <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/30">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                  Top Underpriced Options (Vol Cheap)
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                  BUY OPPORTUNITIES
-                </span>
-              </div>
+          <p className="text-[11px] leading-relaxed text-slate-300 font-sans p-2 rounded bg-slate-900/60 border border-slate-800">
+            <strong className="text-sky-400">Synthesis:</strong> {telemetry.summaryInsight}
+          </p>
+        </div>
+      </div>
 
+      {/* COMPACT OPTION MISPRICING & VOLATILITY SPECTRUM */}
+      {surfaceRows.length > 0 && (
+        <div className="rounded-xl border border-purple-500/20 bg-slate-950 p-3.5 space-y-3.5 shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-purple-400" />
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                Option Volatility Arbitrage & Mispricing Spectrum
+              </h4>
+            </div>
+            <div className="text-[10.5px] font-mono text-slate-400 flex items-center gap-2">
+              <span>ATM IV Baseline: <strong className="text-purple-300">{atmIvBaseline}%</strong></span>
+              <span className="text-slate-600">|</span>
+              <span className="text-emerald-400 font-semibold">{underpricedPicks.length} Cheap Options</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Cheap Options */}
+            <div className="p-2.5 rounded-lg bg-emerald-950/10 border border-emerald-500/20 space-y-2">
+              <span className="text-[11px] font-bold text-emerald-300 uppercase block tracking-wider font-mono">
+                ✓ Underpriced Options (Buy Vol Advantage)
+              </span>
               {underpricedPicks.length === 0 ? (
-                <p className="text-xs text-slate-400 font-mono py-2">
-                  No significantly underpriced options detected. All strikes trading near fair baseline volatility.
-                </p>
+                <p className="text-[10.5px] text-slate-500 font-mono">No significantly cheap IV strikes detected.</p>
               ) : (
-                <div className="space-y-1.5 font-mono text-xs">
-                  {underpricedPicks.map((pick, i) => (
-                    <div key={i} className="p-2 rounded bg-slate-900/90 border border-emerald-500/20 flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-white flex items-center gap-1.5">
-                          <span>{currency}{pick.strike} {pick.type}</span>
-                          <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded">
-                            {pick.ivVsAtmPct}% IV Cheap
-                          </span>
-                        </div>
-                        <div className="text-[10.5px] text-slate-400 mt-0.5">
-                          LTP: <strong className="text-slate-200">{currency}{pick.ltp.toFixed(2)}</strong> | IV: <strong className="text-emerald-300">{pick.iv.toFixed(1)}%</strong>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 block">
-                          BUY CHEAP IV
-                        </span>
-                      </div>
+                <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
+                  {underpricedPicks.slice(0, 2).map((pick, i) => (
+                    <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+                      <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
+                      <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1 rounded">{pick.ivVsAtmPct}% Cheap</span>
+                      <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Overpriced Options (Vol Premium / Avoid Buy or Sell Spread) */}
-            <div className="p-3 rounded-lg bg-amber-950/20 border border-amber-500/30">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Flame className="w-4 h-4 text-amber-400" />
-                  Top Overpriced Options (Vol Spike)
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                  VOL PREMIUM SPIKE
-                </span>
-              </div>
-
+            {/* Overpriced Options */}
+            <div className="p-2.5 rounded-lg bg-amber-950/10 border border-amber-500/20 space-y-2">
+              <span className="text-[11px] font-bold text-amber-300 uppercase block tracking-wider font-mono">
+                ⚠ Overpriced Options (Vol Premium Spike)
+              </span>
               {overpricedPicks.length === 0 ? (
-                <p className="text-xs text-slate-400 font-mono py-2">
-                  No extreme IV spikes detected across option chain. Premium levels balanced.
-                </p>
+                <p className="text-[10.5px] text-slate-500 font-mono">No extreme IV spikes detected across strikes.</p>
               ) : (
-                <div className="space-y-1.5 font-mono text-xs">
-                  {overpricedPicks.map((pick, i) => (
-                    <div key={i} className="p-2 rounded bg-slate-900/90 border border-amber-500/20 flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-white flex items-center gap-1.5">
-                          <span>{currency}{pick.strike} {pick.type}</span>
-                          <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded">
-                            +{pick.ivVsAtmPct}% IV Spike
-                          </span>
-                        </div>
-                        <div className="text-[10.5px] text-slate-400 mt-0.5">
-                          LTP: <strong className="text-slate-200">{currency}{pick.ltp.toFixed(2)}</strong> | IV: <strong className="text-amber-300">{pick.iv.toFixed(1)}%</strong>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 block">
-                          SELL / AVOID BUY
-                        </span>
-                      </div>
+                <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
+                  {overpricedPicks.slice(0, 2).map((pick, i) => (
+                    <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+                      <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1 rounded">+{pick.ivVsAtmPct}% IV Spike</span>
+                      <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
                     </div>
                   ))}
                 </div>
@@ -510,3 +376,4 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
     </div>
   );
 };
+

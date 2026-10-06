@@ -24,6 +24,7 @@ import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
 import { 
   loadStrikeHistory, 
+  saveStrikeHistory,
   updateHistoryWithLiveChain, 
   recordSignalInHistory, 
   deriveStrikeTrendAnalytics 
@@ -795,6 +796,13 @@ export function useLiveOptionChain() {
     fetchGlobalMacro(newTicker.symbol);
   };
 
+  // Sync strike history when selected ticker symbol changes
+  useEffect(() => {
+    const history = loadStrikeHistory(selectedTicker, chain.length > 0 ? chain : buildInitialChain(selectedTicker, expiryIndex));
+    setStrikeHistory(history);
+    setStrikeAnalytics(deriveStrikeTrendAnalytics(history, selectedTicker, chain.length > 0 ? chain : buildInitialChain(selectedTicker, expiryIndex)));
+  }, [selectedTicker.symbol]);
+
   // Handle expiry change
   const handleSelectExpiry = (idx: number) => {
     setExpiryIndex(idx);
@@ -824,6 +832,7 @@ export function useLiveOptionChain() {
       if (signal && signal.action !== 'WAIT_NEUTRAL') {
         updated = recordSignalInHistory(updated, signal, selectedTicker);
       }
+      saveStrikeHistory(selectedTicker.symbol, updated);
       const newAnalytics = deriveStrikeTrendAnalytics(updated, selectedTicker, chain);
       setStrikeAnalytics(newAnalytics);
       return updated;

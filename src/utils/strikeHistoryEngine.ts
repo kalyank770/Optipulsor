@@ -229,12 +229,12 @@ export function recordSignalInHistory(
   const now = Date.now();
   const latest = history[0];
 
-  // Prevent duplicate insertion within 3 minutes for identical strike & type
+  // Prevent duplicate insertion within 15 seconds for identical strike & type
   if (
     latest &&
     latest.strike === signal.recommendedStrike &&
     latest.type === signal.recommendedType &&
-    now - latest.timestamp < 180000
+    now - latest.timestamp < 15000
   ) {
     return history;
   }

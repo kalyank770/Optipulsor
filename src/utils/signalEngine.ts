@@ -535,8 +535,10 @@ export function generateTradeSignal(
     // Put (PE) buying is strictly forbidden. The system only permits BUY_CE (if momentum confirms) or WAIT_NEUTRAL.
     if (score >= 1.4 && (bullMatches >= 3 || (bullMatches >= 2 && isBullishCandles))) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
       strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bullMatches - 5) * 4)
+        : Math.min(84, 70 + (bullMatches - 1) * 5);
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -550,8 +552,10 @@ export function generateTradeSignal(
     // Primary regime for option buyers: Recommend BUY_PE only if confirmed by 3+ bear factors!
     if (score <= -1.4 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
-      confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
       strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bearMatches - 5) * 4)
+        : Math.min(84, 70 + (bearMatches - 1) * 5);
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -564,12 +568,16 @@ export function generateTradeSignal(
     // ACTIVE LONG (CE) POSITION:
     if (score >= 0.9 && bullMatches >= 3 && !isContinuousFall) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(64, Math.round(58 + (bullMatches / 7) * 36)));
       strength = bullMatches >= 5 && score >= 3.8 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bullMatches - 5) * 4)
+        : Math.min(84, 70 + (bullMatches - 1) * 5);
     } else if (score <= -2.5 && bearMatches >= 4 && isContinuousFall) {
       action = 'BUY_PE';
-      confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
       strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bearMatches - 5) * 4)
+        : Math.min(84, 70 + (bearMatches - 1) * 5);
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -582,12 +590,16 @@ export function generateTradeSignal(
     // ACTIVE SHORT (PE) POSITION:
     if (score <= -0.9 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
-      confidence = Math.min(94, Math.max(64, Math.round(58 + (bearMatches / 7) * 36)));
       strength = bearMatches >= 5 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bearMatches - 5) * 4)
+        : Math.min(84, 70 + (bearMatches - 1) * 5);
     } else if (score >= 2.5 && (bullMatches >= 4 || isMarketRaising)) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
       strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bullMatches - 5) * 4)
+        : Math.min(84, 70 + (bullMatches - 1) * 5);
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -602,12 +614,16 @@ export function generateTradeSignal(
     const isConflictChop = bullMatches >= 2 && bearMatches >= 2;
     if (!isConflictChop && score >= 1.5 && bullMatches >= 3 && !isContinuousFall) {
       action = 'BUY_CE';
-      confidence = Math.min(94, Math.max(65, Math.round(58 + (bullMatches / 7) * 36)));
       strength = bullMatches >= 5 && score >= 3.2 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bullMatches - 5) * 4)
+        : Math.min(84, 70 + (bullMatches - 1) * 5);
     } else if (!isConflictChop && score <= -1.5 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
-      confidence = Math.min(94, Math.max(65, Math.round(58 + (bearMatches / 7) * 36)));
       strength = bearMatches >= 5 && Math.abs(score) >= 3.2 ? 'STRONG' : 'MODERATE';
+      confidence = strength === 'STRONG'
+        ? Math.min(98, 88 + (bearMatches - 5) * 4)
+        : Math.min(84, 70 + (bearMatches - 1) * 5);
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 52;
@@ -1481,7 +1497,7 @@ export function generateTradeSignal(
   }
 
   // --- 8. HIGHER-TIMEFRAME & EXPIRY PREDICTION ENGINE (1H, 1D, 1W & EXPIRIES) ---
-  const htfPredictions = computeMultiTimeframePredictions(ticker, metrics, chain);
+  const htfPredictions = computeMultiTimeframePredictions(ticker, metrics, chain, marketStatus);
 
   if (htfPredictions.confluenceScore >= 30 && action === 'BUY_CE') {
     rationalePoints.push({
@@ -1564,13 +1580,13 @@ export function computeSidewaysMarketAnalysis(
   const standardDailyRange = Math.max(ticker.strikeStep * 1.5, dailyExpectedMove * 0.75);
 
   // Sideways Compression Percentage:
-  // Combines VWAP pinning (40%), EMA entanglement (35%), and daily range scale (25%)
+  // Combines VWAP pinning (35%), EMA entanglement (40%), and daily range scale (25%)
   const vwapDistRatio = Math.abs(spotPrice - rt.vwap.value) / Math.max(spotPrice, 1) * 100;
-  const vwapCompression = Math.max(0, 1 - (vwapDistRatio / 0.50));
+  const vwapCompression = Math.max(0, 1 - (vwapDistRatio / 0.40));
   const emaGap = Math.abs(rt.ema.ema9 - rt.ema.ema21);
-  const emaCompression = rt.ema.alignment === 'COMPRESSION' ? 0.90 : Math.max(0, 1 - (emaGap / Math.max(ticker.strikeStep * 0.35, 1)));
-  const rangeCompression = Math.max(0, 1 - (dayRangePct / 0.90));
-  const compressionRatio = Math.max(0.20, (vwapCompression * 0.40 + emaCompression * 0.35 + rangeCompression * 0.25));
+  const emaCompression = rt.ema.alignment === 'COMPRESSION' ? 0.95 : Math.max(0, 1 - (emaGap / Math.max(ticker.strikeStep * 0.30, 1)));
+  const rangeCompression = Math.max(0, 1 - (dayRangePct / 0.60));
+  const compressionRatio = Math.max(0.10, (vwapCompression * 0.35 + emaCompression * 0.40 + rangeCompression * 0.25));
   const compressionPercentage = Math.min(95, Math.round(compressionRatio * 100));
 
   // Criteria for Sideways Market:
@@ -1654,7 +1670,9 @@ export function computeSidewaysMarketAnalysis(
   const bearishBreakdownTrigger = Number((floor - ticker.strikeStep * 0.15).toFixed(1));
 
   const optionBuyerStrategy = isSideways
-    ? '⚠️ STRICT STAND ASIDE: Option buying in sideways markets causes severe theta decay on both CE and PE. Capital is 100% safer in cash until a confirmed breakout occurs.'
+    ? (compressionPercentage >= 75
+        ? `⚡ COILED VOLATILITY SQUEEZE (${compressionPercentage}% Squeeze): Spot is tightly coiled between ${ticker.currency}${floor.toLocaleString()} and ${ticker.currency}${ceiling.toLocaleString()}. While choppy inside, prepare for explosive directional expansion upon breakout. Stand aside in WAIT until spot cleanly breaches Bullish Trigger (${ticker.currency}${bullishBreakoutTrigger}) or Bearish Trigger (${ticker.currency}${bearishBreakdownTrigger}).`
+        : `⚠️ STRICT STAND ASIDE: Option buying in sideways markets causes severe theta decay on both CE and PE. Capital is 100% safer in cash until a confirmed breakout occurs.`)
     : 'Directional option buying permitted with strict multi-factor confirmation.';
 
   const optionSellerStrategy = isSideways

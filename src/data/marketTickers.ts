@@ -40,7 +40,7 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       '23 Nov 2026 (Monthly Expiry - Mon)',
       '29 Dec 2026 (Monthly Expiry - Tue)'
     ],
-    asOnTime: '05-Oct-2026 15:40:00 IST',
+    asOnTime: '06-Oct-2026 15:40:00 IST',
     isLiveSynced: true,
   },
   {
@@ -70,7 +70,7 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       price: 54205.25,
       change: -1375.15,
       changePercent: -2.47,
-      time: '05-Oct-2026 15:30:00 IST',
+      time: '06-Oct-2026 15:30:00 IST',
       source: 'NSE Regular Session',
     },
     expiryDates: [
@@ -80,7 +80,7 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       '29 Oct 2026 (Monthly Expiry - Thu)',
       '04 Nov 2026 (Weekly - Wed)'
     ],
-    asOnTime: '05-Oct-2026 15:30:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -110,7 +110,7 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       price: 24521.00,
       change: -329.00,
       changePercent: -1.32,
-      time: '05-Oct-2026 15:30:00 IST',
+      time: '06-Oct-2026 15:30:00 IST',
       source: 'NSE Regular Session',
     },
     expiryDates: [
@@ -120,7 +120,7 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       '27 Oct 2026 (Monthly Expiry - Tue)',
       '03 Nov 2026 (Weekly - Tue)'
     ],
-    asOnTime: '05-Oct-2026 15:30:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   // --- NIFTY 50 HEAVYWEIGHT DERIVATIVE COMPANIES ---
@@ -144,11 +144,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.4,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -171,11 +171,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: 0.6,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -198,11 +198,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.8,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -225,11 +225,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.3,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -252,11 +252,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.2,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -279,11 +279,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.5,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -306,11 +306,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.6,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   {
@@ -333,11 +333,11 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: 0.2,
     marketState: 'REGULAR',
     expiryDates: [
-      '29 Sep 2026 (Monthly Expiry)',
       '27 Oct 2026 (Monthly Expiry)',
-      '24 Nov 2026 (Monthly Expiry)'
+      '24 Nov 2026 (Monthly Expiry)',
+      '29 Dec 2026 (Monthly Expiry)'
     ],
-    asOnTime: '25-Sep-2026 13:00:00 IST',
+    asOnTime: '06-Oct-2026 15:30:00 IST',
     isLiveSynced: true,
   },
   // --- US BENCHMARKS & TECH GIANTS ---
@@ -375,15 +375,12 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'NYSE Arca Extended Trading Feed',
     },
     expiryDates: [
-      '25 Sep 2026 (Fri)',
-      '28 Sep 2026 (Mon)',
-      '29 Sep 2026 (Tue)',
-      '30 Sep 2026 (Wed)',
-      '01 Oct 2026 (Thu)',
-      '02 Oct 2026 (Fri)',
-      '16 Oct 2026 (Monthly)'
+      '09 Oct 2026 (Fri)',
+      '16 Oct 2026 (Monthly)',
+      '23 Oct 2026 (Fri)',
+      '30 Oct 2026 (Fri)'
     ],
-    asOnTime: '24-Sep-2026 Close (US)',
+    asOnTime: '05-Oct-2026 Close (US)',
     isLiveSynced: true,
   },
   {
@@ -416,19 +413,16 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       price: 739.41,
       change: -1.69,
       changePercent: -0.23,
-      time: '24-Sep-2026 20:00:00 EDT',
+      time: '05-Oct-2026 20:00:00 EDT',
       source: 'NASDAQ Extended Trading Feed',
     },
     expiryDates: [
-      '25 Sep 2026 (Fri)',
-      '28 Sep 2026 (Mon)',
-      '29 Sep 2026 (Tue)',
-      '30 Sep 2026 (Wed)',
-      '01 Oct 2026 (Thu)',
-      '02 Oct 2026 (Fri)',
-      '16 Oct 2026 (Monthly)'
+      '09 Oct 2026 (Fri)',
+      '16 Oct 2026 (Monthly)',
+      '23 Oct 2026 (Fri)',
+      '30 Oct 2026 (Fri)'
     ],
-    asOnTime: '24-Sep-2026 Close (US)',
+    asOnTime: '05-Oct-2026 Close (US)',
     isLiveSynced: true,
   },
   {
@@ -465,12 +459,12 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'NASDAQ Extended Trading Feed',
     },
     expiryDates: [
-      '25 Sep 2026 (Fri)',
-      '02 Oct 2026 (Weekly)',
       '09 Oct 2026 (Weekly)',
-      '16 Oct 2026 (Monthly)'
+      '16 Oct 2026 (Monthly)',
+      '23 Oct 2026 (Weekly)',
+      '30 Oct 2026 (Weekly)'
     ],
-    asOnTime: '24-Sep-2026 Close (US)',
+    asOnTime: '05-Oct-2026 Close (US)',
     isLiveSynced: true,
   },
   {
@@ -503,16 +497,16 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       price: 378.27,
       change: 0.33,
       changePercent: 0.09,
-      time: '24-Sep-2026 20:00:00 EDT',
+      time: '05-Oct-2026 20:00:00 EDT',
       source: 'NASDAQ Extended Trading Feed',
     },
     expiryDates: [
-      '25 Sep 2026 (Fri)',
-      '02 Oct 2026 (Weekly)',
       '09 Oct 2026 (Weekly)',
-      '16 Oct 2026 (Monthly)'
+      '16 Oct 2026 (Monthly)',
+      '23 Oct 2026 (Weekly)',
+      '30 Oct 2026 (Weekly)'
     ],
-    asOnTime: '24-Sep-2026 Close (US)',
+    asOnTime: '05-Oct-2026 Close (US)',
     isLiveSynced: true,
   },
 ];

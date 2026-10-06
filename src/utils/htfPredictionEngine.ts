@@ -15,6 +15,7 @@ import {
 import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
 import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
+import { MarketHoursStatus } from './marketHours';
 
 /**
  * Helper to format timestamp into human readable time/date string
@@ -937,7 +938,8 @@ export function generateExpiryForecast(
 export function computeMultiTimeframePredictions(
   ticker: TickerConfig,
   metrics?: MarketMetrics,
-  chain?: OptionChainRow[]
+  chain?: OptionChainRow[],
+  marketStatus?: MarketHoursStatus
 ): MultiTimeframePredictionSuite {
   // 1. Generate HTF Candles tailored for each timeframe
   const h1Candles = generateHTFCandles(ticker, '1h');
@@ -969,16 +971,19 @@ export function computeMultiTimeframePredictions(
     ? `Full Bearish HTF Alignment: Weekly resistance rejection confirmed by Daily breakdown and 1H supply thrust.`
     : `HTF Timeframe Divergence: Weekly consolidation (${w1Pattern.primaryPattern}) balancing against shorter-term intraday oscillations.`;
 
+  // Resolve active week 1 and week 2 indices based on the 1st expiry close rule
+  const { week1Index, week2Index } = getActiveExpiryIndices(ticker, marketStatus);
+
   // 4. Horizon Forecasts (Using synchronized expiry term structure and live option chain)
-  const dte0 = getTickerExpiryDTE(ticker, 0);
-  const dte1 = getTickerExpiryDTE(ticker, 1);
+  const dte0 = getTickerExpiryDTE(ticker, week1Index);
+  const dte1 = getTickerExpiryDTE(ticker, week2Index);
   const next1Hour = generateHorizonPrediction(ticker, h1Pattern, 'next_1h', dte0.T, chain);
   const next1Day = generateHorizonPrediction(ticker, d1Pattern, 'next_1d', dte0.T, chain);
   const next1Week = generateHorizonPrediction(ticker, w1Pattern, 'next_1w', dte1.T, chain);
 
   // 5. Expiry Forecasts (Week 1 and Week 2 with live option chain quotes)
-  const week1Expiry = generateExpiryForecast(ticker, 0, 'NEXT_1_WEEK', overallHTFBias, h1Pattern, d1Pattern, w1Pattern, metrics, chain);
-  const week2Expiry = generateExpiryForecast(ticker, 1, 'NEXT_2_WEEK', overallHTFBias, h1Pattern, d1Pattern, w1Pattern, metrics, chain);
+  const week1Expiry = generateExpiryForecast(ticker, week1Index, 'NEXT_1_WEEK', overallHTFBias, h1Pattern, d1Pattern, w1Pattern, metrics, chain);
+  const week2Expiry = generateExpiryForecast(ticker, week2Index, 'NEXT_2_WEEK', overallHTFBias, h1Pattern, d1Pattern, w1Pattern, metrics, chain);
 
   return {
     ticker,
@@ -995,4 +1000,64 @@ export function computeMultiTimeframePredictions(
     week1Expiry,
     week2Expiry,
   };
+}
+
+/**
+ * Resolves the active week 1 and week 2 expiry indices based on the rule:
+ * "Show next 2 weeks expiry from now, maintain the same until 1st expiry closes (past 15:30 PM on expiry day), then refresh with upcoming 2 expiries."
+ */
+export function getActiveExpiryIndices(
+  ticker: TickerConfig,
+  marketStatus?: MarketHoursStatus
+): { week1Index: number; week2Index: number } {
+  const dates = ticker.expiryDates || [];
+  if (dates.length <= 2) {
+    return { week1Index: 0, week2Index: Math.min(1, dates.length - 1) };
+  }
+
+  // Check the first expiry date in the list
+  const firstExpiryStr = dates[0];
+  const { daysToExpiry } = calculatePreciseDTE(firstExpiryStr, ticker.asOnTime);
+
+  let isFirstExpiryClosed = false;
+  if (daysToExpiry < 0) {
+    isFirstExpiryClosed = true;
+  } else if (daysToExpiry === 0) {
+    // It's the expiry day! Check if session is closed or past 15:30 PM
+    let isClosedSession = false;
+    if (marketStatus) {
+      isClosedSession = !marketStatus.isOpen && 
+        (marketStatus.session === 'POST_MARKET' || marketStatus.session === 'CLOSED');
+    } else {
+      // Fallback: Check if current hour is past 15:30
+      const now = new Date();
+      if (ticker.asOnTime) {
+        const timeMatch = ticker.asOnTime.match(/(\d{2}):(\d{2}):(\d{2})/);
+        if (timeMatch) {
+          const hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          if (hours > 15 || (hours === 15 && minutes >= 30)) {
+            isClosedSession = true;
+          }
+        }
+      } else {
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+        if (currentHour > 15 || (currentHour === 15 && currentMinute >= 30)) {
+          isClosedSession = true;
+        }
+      }
+    }
+    if (isClosedSession) {
+      isFirstExpiryClosed = true;
+    }
+  }
+
+  if (isFirstExpiryClosed) {
+    // 1st expiry has closed! Refresh / roll to upcoming 2 expiries (Index 1 & 2)
+    return { week1Index: 1, week2Index: 2 };
+  } else {
+    // 1st expiry is still open/active today, maintain index 0 and 1
+    return { week1Index: 0, week2Index: 1 };
+  }
 }

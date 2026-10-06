@@ -483,23 +483,25 @@ function solveIV(S: number, K: number, T: number, r: number, targetPrice: number
 // Official SEBI Expiry Calendars for Indian Index Derivatives (Post-Sept 2025 Tuesday rules)
 const INDIAN_EXPIRIES: Record<string, { label: string; timestamp: number }[]> = {
   'NIFTY 50': [
-    { label: '29 Sep 2026 (Monthly Expiry - Tue)', timestamp: 1790640000 },
     { label: '06 Oct 2026 (Weekly - Tue)', timestamp: 1791244800 },
     { label: '13 Oct 2026 (Weekly - Tue)', timestamp: 1791849600 },
     { label: '20 Oct 2026 (Weekly - Tue)', timestamp: 1792454400 },
     { label: '27 Oct 2026 (Monthly Expiry - Tue)', timestamp: 1793059200 },
+    { label: '03 Nov 2026 (Weekly - Tue)', timestamp: 1793664000 },
     { label: '24 Nov 2026 (Monthly Expiry - Tue)', timestamp: 1795478400 },
   ],
   'BANKNIFTY': [
-    { label: '29 Sep 2026 (Monthly Expiry - Tue)', timestamp: 1790640000 },
+    { label: '07 Oct 2026 (Weekly - Wed)', timestamp: 1791331200 },
+    { label: '14 Oct 2026 (Weekly - Wed)', timestamp: 1791936000 },
+    { label: '21 Oct 2026 (Weekly - Wed)', timestamp: 1792540800 },
     { label: '27 Oct 2026 (Monthly Expiry - Tue)', timestamp: 1793059200 },
-    { label: '24 Nov 2026 (Monthly Expiry - Tue)', timestamp: 1795478400 },
-    { label: '29 Dec 2026 (Monthly Expiry - Tue)', timestamp: 1798416000 },
+    { label: '04 Nov 2026 (Weekly - Wed)', timestamp: 1793750400 },
   ],
   'FINNIFTY': [
-    { label: '29 Sep 2026 (Monthly Expiry - Tue)', timestamp: 1790640000 },
+    { label: '06 Oct 2026 (Weekly - Tue)', timestamp: 1791244800 },
+    { label: '13 Oct 2026 (Weekly - Tue)', timestamp: 1791849600 },
+    { label: '20 Oct 2026 (Weekly - Tue)', timestamp: 1792454400 },
     { label: '27 Oct 2026 (Monthly Expiry - Tue)', timestamp: 1793059200 },
-    { label: '24 Nov 2026 (Monthly Expiry - Tue)', timestamp: 1795478400 },
   ],
 };
 
@@ -1871,8 +1873,8 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               postMarketChange: quote.postMarketChange,
               postMarketChangePercent: quote.postMarketChangePercent,
               extendedHours: quote.extendedHours,
-              expiryDates: formattedExpiryDates.length > 0 ? formattedExpiryDates : ['29 Sep 2026 (Monthly Expiry - Tue)'],
-              expiryTimestamps: expiryTimestamps.length > 0 ? expiryTimestamps : [1790640000],
+              expiryDates: formattedExpiryDates.length > 0 ? formattedExpiryDates : ['06 Oct 2026 (Weekly - Tue)'],
+              expiryTimestamps: expiryTimestamps.length > 0 ? expiryTimestamps : [1791244800],
               selectedExpiryTimestamp: expiryTimestamps[0] || 1790640000,
               vix,
               vixChange,
