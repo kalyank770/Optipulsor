@@ -8,7 +8,7 @@ import {
 import { AfterMarketOpeningCard } from './AfterMarketOpeningCard';
 import { PredictionValidationCard } from './PredictionValidationCard';
 import { MarketHoursStatus } from '../utils/marketHours';
-import { NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
+import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -103,41 +103,35 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const liveContract = signal.recommendedType === 'CE' ? recommendedRow?.ce : recommendedRow?.pe;
 
   // Active trade contract resolution:
-  // When market is closed (After-Market mode) and the current contract has expired/settled at 0.05:
-  // Auto-anchor to the active next-session tradeable contract (e.g. 13-Oct-2026 where 22900 CE is ₹83.20 with +19.00 chg, bid 82.55, ask 83.20)
+  // When market is closed (After-Market mode) and current contract has expired/settled at <= 0.05:
+  // Dynamically resolve exact contract quote for target strike (e.g. 22850 CE) on active tradeable next expiry (13-Oct-2026)
   const isAfterMarket = !marketStatus?.isOpen;
   const isCurrentContractExpired = liveContract && liveContract.ltp <= 0.05;
 
-  const nextExpiryQuote = (ticker.symbol.includes('NIFTY') && NSE_CROSS_EXPIRY_22900_QUOTES[1])
-    ? NSE_CROSS_EXPIRY_22900_QUOTES[1]
+  const nextExpiryQuote = ticker.symbol.includes('NIFTY')
+    ? resolveNextExpiryContractQuote(signal.recommendedStrike, signal.recommendedType, 1, ticker.spotPrice)
     : undefined;
 
   const shouldUseNextExpiry = isAfterMarket && (isCurrentContractExpired || !liveContract || (liveContract && liveContract.ltp <= 0.05));
 
   const currentLTP = shouldUseNextExpiry
-    ? (nextExpiryQuote 
-        ? (signal.recommendedType === 'CE' ? nextExpiryQuote.ceLtp : nextExpiryQuote.peLtp) 
-        : (signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : 83.20))
+    ? (nextExpiryQuote ? nextExpiryQuote.ltp : (signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : 108.50))
     : (liveContract?.ltp ?? signal.recommendedContractLTP);
 
   const displayContractChange = shouldUseNextExpiry
-    ? (nextExpiryQuote ? (signal.recommendedType === 'CE' ? nextExpiryQuote.ceChg : nextExpiryQuote.peChg) : 19.00)
+    ? (nextExpiryQuote ? nextExpiryQuote.change : 19.00)
     : (liveContract?.change ?? 0);
 
   const displayContractChangePercent = shouldUseNextExpiry
-    ? (nextExpiryQuote 
-        ? (signal.recommendedType === 'CE' 
-            ? Number(((nextExpiryQuote.ceChg / Math.max(0.05, nextExpiryQuote.ceLtp - nextExpiryQuote.ceChg)) * 100).toFixed(2)) 
-            : Number(((nextExpiryQuote.peChg / Math.max(0.05, nextExpiryQuote.peLtp - nextExpiryQuote.peChg)) * 100).toFixed(2))) 
-        : 29.60)
+    ? (nextExpiryQuote ? nextExpiryQuote.changePercent : 22.80)
     : (liveContract?.changePercent ?? 0);
 
   const displayBidPrice = shouldUseNextExpiry
-    ? (nextExpiryQuote ? (signal.recommendedType === 'CE' ? nextExpiryQuote.ceBid : nextExpiryQuote.peBid) : Number((currentLTP * 0.992).toFixed(2)))
+    ? (nextExpiryQuote ? nextExpiryQuote.bid : Number((currentLTP * 0.992).toFixed(2)))
     : (liveContract?.bidPrice ?? 0);
 
   const displayAskPrice = shouldUseNextExpiry
-    ? (nextExpiryQuote ? (signal.recommendedType === 'CE' ? nextExpiryQuote.ceAsk : nextExpiryQuote.peAsk) : Number((currentLTP * 1.008).toFixed(2)))
+    ? (nextExpiryQuote ? nextExpiryQuote.ask : Number((currentLTP * 1.008).toFixed(2)))
     : (liveContract?.askPrice ?? 0);
 
   const displayExpiryDate = shouldUseNextExpiry

@@ -21,7 +21,7 @@ import { computeAfterMarketOpeningAnalytics } from './afterMarketEngine';
 import { getMarketHoursStatus } from './marketHours';
 import { computeMultiTimeframePredictions } from './htfPredictionEngine';
 import { loadStrikeHistory, deriveStrikeTrendAnalytics } from './strikeHistoryEngine';
-import { NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
+import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 
 /**
  * Computes market metrics from an option chain
@@ -1444,12 +1444,12 @@ export function generateTradeSignal(
     if (hitContract && hitContract.ltp > 0.05) {
       premium = hitContract.ltp;
       moneyness = hitContract.moneyness;
-    } else if (ticker.symbol.includes('NIFTY') && targetStrike === 22900 && NSE_CROSS_EXPIRY_22900_QUOTES[1]) {
-      const q = NSE_CROSS_EXPIRY_22900_QUOTES[1];
-      premium = recommendedType === 'CE' ? q.ceLtp : q.peLtp;
-      moneyness = 'OTM';
+    } else if (ticker.symbol.includes('NIFTY')) {
+      const q = resolveNextExpiryContractQuote(targetStrike, recommendedType, 1, ticker.spotPrice);
+      premium = q.ltp;
+      moneyness = q.moneyness;
     } else {
-      premium = hit.estimatedOpeningPremium > 0.05 ? hit.estimatedOpeningPremium : 83.20;
+      premium = hit.estimatedOpeningPremium > 0.05 ? hit.estimatedOpeningPremium : 108.50;
     }
 
     spotTarget1 = hit.projectedSpotAtHit;

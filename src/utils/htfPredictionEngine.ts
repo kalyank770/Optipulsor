@@ -17,7 +17,7 @@ import {
   MultiTimeframePredictionSuite 
 } from '../types/htfPredictions';
 import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
-import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
+import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
 
@@ -935,9 +935,9 @@ export function generateExpiryForecast(
   let contractLTP = 50.0;
   if (liveContract?.ltp && liveContract.ltp > 0.05) {
     contractLTP = liveContract.ltp;
-  } else if (ticker.symbol.includes('NIFTY') && targetStrike === 22900 && NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1]) {
-    const q = NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1];
-    contractLTP = recommendedType === 'CE' ? q.ceLtp : q.peLtp;
+  } else if (ticker.symbol.includes('NIFTY')) {
+    const q = resolveNextExpiryContractQuote(targetStrike, recommendedType, expiryIndex, S);
+    contractLTP = q.ltp;
   } else {
     contractLTP = Math.max(0.05, Number(calculateBlackScholes(S, targetStrike, timeToExpiryYears, r, strikeIV, recommendedType).price.toFixed(2)));
   }
