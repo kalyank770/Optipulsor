@@ -295,7 +295,7 @@ export default function App() {
               }`}
             >
               <Table2 className="w-4 h-4 text-emerald-400" />
-              <span>Option Chain & Depth</span>
+              <span>Trade Dynamics</span>
               <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700/50">
                 {filteredRows.length}
               </span>
@@ -311,7 +311,7 @@ export default function App() {
               }`}
             >
               <Compass className="w-4 h-4 text-emerald-400" />
-              <span>1H · 1D · 1W &amp; Expiries</span>
+              <span>Candlestick &amp; Expiries</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </button>
 
@@ -392,7 +392,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                      <span>Option Chain Ladder Matrix</span>
+                      <span>Trade Dynamics Ladder Matrix</span>
                       <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
                         {filteredRows.length} Strikes
                       </span>
@@ -469,12 +469,14 @@ export default function App() {
           </section>
         )}
 
-        {/* WORKSPACE VIEW 2: DEDICATED 1H · 1D · 1W & COMING 2 EXPIRIES PREDICTIONS PAGE */}
+        {/* WORKSPACE VIEW 2: DEDICATED CANDLESTICK MOMENTUM (2M, 5M, 15M, 1H, 1D, 1W) & EXPIRIES PAGE */}
         {activeTab === 'htf' && (
           <section id="section-htf" className="space-y-4 animate-fade-in">
             <HTFPredictionsWorkstation
               predictions={htfPredictions}
               ticker={selectedTicker}
+              signal={signal}
+              candleAnalysis={signal.candleAnalysis}
               onSelectContractForSimulation={handleSelectContract}
             />
           </section>

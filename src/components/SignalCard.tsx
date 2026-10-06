@@ -79,10 +79,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
   const [expandedSubSections, setExpandedSubSections] = useState<Record<SubSectionKey, boolean>>({
     multiTimeframe: false,
-    highProb: true,
-    quantParams: true,
+    highProb: false,
+    quantParams: false,
     groundedPayoff: false,
-    heavyweights: true,
+    heavyweights: false,
     allExpiries: true, // Make it highly visible on load
   });
 
@@ -321,7 +321,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       )}
 
       {/* Dynamic Trade Lifecycle & Institutional Trade Intelligence Banner */}
-      {(() => {
+      {!signal.afterMarketAnalytics && (() => {
         const stage = signal.tradeStage || 'FRESH_ENTRY';
         const isCE = signal.recommendedType === 'CE';
         const isNeutral = signal.action === 'WAIT_NEUTRAL';
@@ -615,7 +615,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <div className="space-y-1 w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
-                  <span>⚡ {isCE ? 'Call Accumulation Momentum' : 'Put Distribution Momentum'}</span>
+                  <span>⚡ Active Entry Signal</span>
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
                   R:R {signal.riskRewardRatio} · {signal.strength} ({signal.confidence}%)
@@ -661,7 +661,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 <Compass className="w-3.5 h-3.5" />
               </div>
               <span className="font-bold text-white text-xs sm:text-sm">
-                1H · 1D · 1W Chart Candle Patterns &amp; Expiry Predictions
+                2M · 5M · 15M · 1H · 1D · 1W Candlestick Momentum &amp; Expiries Workstation
               </span>
               <span className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded border ${
                 signal.htfPredictions.overallHTFBias.includes('BULLISH')
@@ -682,7 +682,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold cursor-pointer transition-all self-end sm:self-auto shadow-xs"
               >
-                <span>Open Full 1H · 1D · 1W &amp; Expiries Page →</span>
+                <span>Open Candlestick Workstation →</span>
               </button>
             )}
           </div>
@@ -1041,163 +1041,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       </div>
 
-      {/* Multi-Timeframe Candlestick & Chart Patterns (2m · 5m · 15m) with Momentum Scoring */}
-      {signal.candleAnalysis && (
-        <div className="mt-3 rounded-lg bg-slate-950/80 border border-slate-800 overflow-hidden">
-          <div 
-            onClick={() => toggleSubSection('multiTimeframe')}
-            className={`flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-900/90 hover:bg-slate-900 cursor-pointer select-none transition-colors ${
-              expandedSubSections.multiTimeframe ? 'border-b border-slate-800' : ''
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Multi-Timeframe Candlestick Momentum Engine (2m · 5m · 15m)
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] font-mono">
-              <span className="text-slate-400 hidden sm:inline">Momentum Confluence:</span>
-              <span className={`font-bold px-2.5 py-0.5 rounded text-[11px] border ${
-                signal.candleAnalysis.confluenceBias === 'BULLISH'
-                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
-                  : signal.candleAnalysis.confluenceBias === 'BEARISH'
-                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/10'
-                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
-              }`}>
-                {signal.candleAnalysis.momentumAlignment?.replace(/_/g, ' ') || signal.candleAnalysis.confluenceBias} ({signal.candleAnalysis.confluenceScore > 0 ? '+' : ''}{signal.candleAnalysis.confluenceScore}/10)
-              </span>
-              <button className="p-1 text-slate-400 hover:text-white" title={expandedSubSections.multiTimeframe ? "Collapse section" : "Expand section"}>
-                {expandedSubSections.multiTimeframe ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-              </button>
-            </div>
-          </div>
 
-          {expandedSubSections.multiTimeframe && (
-            <div className="p-3 pt-2">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
-                {/* 2-Minute Candle Momentum Analysis */}
-                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                      <span className="text-sky-400 font-bold flex items-center gap-1">
-                        <span>2-Min Micro Trigger</span>
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                        (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                      }`}>
-                        {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) > 0 ? '+' : ''}
-                        {(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore)}/10
-                      </span>
-                    </div>
-                    
-                    {/* Visual Momentum Progress Bar */}
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                      <div 
-                        className={`h-full transition-all duration-500 ${
-                          (signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis.m2Score ?? signal.candleAnalysis.m2.momentumScore) * 10))}%` }}
-                      />
-                    </div>
-
-                    <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis?.m2?.pattern?.replace(/2m\s*/, '') || ''}
-                    </div>
-                  </div>
-                  
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Support: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis?.m2?.support?.toLocaleString()}</strong></span>
-                    <span>Resist: <strong className="text-slate-200">{ticker.currency}{signal.candleAnalysis?.m2?.resistance?.toLocaleString()}</strong></span>
-                  </div>
-                </div>
-
-                {/* 5-Minute Candle Momentum Analysis */}
-                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                      <span className="text-emerald-400 font-bold flex items-center gap-1">
-                        <span>5-Min Tactical Trend</span>
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                        (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                      }`}>
-                        {(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) > 0 ? '+' : ''}
-                        {(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0)}/10
-                      </span>
-                    </div>
-
-                    {/* Visual Momentum Progress Bar */}
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                      <div 
-                        className={`h-full transition-all duration-500 ${
-                          (signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis?.m5Score ?? signal.candleAnalysis?.m5?.momentumScore ?? 0) * 10))}%` }}
-                      />
-                    </div>
-
-                    <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis?.m5?.pattern?.replace(/5m\s*/, '') || ''}
-                    </div>
-                  </div>
-
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Swing Target: <strong className="text-emerald-400">{ticker.currency}{signal.candleAnalysis?.derivedExitLevel1?.toLocaleString()}</strong></span>
-                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis?.m5?.atr}</strong></span>
-                  </div>
-                </div>
-
-                {/* 15-Minute Candle Momentum Analysis */}
-                <div className="p-2.5 rounded bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1.5">
-                      <span className="text-amber-400 font-bold flex items-center gap-1">
-                        <span>15-Min Structure Anchor</span>
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
-                        (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
-                      }`}>
-                        {(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) > 0 ? '+' : ''}
-                        {(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0)}/10
-                      </span>
-                    </div>
-
-                    {/* Visual Momentum Progress Bar */}
-                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-                      <div 
-                        className={`h-full transition-all duration-500 ${
-                          (signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(signal.candleAnalysis?.m15Score ?? signal.candleAnalysis?.m15?.momentumScore ?? 0) * 10))}%` }}
-                      />
-                    </div>
-
-                    <div className="font-bold text-slate-200 text-xs mt-0.5">
-                      {signal.candleAnalysis?.m15?.pattern?.replace(/15m\s*/, '') || ''}
-                    </div>
-                  </div>
-
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Runner Target: <strong className="text-sky-400">{ticker.currency}{signal.candleAnalysis?.derivedExitLevel2?.toLocaleString()}</strong></span>
-                    <span>ATR: <strong className="text-slate-300">{ticker.currency}{signal.candleAnalysis?.m15?.atr}</strong></span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2.5 pt-2 border-t border-slate-800/70 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
-                <span>Pattern Confluence: <strong className="text-slate-200">{signal.candleAnalysis.confluencePattern}</strong></span>
-                <span className="font-mono">
-                  Pattern Invalidation Stop: <strong className="text-rose-400">{ticker.currency}{signal.candleAnalysis.invalidationLevel.toLocaleString()}</strong>
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Real-Time News Impact Multiplier & Grounded Confluence Architecture */}
       {signal.targetExitSynthesis && (

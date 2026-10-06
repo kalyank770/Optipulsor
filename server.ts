@@ -1604,7 +1604,18 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
         if (growwRes.ok) {
           const growwJson = await growwRes.json();
           let rawOptionChains = growwJson.optionChain?.optionChains || [];
-          const expiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
+          const rawExpiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
+
+          // Filter expiry dates to near-term valid dates (within 45 days)
+          const nowMs = Date.now();
+          const expiryDates = rawExpiryDates.filter(dStr => {
+            const parts = dStr.split('-');
+            if (parts.length !== 3) return false;
+            const expTs = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T15:30:00+05:30`).getTime();
+            const diffDays = (expTs - nowMs) / (1000 * 86400);
+            return diffDays >= -1 && diffDays <= 45;
+          });
+
           let currentExpiry: string = growwJson.optionChain?.expiryDetailsDto?.currentExpiry || (expiryDates[0] || '');
 
           const growwSpot = growwJson.underlyingValue || 
@@ -1613,6 +1624,15 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
                             growwJson.optionChain?.underlyingDto?.ltp || 
                             growwJson.optionChain?.underlyingDetailsDto?.ltp;
           const S = (growwSpot && growwSpot > 0) ? growwSpot : quote.spotPrice;
+
+          // Validate that rawOptionChains contains strikes near current spot S
+          if (rawOptionChains.length > 0) {
+            const sampleStrike = (rawOptionChains[0].strikePrice || rawOptionChains[0].callOption?.strikePrice || 0) / 100;
+            if (Math.abs(sampleStrike - S) > 2000) {
+              // Raw chains are for far-year or out-of-bound strikes, discard and generate baseline centered at S
+              rawOptionChains = [];
+            }
+          }
 
           // Adjust quote price to match Groww's live spot index value
           if (growwSpot && growwSpot > 0) {

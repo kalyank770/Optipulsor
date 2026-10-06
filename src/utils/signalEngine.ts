@@ -1084,7 +1084,7 @@ export function generateTradeSignal(
     rationalePoints.push({
       title: 'Current Market Spot Momentum',
       verdict: 'BULLISH',
-      description: `Current spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading ${changeFormatted} above reference close (${ticker.currency}${ticker.prevClose.toLocaleString()}). Positive delta momentum favors Call (CE) buying.`,
+      description: `Current spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading ${changeFormatted} above reference close (${ticker.currency}${(ticker.prevClose ?? spotPrice).toLocaleString()}). Positive delta momentum favors Call (CE) buying.`,
     });
   } else if (recoveryRatio <= 0.30 && spotChangePct <= -0.05) {
     rationalePoints.push({

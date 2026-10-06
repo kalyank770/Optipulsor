@@ -176,7 +176,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
         </div>
 
         {/* Global Market Driver Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs font-mono">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
           {/* 1. GIFT Nifty */}
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
@@ -199,18 +199,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             </div>
           </div>
 
-          {/* 3. Nasdaq Futures */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">NASDAQ FUT</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.nasdaqFutures?.price ? telemetry.nasdaqFutures.price.toLocaleString() : '20,145.50'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nasdaqFutures?.changePercent || 0}%
-            </div>
-          </div>
-
-          {/* 4. USD / INR */}
+          {/* 3. USD / INR */}
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">USD / INR</div>
@@ -221,18 +210,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             </div>
           </div>
 
-          {/* 5. Dollar Index DXY */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">DXY INDEX</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.dxyIndex?.price ? telemetry.dxyIndex.price.toFixed(2) : '103.20'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.dxyIndex?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.dxyIndex?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.dxyIndex?.changePercent || 0}%
-            </div>
-          </div>
-
-          {/* 6. Brent Crude */}
+          {/* 4. Brent Crude */}
           <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
             <div>
               <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">BRENT CRUDE</div>
@@ -242,28 +220,18 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
             </div>
           </div>
+        </div>
 
-          {/* 7. US 10Y Yield */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">US 10Y YIELD</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.us10yYield?.price ? telemetry.us10yYield.price.toFixed(2) : '3.72'}%</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.us10yYield?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.us10yYield?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.us10yYield?.changePercent || 0}%
-            </div>
-          </div>
-
-          {/* 8. Nikkei 225 */}
-          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase block truncate font-sans">NIKKEI 225</div>
-              <div className="text-xs font-extrabold text-white mt-0.5">{telemetry?.nikkei225?.price ? telemetry.nikkei225.price.toLocaleString() : '38,380'}</div>
-            </div>
-            <div className={`text-[11px] font-bold mt-1 ${(telemetry?.nikkei225?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {(telemetry?.nikkei225?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nikkei225?.changePercent || 0}%
-            </div>
-          </div>
+        {/* Compact Additional Macro Drivers Row */}
+        <div className="p-2 rounded bg-slate-900/40 border border-slate-800/80 text-[10.5px] font-mono text-slate-400 flex flex-wrap items-center gap-3">
+          <span className="font-semibold text-slate-300">Macro Signals:</span>
+          <span>NASDAQ FUT: <strong className="text-slate-200">{telemetry?.nasdaqFutures?.price ? telemetry.nasdaqFutures.price.toLocaleString() : '20,145.50'} ({(telemetry?.nasdaqFutures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nasdaqFutures?.changePercent || 0}%)</strong></span>
+          <span>·</span>
+          <span>DXY Index: <strong className="text-slate-200">{telemetry?.dxyIndex?.price ? telemetry.dxyIndex.price.toFixed(2) : '103.20'} ({(telemetry?.dxyIndex?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.dxyIndex?.changePercent || 0}%)</strong></span>
+          <span>·</span>
+          <span>US 10Y Yield: <strong className="text-slate-200">{telemetry?.us10yYield?.price ? telemetry.us10yYield.price.toFixed(2) : '3.72'}% ({(telemetry?.us10yYield?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.us10yYield?.changePercent || 0}%)</strong></span>
+          <span>·</span>
+          <span>Nikkei 225: <strong className="text-slate-200">{telemetry?.nikkei225?.price ? telemetry.nikkei225.price.toLocaleString() : '38,380'} ({(telemetry?.nikkei225?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.nikkei225?.changePercent || 0}%)</strong></span>
         </div>
 
         {/* Global Summary Insight */}

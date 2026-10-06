@@ -37,7 +37,8 @@ export function generateRollingCandles(
   const isUptrend = isIntradayBreakdown ? false : (isIntradayRecovery ? true : changePct >= 0);
 
   // Typical candle volatility scaled to timeframe
-  const candleVolatility = Math.max(step * 0.08, (S * (Math.max(10, ticker.vix || 13) / 100) / 15.87) * Math.sqrt(timeframeMinutes / 375));
+  const tfMult = timeframeMinutes === 2 ? 0.75 : timeframeMinutes === 5 ? 1.0 : 1.45;
+  const candleVolatility = Math.max(step * 0.08, (S * (Math.max(10, ticker.vix || 13) / 100) / 15.87) * Math.sqrt(timeframeMinutes / 375) * tfMult);
 
   const candles: Candle[] = [];
   let currentClose = S;
@@ -48,11 +49,11 @@ export function generateRollingCandles(
 
     if (i === 0) {
       // Current forming candle at live spot
-      const openOffset = (isUptrend ? -1 : 1) * candleVolatility * 0.25;
+      const openOffset = (isUptrend ? -1 : 1) * candleVolatility * (0.20 + (timeframeMinutes === 2 ? 0.15 : timeframeMinutes === 5 ? 0.10 : 0.05));
       const open = Number((S + openOffset).toFixed(2));
-      const high = Number((Math.max(S, open) + candleVolatility * 0.20 + 0.02).toFixed(2));
-      const low = Number((Math.min(S, open) - candleVolatility * 0.20 - 0.02).toFixed(2));
-      const volume = Math.round(18000 + Math.abs(Math.sin((candleTs / 60000) * 0.7)) * 24000);
+      const high = Number((Math.max(S, open) + candleVolatility * 0.22 + 0.02).toFixed(2));
+      const low = Number((Math.min(S, open) - candleVolatility * 0.22 - 0.02).toFixed(2));
+      const volume = Math.round(18000 + Math.abs(Math.sin((candleTs / 60000) * 0.7 + timeframeMinutes)) * 24000);
 
       candles.unshift({
         time: timeStr,
@@ -64,19 +65,20 @@ export function generateRollingCandles(
         timestamp: candleTs,
       });
     } else {
-      // Realistic balanced multi-wave price action: 2-step forward, 1-step back
+      // Realistic multi-wave price action with timeframe-specific phase shift
+      const phaseShift = timeframeMinutes === 2 ? 0.4 : timeframeMinutes === 5 ? 0.9 : 1.5;
       const isOdd = (i % 2 === 1);
       const unit = candleVolatility * 0.45;
       const delta = isOdd
-        ? (isUptrend ? -unit * (0.65 + Math.abs(Math.sin(i * 1.3)) * 0.4) : unit * (0.65 + Math.abs(Math.sin(i * 1.3)) * 0.4))
-        : (isUptrend ? unit * (0.40 + Math.abs(Math.cos(i * 1.7)) * 0.3) : -unit * (0.40 + Math.abs(Math.cos(i * 1.7)) * 0.3));
+        ? (isUptrend ? -unit * (0.60 + Math.abs(Math.sin(i * 1.3 + phaseShift)) * 0.4) : unit * (0.60 + Math.abs(Math.sin(i * 1.3 + phaseShift)) * 0.4))
+        : (isUptrend ? unit * (0.45 + Math.abs(Math.cos(i * 1.7 + phaseShift)) * 0.3) : -unit * (0.45 + Math.abs(Math.cos(i * 1.7 + phaseShift)) * 0.3));
 
       const targetPrice = Math.max(dayLow, Math.min(dayHigh, currentClose + delta));
       const close = Number(targetPrice.toFixed(2));
-      const open = Number((close + (isUptrend ? -1 : 1) * candleVolatility * 0.20 + Math.sin(i * 2.1) * candleVolatility * 0.10).toFixed(2));
-      const high = Number((Math.max(open, close) + Math.abs(Math.cos(i)) * candleVolatility * 0.20 + 0.02).toFixed(2));
-      const low = Number((Math.min(open, close) - Math.abs(Math.sin(i)) * candleVolatility * 0.20 - 0.02).toFixed(2));
-      const volume = Math.round(10000 + Math.abs(Math.sin(i)) * 30000);
+      const open = Number((close + (isUptrend ? -1 : 1) * candleVolatility * 0.20 + Math.sin(i * 2.1 + phaseShift) * candleVolatility * 0.10).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.abs(Math.cos(i + phaseShift)) * candleVolatility * 0.22 + 0.02).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.abs(Math.sin(i + phaseShift)) * candleVolatility * 0.22 - 0.02).toFixed(2));
+      const volume = Math.round(10000 + Math.abs(Math.sin(i + phaseShift)) * 30000);
 
       candles.unshift({
         time: timeStr,
@@ -243,19 +245,32 @@ export function analyzeTimeframeCandles(
     patternBias = 'BULLISH';
     momentumScore = 8.0;
   }
-  // 10. Default Trend Alignment with Velocity Scaling
+  // 10. Default Trend Alignment with Velocity & Timeframe Scaling
   else if (trend === 'BULLISH') {
     pattern = `${timeframe} Ascending Channel Continuation`;
     patternBias = 'BULLISH';
-    momentumScore = Math.min(6.0, Math.max(2.5, 3.5 + candleVelocity * 1.5));
+    if (timeframe === '2m') {
+      momentumScore = Number(Math.min(8.2, Math.max(2.8, 4.2 + candleVelocity * 1.8)).toFixed(1));
+    } else if (timeframe === '5m') {
+      momentumScore = Number(Math.min(9.0, Math.max(3.8, 5.8 + candleVelocity * 1.4)).toFixed(1));
+    } else {
+      momentumScore = Number(Math.min(9.5, Math.max(4.8, 6.8 + candleVelocity * 1.2)).toFixed(1));
+    }
   } else if (trend === 'BEARISH') {
     pattern = `${timeframe} Descending Channel Continuation`;
     patternBias = 'BEARISH';
-    momentumScore = Math.max(-6.0, Math.min(-2.5, -3.5 + candleVelocity * 1.5));
+    if (timeframe === '2m') {
+      momentumScore = Number(Math.max(-8.2, Math.min(-2.8, -4.2 + candleVelocity * 1.8)).toFixed(1));
+    } else if (timeframe === '5m') {
+      momentumScore = Number(Math.max(-9.0, Math.min(-3.8, -5.8 + candleVelocity * 1.4)).toFixed(1));
+    } else {
+      momentumScore = Number(Math.max(-9.5, Math.min(-4.8, -6.8 + candleVelocity * 1.2)).toFixed(1));
+    }
   } else {
     pattern = `${timeframe} Range Bound Oscillation`;
     patternBias = 'NEUTRAL';
-    momentumScore = Number((candleVelocity * 1.2).toFixed(1));
+    const tfBase = timeframe === '2m' ? 0.8 : timeframe === '5m' ? 1.4 : 2.2;
+    momentumScore = Number((tfBase * (candleVelocity >= 0 ? 1 : -1) + candleVelocity * 1.2).toFixed(1));
   }
 
   // Calculate Measured Move Target based on pattern and timeframe swing

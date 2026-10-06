@@ -163,7 +163,7 @@ export function generateHTFCandles(
     // 1-HOUR TIMEFRAME: Intraday 1-hour intervals across past 2.5 sessions (~14 bars)
     const count = 14;
     const intervalMs = 60 * 60 * 1000;
-    const hourlyVol = Math.max(step * 0.20, (S * (vix / 100)) / Math.sqrt(252 * 6.25));
+    const hourlyVol = Math.max(step * 0.15, (S * (vix / 100)) / (15.87 * 2.5));
     let runningClose = S;
 
     for (let i = 0; i < count; i++) {
@@ -575,30 +575,28 @@ export function generateHorizonPrediction(
   const bias = patternResult.patternBias;
   const momentum = patternResult.momentumScore;
 
-  let horizonMultiplier = 0.60;
+  const dailyStdDev = (S * (vix / 100)) / 15.87;
   let label = 'Next 1 Hour Outcome';
   let catalyst = '';
+  let expectedPoints = 0;
   let invalidationBuffer = step * 0.5;
 
   if (horizon === 'next_1h') {
-    horizonMultiplier = 0.65;
+    expectedPoints = Number(Math.max(step * 0.5, dailyStdDev * 0.35).toFixed(1));
     label = 'Next 1 Hour Outcome (Scalp Horizon)';
     catalyst = `1H ${patternResult.primaryPattern} pattern driving immediate momentum with RSI at ${patternResult.rsi}.`;
-    invalidationBuffer = Math.max(step * 0.4, atr * 0.6);
+    invalidationBuffer = Math.max(step * 0.35, atr * 0.5);
   } else if (horizon === 'next_1d') {
-    horizonMultiplier = 1.35;
+    expectedPoints = Number(Math.max(step * 1.0, dailyStdDev * 0.88).toFixed(1));
     label = 'Next 1 Day (Tomorrow) Outcome';
     catalyst = `Daily ${patternResult.trend.replace(/_/g, ' ')} structure relative to 20 EMA (₹${patternResult.ema20.toLocaleString()}) and Pivot (₹${patternResult.pivotPoint.toLocaleString()}).`;
-    invalidationBuffer = Math.max(step * 0.8, atr * 0.9);
+    invalidationBuffer = Math.max(step * 0.65, atr * 0.7);
   } else {
-    horizonMultiplier = 2.40;
+    expectedPoints = Number(Math.max(step * 2.0, dailyStdDev * 2.05).toFixed(1));
     label = 'Next 1 Week Outcome (Positional Horizon)';
     catalyst = `Weekly swing trend with Macro Support at ₹${patternResult.supportLevel.toLocaleString()} and Resistance at ₹${patternResult.resistanceLevel.toLocaleString()}.`;
-    invalidationBuffer = Math.max(step * 1.5, atr * 1.4);
+    invalidationBuffer = Math.max(step * 1.2, atr * 1.1);
   }
-
-  // Calculate expected move points
-  const expectedPoints = Number((atr * horizonMultiplier).toFixed(1));
   let projectedSpotTarget = S;
   let projectedRangeLow = Number((S - expectedPoints * 0.75).toFixed(1));
   let projectedRangeHigh = Number((S + expectedPoints * 0.75).toFixed(1));

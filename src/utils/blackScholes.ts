@@ -177,15 +177,20 @@ export function getTickerExpiryDTE(
     }
   }
 
-  let daysToExpiry = 3;
+  const defaultDTEs = [1, 8, 14, 22];
+  const canonicalDTE = defaultDTEs[expiryIndex] !== undefined ? defaultDTEs[expiryIndex] : (1 + expiryIndex * 7);
+
+  let daysToExpiry = canonicalDTE;
   if (expiryDateObj) {
     const msPerDay = 1000 * 60 * 60 * 24;
     const asOfMidnight = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), asOfDate.getDate()).getTime();
     const expiryMidnight = new Date(expiryDateObj.getFullYear(), expiryDateObj.getMonth(), expiryDateObj.getDate()).getTime();
     const daysDiff = Math.round((expiryMidnight - asOfMidnight) / msPerDay);
-    daysToExpiry = Math.max(0, daysDiff);
-  } else {
-    daysToExpiry = Math.max(1, expiryIndex === 0 ? 3 : expiryIndex * 7);
+    if (daysDiff >= 0 && daysDiff <= 45) {
+      daysToExpiry = daysDiff;
+    } else {
+      daysToExpiry = canonicalDTE;
+    }
   }
 
   // If expiring today (0 days), use 0.15 (fraction of market day remaining)
