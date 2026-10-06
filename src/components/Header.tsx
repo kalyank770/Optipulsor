@@ -165,16 +165,14 @@ export const Header: React.FC<HeaderProps> = ({
               )}
               <span>
                 {marketStatus.isHoliday 
-                  ? `Holiday: ${marketStatus.holidayName || 'Exchange Closed'}` 
+                  ? 'Holiday' 
                   : marketStatus.isCasSession
-                  ? 'Closing Auction (CAS)'
+                  ? 'CAS'
                   : marketStatus.isOpen 
-                  ? 'Live Session' 
+                  ? 'Live' 
                   : marketStatus.session === 'PRE_MARKET' 
-                  ? 'Pre-Market Active' 
-                  : marketStatus.session === 'POST_MARKET'
-                  ? 'Post-Market Session'
-                  : 'Market Closed (Settled)'}
+                  ? 'Pre-Market' 
+                  : 'After-Market'}
               </span>
             </div>
           )}
@@ -204,10 +202,8 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
 
-            <span className="hidden md:inline-block text-xs font-medium text-slate-400">
-              {marketStatus?.isHoliday 
-                ? `National Stock Exchange · Closed (Holiday: ${marketStatus.holidayName})` 
-                : 'National Stock Exchange · Live F&O Derivatives'}
+            <span className="hidden md:inline-block text-xs font-semibold text-slate-400 font-mono">
+              F&amp;O Predictor
             </span>
           </div>
 

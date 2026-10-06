@@ -17,8 +17,6 @@ import {
   TrendingDown, 
   Calendar, 
   Target, 
-  Copy, 
-  CheckCircle2, 
   Layers,
   Calculator,
   Lock,
@@ -139,7 +137,6 @@ export function HTFPredictionsWorkstation({
   onSelectContractForSimulation
 }: HTFPredictionsWorkstationProps) {
   const [activeFilter, setActiveFilter] = useState<ActiveViewFilter>('candlesticks');
-  const [copied, setCopied] = useState(false);
 
   const candleData = candleAnalysis || signal?.candleAnalysis;
 
@@ -158,32 +155,6 @@ export function HTFPredictionsWorkstation({
 
   const isBullish = overallHTFBias.includes('BULLISH');
   const isBearish = overallHTFBias.includes('BEARISH');
-
-  const handleCopySummary = () => {
-    const text = `
-🎯 OPTIPULSE CANDLESTICK & EXPIRIES WORKSTATION: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})
-Overall Trend: ${overallHTFBias.replace(/_/g, ' ')} (Score: ${confluenceScore > 0 ? '+' : ''}${confluenceScore})
-
-🕯️ INTRADAY CANDLESTICK MOMENTUM (2M · 5M · 15M):
-• 2M Micro Trigger: ${candleData?.m2?.pattern || 'Consolidation'} (Score: ${candleData?.m2Score ?? candleData?.m2?.momentumScore ?? 0})
-• 5M Tactical Trend: ${candleData?.m5?.pattern || 'Tactical Alignment'} (Score: ${candleData?.m5Score ?? candleData?.m5?.momentumScore ?? 0})
-• 15M Structure Anchor: ${candleData?.m15?.pattern || 'Structure Anchor'} (Score: ${candleData?.m15Score ?? candleData?.m15?.momentumScore ?? 0})
-• Confluence Pattern: ${candleData?.confluencePattern || 'Multi-timeframe Confluence'}
-
-🔮 COMING 2 EXPIRIES:
-1. This Week (${week1Expiry.expiryDateStr} - ${week1Expiry.daysToExpiry} DTE): ${week1Expiry.trendDirectionLabel} -> Target Spot ₹${week1Expiry.projectedSettlementSpot} | Recommended: BUY ${week1Expiry.recommendedStrike} ${week1Expiry.recommendedType} (Entry: ₹${week1Expiry.entryZone[0]}-₹${week1Expiry.entryZone[1]}, Target: ₹${week1Expiry.target1}, Stop Loss: ₹${week1Expiry.stopLoss})
-2. Next Week (${week2Expiry.expiryDateStr} - ${week2Expiry.daysToExpiry} DTE): ${week2Expiry.trendDirectionLabel} -> Target Spot ₹${week2Expiry.projectedSettlementSpot} | Recommended: BUY ${week2Expiry.recommendedStrike} ${week2Expiry.recommendedType} (Entry: ₹${week2Expiry.entryZone[0]}-₹${week2Expiry.entryZone[1]}, Target: ₹${week2Expiry.target1}, Stop Loss: ₹${week2Expiry.stopLoss})
-
-📊 TIME HORIZONS:
-• Next 1 Hour: ${next1Hour.predictedBias} (Target: ₹${next1Hour.projectedSpotTarget}) -> BUY ${next1Hour.recommendedStrike} ${next1Hour.recommendedType} @ ₹${next1Hour.recommendedContractLTP}
-• Next 1 Day: ${next1Day.predictedBias} (Target: ₹${next1Day.projectedSpotTarget}) -> BUY ${next1Day.recommendedStrike} ${next1Day.recommendedType} @ ₹${next1Day.recommendedContractLTP}
-• Next 1 Week: ${next1Week.predictedBias} (Target: ₹${next1Week.projectedSpotTarget}) -> BUY ${next1Week.recommendedStrike} ${next1Week.recommendedType}
-    `.trim();
-
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2200);
-  };
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-fade-in pb-12">
@@ -205,17 +176,6 @@ Overall Trend: ${overallHTFBias.replace(/_/g, ' ')} (Score: ${confluenceScore > 
                 <span>Overall Trend: {overallHTFBias.replace(/_/g, ' ')}</span>
               </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
-            <button
-              onClick={handleCopySummary}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer shadow-sm"
-              title="Copy formatted prediction summary to clipboard"
-            >
-              {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400" />}
-              <span>{copied ? 'Copied Summary' : 'Copy All Predictions'}</span>
-            </button>
           </div>
         </div>
 

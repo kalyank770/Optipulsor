@@ -17,7 +17,7 @@ import {
   MultiTimeframePredictionSuite 
 } from '../types/htfPredictions';
 import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
-import { NSE_OFFICIAL_NIFTY_CHAIN } from '../data/officialNseQuotes';
+import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
 
@@ -894,14 +894,23 @@ export function generateExpiryForecast(
   // Recommended strike
   const recommendedType: OptionType = trendDirection === 'BULLISH_EXPANSION' ? 'CE' : trendDirection === 'BEARISH_BREAKDOWN' ? 'PE' : (S >= maxPain ? 'CE' : 'PE');
   
-  // Strike selection: ATM or 1-step OTM for expansion
+  // Forward base spot accounting for GIFT Nifty overnight drift / projected opening gap
+  const forwardSpot = (interMarket?.giftNifty && Math.abs(interMarket.giftNifty.change) >= 15)
+    ? (trendDirection === 'BULLISH_EXPANSION'
+        ? Math.max(S, interMarket.giftNifty.price)
+        : trendDirection === 'BEARISH_BREAKDOWN'
+        ? Math.min(S, interMarket.giftNifty.price)
+        : S)
+    : S;
+
+  // Strike selection: ATM or 1-step OTM anchored to forward momentum and projected settlement
   let targetStrike = Math.round(projectedSettlementSpot / step) * step;
   if (trendDirection === 'BULLISH_EXPANSION') {
-    targetStrike = Math.round((S + step * 0.5) / step) * step;
+    targetStrike = Math.round((forwardSpot + step * 0.25) / step) * step;
   } else if (trendDirection === 'BEARISH_BREAKDOWN') {
-    targetStrike = Math.round((S - step * 0.5) / step) * step;
+    targetStrike = Math.round((forwardSpot - step * 0.25) / step) * step;
   } else {
-    targetStrike = Math.round(S / step) * step;
+    targetStrike = Math.round(forwardSpot / step) * step;
   }
 
   // Look up live contract from option chain for specific expiryIndex
@@ -924,8 +933,11 @@ export function generateExpiryForecast(
         : Math.max(0.06, (baseIV * 1.06) + (m < 0 ? -m * 0.14 : m * 0.05)));
 
   let contractLTP = 50.0;
-  if (liveContract?.ltp && liveContract.ltp > 0) {
+  if (liveContract?.ltp && liveContract.ltp > 0.05) {
     contractLTP = liveContract.ltp;
+  } else if (ticker.symbol.includes('NIFTY') && targetStrike === 22900 && NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1]) {
+    const q = NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1];
+    contractLTP = recommendedType === 'CE' ? q.ceLtp : q.peLtp;
   } else {
     contractLTP = Math.max(0.05, Number(calculateBlackScholes(S, targetStrike, timeToExpiryYears, r, strikeIV, recommendedType).price.toFixed(2)));
   }
