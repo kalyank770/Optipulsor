@@ -749,12 +749,20 @@ export function useLiveOptionChain() {
         const data = await res.json();
         if (data.giftNifty) {
           setLiveGlobalMacro(data);
+          setSignal(prev => {
+            if (chain && chain.length > 0) {
+              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, data);
+              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, s, liveConstituentAnalysis, data);
+              return s;
+            }
+            return prev;
+          });
         }
       }
     } catch (e) {
       console.warn('Failed to fetch live global macro:', e);
     }
-  }, [selectedTicker.symbol]);
+  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex, liveConstituentAnalysis]);
 
   // Initial load
   useEffect(() => {

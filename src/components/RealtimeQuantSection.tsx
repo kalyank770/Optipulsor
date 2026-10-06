@@ -36,12 +36,10 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
   currency = '₹',
   tickerSymbol = 'NIFTY 50',
   chain = [],
-  spotPrice = 22716.20,
+  spotPrice = 0,
 }) => {
-  const telemetry = interMarketTelemetry || getInterMarketTelemetry(tickerSymbol);
-
-  // --- IV SURFACE & MISPRICING IDENTIFIER ENGINE ---
-  const currentSpot = spotPrice || 22716.20;
+  const currentSpot = spotPrice || (chain && chain.length > 0 ? chain[Math.floor(chain.length / 2)].strike : 22776.10);
+  const telemetry = interMarketTelemetry || getInterMarketTelemetry(tickerSymbol, undefined, currentSpot);
 
   // Extract near-ATM strikes (up to 9 rows)
   const surfaceRows = React.useMemo(() => {
@@ -273,7 +271,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             {/* GIFT Nifty */}
             <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
               <span className="text-[9px] text-slate-500 block">GIFT NIFTY</span>
-              <span className="font-bold text-white block mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : '22,695'}</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : currentSpot.toLocaleString()}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.giftNifty?.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)}
               </span>
@@ -282,7 +280,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             {/* S&P 500 Futures */}
             <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
               <span className="text-[9px] text-slate-500 block">S&P 500 FUT</span>
-              <span className="font-bold text-white block mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '5,752'}</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.sp500Futures?.changePercent || 0}%
               </span>
@@ -291,7 +289,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             {/* USD / INR */}
             <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
               <span className="text-[9px] text-slate-500 block">USD / INR</span>
-              <span className="font-bold text-white block mt-0.5">₹{telemetry?.usdInr?.price ? telemetry.usdInr.price.toFixed(2) : '83.52'}</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.usdInr?.price ? `₹${telemetry.usdInr.price.toFixed(2)}` : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.usdInr?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.usdInr?.changePercent || 0}%
               </span>
@@ -300,7 +298,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
             {/* Brent Crude */}
             <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
               <span className="text-[9px] text-slate-500 block">BRENT CRUDE</span>
-              <span className="font-bold text-white block mt-0.5">${telemetry?.brentCrude?.price ? telemetry.brentCrude.price.toFixed(2) : '73.20'}</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.brentCrude?.price ? `$${telemetry.brentCrude.price.toFixed(2)}` : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.brentCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
               </span>

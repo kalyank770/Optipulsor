@@ -6,17 +6,20 @@ import { InterMarketTelemetry, GlobalMacroMarketItem } from '../types/options';
  */
 export function getInterMarketTelemetry(
   tickerSymbol: string = 'NIFTY 50', 
-  liveData?: Partial<InterMarketTelemetry>
+  liveData?: Partial<InterMarketTelemetry>,
+  spotPrice?: number
 ): InterMarketTelemetry {
   const isBankNifty = tickerSymbol.toUpperCase().includes('BANK');
+  const baseSpot = spotPrice || (isBankNifty ? 54205.25 : 22776.10);
+  const drift = isBankNifty ? 120.0 : 58.75;
   
   const giftNifty: GlobalMacroMarketItem = {
     symbol: 'GIFT NIFTY',
     name: 'GIFT Nifty Futures (NSE IX)',
     category: 'GIFT_NIFTY',
-    price: 22695.50,
-    change: 58.75,
-    changePercent: 0.26,
+    price: Number((baseSpot + drift).toFixed(2)),
+    change: drift,
+    changePercent: Number(((drift / Math.max(1, baseSpot)) * 100).toFixed(2)),
     impactOnIndianFO: 'HIGH_BULLISH',
     correlationWeight: 0.95,
     insightNote: 'GIFT Nifty trading in alignment with overnight global institutional flows.',
