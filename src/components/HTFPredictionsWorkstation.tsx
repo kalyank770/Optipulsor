@@ -239,67 +239,6 @@ Overall Trend: ${overallHTFBias.replace(/_/g, ' ')} (Score: ${confluenceScore > 
             </button>
           ))}
         </div>
-
-        {/* Real-Data Quantitative Parameters Confluence Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pt-3 border-t border-slate-800/80 text-[11px] font-mono">
-          {/* Parameter 1: GIFT Nifty */}
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
-            <span className="text-slate-400 text-[10px] uppercase font-semibold">1. GIFT Nifty Futures</span>
-            <div className="text-white font-bold truncate mt-0.5">
-              {signal?.interMarketTelemetry?.giftNifty ? (
-                <span className={signal.interMarketTelemetry.giftNifty.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                  {ticker.currency}{signal.interMarketTelemetry.giftNifty.price.toLocaleString()} ({signal.interMarketTelemetry.giftNifty.change >= 0 ? '+' : ''}{signal.interMarketTelemetry.giftNifty.change} pts)
-                </span>
-              ) : (
-                <span className="text-emerald-400">NSE IX IX-Feed Active</span>
-              )}
-            </div>
-          </div>
-
-          {/* Parameter 2: Multi-Timeframe Candlesticks */}
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
-            <span className="text-slate-400 text-[10px] uppercase font-semibold">2. Multi-TF Candles</span>
-            <div className="text-white font-bold truncate mt-0.5">
-              <span className={confluenceScore > 0 ? 'text-emerald-400' : confluenceScore < 0 ? 'text-rose-400' : 'text-amber-400'}>
-                2m·5m·15m·1H·1D·1W ({confluenceScore > 0 ? '+' : ''}{confluenceScore})
-              </span>
-            </div>
-          </div>
-
-          {/* Parameter 3: Live Wire News Sentiment */}
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
-            <span className="text-slate-400 text-[10px] uppercase font-semibold">3. Financial News</span>
-            <div className="text-white font-bold truncate mt-0.5">
-              <span className="text-sky-400">
-                Live Catalysts Factored
-              </span>
-            </div>
-          </div>
-
-          {/* Parameter 4: Real Volume Analytics */}
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
-            <span className="text-slate-400 text-[10px] uppercase font-semibold">4. Volume &amp; Order Flow</span>
-            <div className="text-white font-bold truncate mt-0.5">
-              {signal?.volumeAnalytics?.pcrVolume ? (
-                <span className={signal.volumeAnalytics.pcrVolume >= 1.0 ? 'text-emerald-400' : 'text-rose-400'}>
-                  PCR Vol: {signal.volumeAnalytics.pcrVolume.toFixed(2)}
-                </span>
-              ) : (
-                <span className="text-emerald-400">Volume Order Flow</span>
-              )}
-            </div>
-          </div>
-
-          {/* Parameter 5: Strike History Confluence */}
-          <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between col-span-2 sm:col-span-1">
-            <span className="text-slate-400 text-[10px] uppercase font-semibold">5. Strike History Log</span>
-            <div className="text-white font-bold truncate mt-0.5">
-              <span className="text-emerald-400">
-                Audited Trades &amp; P&amp;L
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* 2. GROUPED CANDLESTICK MOMENTUM ENGINE (2M · 5M · 15M · 1H · 1D · 1W) */}

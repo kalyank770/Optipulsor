@@ -483,12 +483,12 @@ function solveIV(S: number, K: number, T: number, r: number, targetPrice: number
 // Official SEBI Expiry Calendars for Indian Index Derivatives (Post-Sept 2025 Tuesday rules)
 const INDIAN_EXPIRIES: Record<string, { label: string; timestamp: number }[]> = {
   'NIFTY 50': [
-    { label: '06 Oct 2026 (Weekly - Tue)', timestamp: 1791244800 },
     { label: '13 Oct 2026 (Weekly - Tue)', timestamp: 1791849600 },
     { label: '20 Oct 2026 (Weekly - Tue)', timestamp: 1792454400 },
     { label: '27 Oct 2026 (Monthly Expiry - Tue)', timestamp: 1793059200 },
     { label: '03 Nov 2026 (Weekly - Tue)', timestamp: 1793664000 },
     { label: '24 Nov 2026 (Monthly Expiry - Tue)', timestamp: 1795478400 },
+    { label: '29 Dec 2026 (Monthly Expiry - Tue)', timestamp: 1798502400 },
   ],
   'BANKNIFTY': [
     { label: '07 Oct 2026 (Weekly - Wed)', timestamp: 1791331200 },
@@ -498,10 +498,10 @@ const INDIAN_EXPIRIES: Record<string, { label: string; timestamp: number }[]> = 
     { label: '04 Nov 2026 (Weekly - Wed)', timestamp: 1793750400 },
   ],
   'FINNIFTY': [
-    { label: '06 Oct 2026 (Weekly - Tue)', timestamp: 1791244800 },
     { label: '13 Oct 2026 (Weekly - Tue)', timestamp: 1791849600 },
     { label: '20 Oct 2026 (Weekly - Tue)', timestamp: 1792454400 },
     { label: '27 Oct 2026 (Monthly Expiry - Tue)', timestamp: 1793059200 },
+    { label: '03 Nov 2026 (Weekly - Tue)', timestamp: 1793664000 },
   ],
 };
 
@@ -1608,14 +1608,14 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
           let rawOptionChains = growwJson.optionChain?.optionChains || [];
           const rawExpiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
 
-          // Filter expiry dates to near-term valid dates (within 45 days)
+          // Filter expiry dates to strictly valid future dates
           const nowMs = Date.now();
           const expiryDates = rawExpiryDates.filter(dStr => {
             const parts = dStr.split('-');
             if (parts.length !== 3) return false;
             const expTs = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T15:30:00+05:30`).getTime();
             const diffDays = (expTs - nowMs) / (1000 * 86400);
-            return diffDays >= -1 && diffDays <= 45;
+            return diffDays > 0.0001 && diffDays <= 60;
           });
 
           let currentExpiry: string = growwJson.optionChain?.expiryDetailsDto?.currentExpiry || (expiryDates[0] || '');
@@ -1876,9 +1876,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               postMarketChange: quote.postMarketChange,
               postMarketChangePercent: quote.postMarketChangePercent,
               extendedHours: quote.extendedHours,
-              expiryDates: formattedExpiryDates.length > 0 ? formattedExpiryDates : ['06 Oct 2026 (Weekly - Tue)'],
-              expiryTimestamps: expiryTimestamps.length > 0 ? expiryTimestamps : [1791244800],
-              selectedExpiryTimestamp: expiryTimestamps[0] || 1790640000,
+              expiryDates: formattedExpiryDates.length > 0 ? formattedExpiryDates : ['13 Oct 2026 (Weekly - Tue)', '20 Oct 2026 (Weekly - Tue)', '27 Oct 2026 (Monthly Expiry - Tue)'],
+              expiryTimestamps: expiryTimestamps.length > 0 ? expiryTimestamps : [1791849600, 1792454400, 1793059200],
+              selectedExpiryTimestamp: expiryTimestamps[0] || 1791849600,
               vix,
               vixChange,
               isLiveExchange: true,

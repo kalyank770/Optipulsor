@@ -20,6 +20,7 @@ import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
 import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
+import { filterActiveExpiries } from '../utils/expiryEngine';
 import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
 import { 
@@ -112,17 +113,11 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     let ceChange = Number((ceLtp - cePrevClose).toFixed(2));
     let peChange = Number((peLtp - pePrevClose).toFixed(2));
 
-    const officialQuote = isIndian && ticker.symbol.includes('NIFTY') && expiryIndex === 0 ? NSE_OFFICIAL_NIFTY_CHAIN[K] : undefined;
-    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY') && K === 22900 && NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] ? NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] : undefined;
+    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY') && K === 22900 
+      ? (NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1] || NSE_CROSS_EXPIRY_22900_QUOTES[1]) 
+      : undefined;
 
-    if (officialQuote) {
-      ceLtp = officialQuote.ceLtp;
-      peLtp = officialQuote.peLtp;
-      ceChange = officialQuote.ceChange;
-      peChange = officialQuote.peChange;
-      cePrevClose = Math.max(0.05, Number((ceLtp - ceChange).toFixed(2)));
-      pePrevClose = Math.max(0.05, Number((peLtp - peChange).toFixed(2)));
-    } else if (crossExpiryQuote) {
+    if (crossExpiryQuote) {
       ceLtp = crossExpiryQuote.ceLtp;
       peLtp = crossExpiryQuote.peLtp;
       ceChange = crossExpiryQuote.ceChg;
@@ -649,7 +644,7 @@ export function useLiveOptionChain() {
             source: 'NSE India Pre-Open Discovery Feed',
           },
           isUsingPreMarket: activePreMarket,
-          expiryDates: data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : tickerToFetch.expiryDates,
+          expiryDates: filterActiveExpiries(data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : tickerToFetch.expiryDates),
           isLiveSynced: true,
         };
 

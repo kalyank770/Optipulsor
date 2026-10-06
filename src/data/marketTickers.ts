@@ -32,7 +32,6 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'NSE India Official Exchange Close',
     },
     expiryDates: [
-      '06 Oct 2026 (Weekly - Tue)',
       '13 Oct 2026 (Weekly - Tue)',
       '19 Oct 2026 (Weekly - Mon)',
       '27 Oct 2026 (Monthly Expiry - Tue)',
@@ -114,7 +113,6 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'NSE Regular Session',
     },
     expiryDates: [
-      '06 Oct 2026 (Weekly - Tue)',
       '13 Oct 2026 (Weekly - Tue)',
       '20 Oct 2026 (Weekly - Tue)',
       '27 Oct 2026 (Monthly Expiry - Tue)',

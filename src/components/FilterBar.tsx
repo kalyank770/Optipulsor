@@ -3,6 +3,7 @@ import {
   OptionFilters, 
   TickerConfig 
 } from '../types/options';
+import { filterActiveExpiries } from '../utils/expiryEngine';
 import { 
   SlidersHorizontal, 
   RotateCcw, 
@@ -67,7 +68,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         <Calendar className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
         <span className={`text-xs font-semibold shrink-0 ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>Expiry:</span>
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5">
-          {ticker.expiryDates.map((exp, idx) => {
+          {filterActiveExpiries(ticker.expiryDates).map((exp, idx) => {
             const active = idx === expiryIndex;
             return (
               <button
