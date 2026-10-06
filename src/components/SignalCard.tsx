@@ -661,7 +661,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 <Compass className="w-3.5 h-3.5" />
               </div>
               <span className="font-bold text-white text-xs sm:text-sm">
-                2M · 5M · 15M · 1H · 1D · 1W Candlestick Momentum &amp; Expiries Workstation
+                Candlestick Momentum
               </span>
               <span className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded border ${
                 signal.htfPredictions.overallHTFBias.includes('BULLISH')

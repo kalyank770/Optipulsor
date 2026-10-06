@@ -185,10 +185,20 @@ export function computeAfterMarketOpeningAnalytics(
   if (globalScore >= 18) openMomentumScore += 1.6;
   else if (globalScore <= -18) openMomentumScore -= 1.6;
 
-  const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.002)).toFixed(2));
-  const predictedOpeningSpot = Number((spotClose + giftNiftyChangePoints + macroAdjustment).toFixed(2));
-  const predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
-  const predictedOpeningGapPercent = Number(((predictedOpeningGapPoints / Math.max(1, spotClose)) * 100).toFixed(2));
+  let predictedOpeningSpot = spotClose;
+  let predictedOpeningGapPoints = 0;
+
+  if (ticker.isUsingPreMarket) {
+    predictedOpeningSpot = spotClose;
+    predictedOpeningGapPoints = Number((predictedOpeningSpot - ticker.prevClose).toFixed(2));
+  } else {
+    const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.002)).toFixed(2));
+    predictedOpeningSpot = Number((spotClose + giftNiftyChangePoints + macroAdjustment).toFixed(2));
+    predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
+  }
+
+  const referenceBasePrice = ticker.prevClose || spotClose;
+  const predictedOpeningGapPercent = Number(((predictedOpeningGapPoints / Math.max(1, referenceBasePrice)) * 100).toFixed(2));
 
   let predictedOpeningType: AfterMarketOpeningAnalytics['predictedOpeningType'] = 'FLAT_OPENING';
   if (predictedOpeningGapPercent >= 0.15) predictedOpeningType = 'GAP_UP_OPENING';

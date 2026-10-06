@@ -255,32 +255,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Pre-Market Discovery Banner if active and not holiday */}
-        {usePreMarket && !marketStatus?.isHoliday && (
-          <div className="bg-amber-950/40 border border-amber-500/30 rounded-lg p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5">
-              <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-              <div className="font-mono text-amber-200">
-                <span>Pre-Market Discovery Spot: </span>
-                <strong className="text-white">
-                  {selectedTicker.currency}{(selectedTicker.preMarketPrice || selectedTicker.spotPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </strong>
-                <span className="text-slate-500 mx-1.5">·</span>
-                <span>Gap: </span>
-                <span className={selectedTicker.change >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                  {selectedTicker.change >= 0 ? '+' : ''}{selectedTicker.change.toFixed(2)} ({selectedTicker.changePercent >= 0 ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={() => toggleUsePreMarket(false)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold cursor-pointer shrink-0 self-start sm:self-auto"
-            >
-              <Power className="w-3.5 h-3.5 text-amber-400" />
-              <span>Restore Regular Spot</span>
-            </button>
-          </div>
-        )}
+
 
         {/* Workstation Tab Navigation Bar */}
         <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-14 z-30 backdrop-blur-md">
@@ -311,7 +286,7 @@ export default function App() {
               }`}
             >
               <Compass className="w-4 h-4 text-emerald-400" />
-              <span>Candlestick &amp; Expiries</span>
+              <span>Candlestick Momentum</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </button>
 

@@ -536,7 +536,7 @@ export function generateTradeSignal(
     if (score >= 1.4 && (bullMatches >= 3 || (bullMatches >= 2 && isBullishCandles))) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
-      strength = bullMatches >= 4 ? 'STRONG' : 'MODERATE';
+      strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -551,7 +551,7 @@ export function generateTradeSignal(
     if (score <= -1.4 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bearMatches / 7) * 34)));
-      strength = bearMatches >= 4 ? 'STRONG' : 'MODERATE';
+      strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
     } else {
       action = 'WAIT_NEUTRAL';
       confidence = 54;
@@ -583,7 +583,7 @@ export function generateTradeSignal(
     if (score <= -0.9 && bearMatches >= 3 && !isMarketRaising) {
       action = 'BUY_PE';
       confidence = Math.min(94, Math.max(64, Math.round(58 + (bearMatches / 7) * 36)));
-      strength = bearMatches >= 4 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
+      strength = bearMatches >= 5 && Math.abs(score) >= 3.0 ? 'STRONG' : 'MODERATE';
     } else if (score >= 2.5 && (bullMatches >= 4 || isMarketRaising)) {
       action = 'BUY_CE';
       confidence = Math.min(94, Math.max(68, Math.round(60 + (bullMatches / 7) * 34)));
