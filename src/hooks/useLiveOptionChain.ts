@@ -652,16 +652,15 @@ export function useLiveOptionChain() {
         setExpiryTimestamps(data.expiryTimestamps || []);
         setDataSourceNote(data.source || 'Live Exchange Feed');
 
-        // If the backend returned actual live option rows for US tickers (SPY, QQQ, NVDA, TSLA)
-        const isIndianTicker = updatedTicker.currency === '₹';
+        // Utilize actual live exchange option rows from backend if available (NSE/Groww market depth for Indian indices, Yahoo/CBOE for US)
         const hasValidAtmRows = data.rows && Array.isArray(data.rows) && data.rows.length > 0 &&
           data.rows.some((r: OptionChainRow) => Math.abs(r.strike - updatedTicker.atmStrike) <= updatedTicker.strikeStep * 2);
 
-        if (!isIndianTicker && hasValidAtmRows) {
+        if (hasValidAtmRows) {
           setChain(data.rows);
           setMetrics(computeMarketMetrics(updatedTicker, data.rows));
         } else {
-          // For Indian indices (NIFTY, BANKNIFTY, FINNIFTY): calculate calibrated Black-Scholes anchored on the exact live spot
+          // Fallback: calculate calibrated Black-Scholes anchored on exact live spot price if live option chain depth is offline
           const newChain = buildInitialChain(updatedTicker, targetExpiryIndex);
           setChain(newChain);
           setMetrics(computeMarketMetrics(updatedTicker, newChain));

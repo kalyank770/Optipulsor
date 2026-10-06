@@ -2055,8 +2055,8 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       selectedExpiryTimestamp: requestedDate || officialExpiries[0].timestamp,
       vix,
       vixChange,
-      isLiveExchange: true,
-      source: 'NSE Live Spot + Official SEBI Derivatives Expiry Calendar',
+      isLiveExchange: false,
+      source: 'Black-Scholes Estimated Option Chain (Live NFO Market Depth Offline)',
       rows,
     });
 
