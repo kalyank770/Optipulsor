@@ -315,3 +315,90 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
     };
   }
 }
+
+export interface AutoRefreshMarketStatus {
+  isActive: boolean;
+  timeZone: string;
+  currentTimeFormatted: string;
+  reason: string;
+  windowLabel: string;
+}
+
+/**
+ * Checks whether the market is currently in the active auto-refresh window
+ * (09:00 AM to 03:40 PM IST for Indian markets, excluding weekends & Indian holidays)
+ */
+export function isMarketAutoRefreshActive(ticker: TickerConfig): AutoRefreshMarketStatus {
+  const isIndian = ticker.currency === '₹' || 
+                   ticker.symbol.includes('NIFTY') || 
+                   ticker.symbol.includes('BANK') || 
+                   ticker.symbol.includes('SENSEX');
+                   
+  const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const now = new Date();
+
+  // Check Indian / US market holidays
+  const holiday = checkMarketHoliday(now, isIndian);
+  const { dayOfWeek, hours, minutes, timeStr } = getExchangeTime(timeZone);
+  const totalMinutes = hours * 60 + minutes;
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+
+  const currentTimeFormatted = isIndian ? `${timeStr} IST` : `${timeStr} ET`;
+  const windowLabel = isIndian ? '09:00 AM - 03:40 PM IST' : '09:00 AM - 04:00 PM ET';
+
+  if (!isWeekday) {
+    return {
+      isActive: false,
+      timeZone,
+      currentTimeFormatted,
+      reason: 'Weekend (Exchange Closed)',
+      windowLabel,
+    };
+  }
+
+  if (holiday.isHoliday || ticker.isHoliday) {
+    const hName = holiday.holidayName || ticker.holidayName || 'Exchange Holiday';
+    return {
+      isActive: false,
+      timeZone,
+      currentTimeFormatted,
+      reason: `Holiday: ${hName}`,
+      windowLabel,
+    };
+  }
+
+  // Active time window:
+  // For Indian Markets: 09:00 AM to 03:40 PM IST (540 to 940 mins)
+  // For US Markets: 09:00 AM to 04:00 PM ET (540 to 960 mins)
+  const startMin = 9 * 60; // 09:00 AM
+  const endMin = isIndian ? (15 * 60 + 40) : (16 * 60); // 03:40 PM IST (15:40) or 04:00 PM ET (16:00)
+
+  if (totalMinutes >= startMin && totalMinutes <= endMin) {
+    return {
+      isActive: true,
+      timeZone,
+      currentTimeFormatted,
+      reason: 'Active Session Window',
+      windowLabel,
+    };
+  }
+
+  if (totalMinutes < startMin) {
+    return {
+      isActive: false,
+      timeZone,
+      currentTimeFormatted,
+      reason: 'Pre-Market (Opens 09:00 AM)',
+      windowLabel,
+    };
+  }
+
+  return {
+    isActive: false,
+    timeZone,
+    currentTimeFormatted,
+    reason: 'Post-Market (Closed at 03:40 PM)',
+    windowLabel,
+  };
+}
+

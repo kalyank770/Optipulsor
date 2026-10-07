@@ -14,6 +14,7 @@ import {
   addLiveSignalToReport, 
   computeDaysReportSummary 
 } from '../utils/daysReportEngine';
+import { isMarketAutoRefreshActive } from '../utils/marketHours';
 import { 
   ShieldCheck, 
   Target, 
@@ -56,11 +57,56 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
   const [trades, setTrades] = useState<DayReportTrade[]>(() => loadDaysReport(ticker, chain));
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('ALL');
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [forceAutoRefresh, setForceAutoRefresh] = useState<boolean>(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+
+  // Active Market Hours check for Auto-Refresh (09:00 AM to 03:40 PM IST, excluding weekends & Indian holidays)
+  const autoRefreshMarketStatus = useMemo(() => {
+    return isMarketAutoRefreshActive(ticker);
+  }, [ticker]);
 
   // Sync / update report when chain changes or ticker changes
   React.useEffect(() => {
     setTrades(prev => updateDaysReportWithLiveTicks(prev, ticker, chain));
   }, [chain, ticker]);
+
+  // Active Market Session Auto-Refresh Loop (Runs every 5 seconds when market is active or force-enabled)
+  React.useEffect(() => {
+    const runAutoRefresh = () => {
+      const status = isMarketAutoRefreshActive(ticker);
+      const isWindowActive = status.isActive || forceAutoRefresh;
+
+      if (isWindowActive) {
+        if (onSyncLiveExchange) {
+          onSyncLiveExchange();
+        }
+        setTrades(prev => {
+          const updated = updateDaysReportWithLiveTicks(prev, ticker, chain);
+          saveDaysReport(ticker.symbol, updated);
+          return updated;
+        });
+
+        const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY') || ticker.symbol.includes('BANK') || ticker.symbol.includes('SENSEX');
+        const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+        const formattedTime = new Intl.DateTimeFormat('en-US', {
+          timeZone,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        }).format(new Date());
+
+        setLastRefreshedAt(formattedTime);
+      }
+    };
+
+    // Initial check on mount
+    runAutoRefresh();
+
+    // 5-second interval timer for continuous live auto-refreshing during active trading hours
+    const timer = setInterval(runAutoRefresh, 5000);
+    return () => clearInterval(timer);
+  }, [ticker, chain, onSyncLiveExchange, forceAutoRefresh]);
 
   const summary: DayReportSummary = useMemo(() => {
     return computeDaysReportSummary(trades);
@@ -175,6 +221,39 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 <p className="text-xs text-slate-400 mt-0.5">
                   Holding the prediction engine accountable: Exactly what it recommended vs what actually happened in the market today.
                 </p>
+
+                {/* Live Auto-Refresh Status Pill (9:00 AM to 3:40 PM IST, Exclude Weekends & Indian Holidays) */}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {autoRefreshMarketStatus.isActive || forceAutoRefresh ? (
+                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span>Auto-Refreshing Live (9:00 AM – 3:40 PM IST)</span>
+                      {lastRefreshedAt && <span className="text-[10px] text-emerald-400/90 font-mono">· Last: {lastRefreshedAt}</span>}
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-700/60 text-slate-300 text-[11px] font-medium">
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />
+                      <span>Auto-Refresh Paused · {autoRefreshMarketStatus.reason}</span>
+                      <span className="text-[10px] text-slate-400">({autoRefreshMarketStatus.windowLabel})</span>
+                    </div>
+                  )}
+
+                  {/* Test Auto-Refresh Icon Button */}
+                  <button
+                    onClick={() => setForceAutoRefresh(prev => !prev)}
+                    className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
+                      forceAutoRefresh
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-xs shadow-emerald-500/30'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border-slate-700/80 hover:bg-slate-700/80'
+                    }`}
+                    title={forceAutoRefresh ? 'Test Auto-Refresh Override: ACTIVE (Click to turn off)' : 'Test Auto-Refresh (Click to simulate continuous live auto-refresh outside market hours)'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${forceAutoRefresh ? 'text-emerald-400 animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -183,21 +262,20 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           <div className="flex flex-wrap items-center gap-2 self-start lg:self-center">
             <button
               onClick={handleLogCurrentSignal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-sm cursor-pointer"
-              title="Snapshot and add the active live signal to today's report"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title="Snapshot and add the active live signal to today's prediction log"
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              <span>Log Current Live Signal</span>
+              <span>Log Live Signal</span>
             </button>
 
             <button
               onClick={handleVerifyWithLiveTicks}
               disabled={isSyncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-              title="Recalculate running trades against live spot and option prices"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Manual Instant Sync: Force re-verify all trade outcomes against latest exchange ticks now"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>Verify Against Exchange Ticks</span>
             </button>
 
             <button
@@ -206,13 +284,13 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
               title="Download Day's Report as CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-400" />
-              <span className="hidden sm:inline">Export Audit CSV</span>
+              <span className="hidden sm:inline">Export CSV</span>
             </button>
 
             <button
               onClick={handleResetReport}
               className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs transition-all cursor-pointer"
-              title="Reset to default session records"
+              title="Reset Session: Clear custom logged signals and restore default intraday benchmark log"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -222,88 +300,89 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
         {/* 4 HIGH-IMPACT RELIABILITY METRIC CARDS */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 font-mono">
           {/* Metric 1: Win Rate & Target Accuracy */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 flex flex-col justify-between relative overflow-hidden">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 flex flex-col justify-between relative overflow-hidden h-full">
             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-xs font-sans text-slate-400 mb-2">
-              <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                <Target className="w-4 h-4" />
-                <span>Target Accuracy</span>
+            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
+              <span className="font-semibold text-emerald-400 flex items-center gap-1.5 min-w-0">
+                <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Target Accuracy</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                {summary.reliabilityGrade}
+              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 font-mono" title={summary.reliabilityGrade}>
+                <span className="sm:hidden">{summary.reliabilityGrade.startsWith('A+') ? 'A+ GRADE' : summary.reliabilityGrade.startsWith('A') ? 'A GRADE' : summary.reliabilityGrade.startsWith('B') ? 'B GRADE' : summary.reliabilityGrade}</span>
+                <span className="hidden sm:inline">{summary.reliabilityGrade}</span>
               </span>
             </div>
             <div>
-              <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight whitespace-nowrap my-1">
                 {summary.winRatePercent}%
               </div>
-              <div className="text-[11px] text-slate-400 font-sans mt-1">
+              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
                 {summary.successfulCalls} of {summary.totalCalls} hit targets ({summary.target2Hits} hit Target 2)
               </div>
             </div>
           </div>
 
           {/* Metric 2: Net Index Points Captured */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-sky-500/30 flex flex-col justify-between relative overflow-hidden">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-sky-500/30 flex flex-col justify-between relative overflow-hidden h-full">
             <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-xs font-sans text-slate-400 mb-2">
-              <span className="font-semibold text-sky-400 flex items-center gap-1.5">
-                <TrendingUp className="w-4 h-4" />
-                <span>Net Points Captured</span>
+            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
+              <span className="font-semibold text-sky-400 flex items-center gap-1.5 min-w-0">
+                <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Net Points</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/40">
+              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0 font-sans">
                 Spot Move
               </span>
             </div>
             <div>
-              <div className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-emerald-400 tracking-tight whitespace-nowrap my-1">
                 +{summary.netSpotPoints} pts
               </div>
-              <div className="text-[11px] text-slate-400 font-sans mt-1">
+              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
                 +{summary.netOptionPoints} pts option premium (Avg +{summary.avgProfitPercent}%)
               </div>
             </div>
           </div>
 
           {/* Metric 3: Best Trade of the Day */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 flex flex-col justify-between relative overflow-hidden">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 flex flex-col justify-between relative overflow-hidden h-full">
             <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-xs font-sans text-slate-400 mb-2">
-              <span className="font-semibold text-amber-400 flex items-center gap-1.5">
-                <Award className="w-4 h-4" />
-                <span>Best Session Trade</span>
+            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
+              <span className="font-semibold text-amber-400 flex items-center gap-1.5 min-w-0">
+                <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Best Trade</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 font-sans">
                 Peak Gain
               </span>
             </div>
             <div>
-              <div className="text-2xl sm:text-3xl font-black text-amber-300 tracking-tight">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-amber-300 tracking-tight whitespace-nowrap my-1">
                 +{summary.maxProfitPercent}%
               </div>
-              <div className="text-[11px] text-slate-400 font-sans mt-1 truncate" title={summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (${summary.bestTrade.timeFormatted})` : ''}>
+              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 truncate" title={summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (${summary.bestTrade.timeFormatted})` : ''}>
                 {summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (₹${summary.bestTrade.recommendedEntry} ➔ ₹${summary.bestTrade.actualOptionPeakPrice})` : 'Awaiting calls'}
               </div>
             </div>
           </div>
 
           {/* Metric 4: Average Execution Time to Target */}
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-indigo-500/30 flex flex-col justify-between relative overflow-hidden">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-indigo-500/30 flex flex-col justify-between relative overflow-hidden h-full">
             <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-xs font-sans text-slate-400 mb-2">
-              <span className="font-semibold text-indigo-400 flex items-center gap-1.5">
-                <Clock className="w-4 h-4" />
-                <span>Avg Target Time</span>
+            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
+              <span className="font-semibold text-indigo-400 flex items-center gap-1.5 min-w-0">
+                <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Avg Target Time</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shrink-0 font-sans">
                 Speed
               </span>
             </div>
             <div>
-              <div className="text-2xl sm:text-3xl font-black text-indigo-300 tracking-tight">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-indigo-300 tracking-tight whitespace-nowrap my-1">
                 19 Mins
               </div>
-              <div className="text-[11px] text-slate-400 font-sans mt-1">
+              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
                 Swift target execution with low drawdown
               </div>
             </div>

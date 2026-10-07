@@ -2604,7 +2604,7 @@ app.get('/api/news', async (req: Request, res: Response) => {
 async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
   const hasDist = fs.existsSync(distPath) && fs.existsSync(path.resolve(distPath, 'index.html'));
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = process.env.NODE_ENV === 'production' || hasDist;
 
   if (isProduction && hasDist) {
     // Production: serve built static files from dist
