@@ -191,46 +191,69 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Dedicated NIFTY 50 Benchmark Index Strip */}
-      <div className="border-t border-slate-800/80 bg-slate-900/60 px-3 sm:px-6 py-1.5">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-[#020617] flex items-center gap-1.5 shadow-sm">
-              <span>{selectedTicker.symbol === 'NIFTY 50' ? 'NIFTY 50' : selectedTicker.symbol}</span>
-              <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-[#020617] font-mono font-bold">
-                NSE {selectedTicker.category ? selectedTicker.category.toUpperCase() : 'INDEX'}
-              </span>
-            </div>
+      {/* Mobile Consolidated Strip (Visible on mobile < sm) */}
+      <div className="block sm:hidden border-t border-slate-800/80 bg-slate-900/90 px-3 py-1.5">
+        <div className="flex items-center justify-between text-xs font-mono">
+          <div className="flex items-center gap-1.5 truncate">
+            <span className="font-bold text-white">{selectedTicker.symbol}</span>
+            <span className="text-emerald-400 font-bold">
+              {selectedTicker.currency}{selectedTicker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className={`font-bold text-[11px] ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+              ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
+            </span>
           </div>
-
-          <div className="flex items-center gap-2.5 sm:gap-3 text-xs font-mono text-slate-400 shrink-0">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 shrink-0">
             <span>ATM: <strong className="text-emerald-400">{selectedTicker.atmStrike}</strong></span>
             <span className="text-slate-700">·</span>
-            <span className="text-slate-400">VIX: <strong className="text-amber-300">{selectedTicker.vix.toFixed(2)}</strong></span>
+            <span>VIX: <strong className="text-amber-300">{selectedTicker.vix.toFixed(2)}</strong></span>
           </div>
         </div>
       </div>
 
-      {/* Live Spot Price Header Bar */}
-      <div className="border-t border-slate-800/80 bg-slate-950 px-3 sm:px-6 py-1.5">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 text-xs font-mono">
-          {/* Left: Symbol & Live Spot */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="font-bold text-white text-xs sm:text-sm">{selectedTicker.symbol}</span>
-            <span className="text-slate-600">·</span>
-            <span className="text-base sm:text-lg font-bold text-white tracking-tight">
-              {selectedTicker.currency}{selectedTicker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className={`font-bold text-xs ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isPositive ? '+' : ''}{selectedTicker.change.toFixed(2)} ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
-            </span>
-            {selectedTicker.dayHigh > 0 && selectedTicker.dayLow > 0 && (
-              <span className="hidden sm:inline-flex items-center gap-2 text-slate-400 text-[11px]">
-                <span className="text-slate-600">·</span>
-                <span>H: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayHigh.toFixed(2)}</strong></span>
-                <span>L: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayLow.toFixed(2)}</strong></span>
+      {/* Desktop Multi-Tier Header Strips (Visible on sm: and up) */}
+      <div className="hidden sm:block">
+        {/* Dedicated NIFTY 50 Benchmark Index Strip */}
+        <div className="border-t border-slate-800/80 bg-slate-900/60 px-6 py-1.5">
+          <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="px-3 py-1.5 text-xs font-bold rounded-md bg-emerald-500 text-[#020617] flex items-center gap-1.5 shadow-sm">
+                <span>{selectedTicker.symbol === 'NIFTY 50' ? 'NIFTY 50' : selectedTicker.symbol}</span>
+                <span className="text-[9.5px] px-1 py-0.5 rounded bg-slate-900/20 text-[#020617] font-mono font-bold">
+                  NSE {selectedTicker.category ? selectedTicker.category.toUpperCase() : 'INDEX'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 sm:gap-3 text-xs font-mono text-slate-400 shrink-0">
+              <span>ATM: <strong className="text-emerald-400">{selectedTicker.atmStrike}</strong></span>
+              <span className="text-slate-700">·</span>
+              <span className="text-slate-400">VIX: <strong className="text-amber-300">{selectedTicker.vix.toFixed(2)}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Spot Price Header Bar */}
+        <div className="border-t border-slate-800/80 bg-slate-950 px-6 py-1.5">
+          <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-2 text-xs font-mono">
+            {/* Left: Symbol & Live Spot */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="font-bold text-white text-xs sm:text-sm">{selectedTicker.symbol}</span>
+              <span className="text-slate-600">·</span>
+              <span className="text-base sm:text-lg font-bold text-white tracking-tight">
+                {selectedTicker.currency}{selectedTicker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
-            )}
+              <span className={`font-bold text-xs ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {isPositive ? '+' : ''}{selectedTicker.change.toFixed(2)} ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
+              </span>
+              {selectedTicker.dayHigh > 0 && selectedTicker.dayLow > 0 && (
+                <span className="inline-flex items-center gap-2 text-slate-400 text-[11px]">
+                  <span className="text-slate-600">·</span>
+                  <span>H: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayHigh.toFixed(2)}</strong></span>
+                  <span>L: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayLow.toFixed(2)}</strong></span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

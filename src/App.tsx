@@ -405,79 +405,79 @@ export default function App() {
 
 
         {/* Workstation Tab Navigation Bar */}
-        <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-14 z-30 backdrop-blur-md">
+        <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-[72px] sm:top-[126px] z-30 backdrop-blur-md">
           <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar text-xs font-medium">
             {/* Tab 1: Option Chain / Trade Dynamics */}
             <button
               onClick={() => setActiveTab('chain')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
                 activeTab === 'chain'
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
               title={`Trade Dynamics: ${tradeSentimentDot.title}`}
             >
-              <Table2 className="w-4 h-4 text-emerald-400" />
-              <span>Trade Dynamics</span>
-              <span className={`w-2 h-2 rounded-full ${tradeSentimentDot.color} animate-pulse`} />
+              <Table2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Trade<span className="hidden xs:inline"> Dynamics</span></span>
+              <span className={`w-2 h-2 rounded-full ${tradeSentimentDot.color} animate-pulse shrink-0`} />
             </button>
 
             {/* Tab 2: 1H · 1D · 1W & Expiry Predictions */}
             <button
               onClick={() => setActiveTab('htf')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
                 activeTab === 'htf'
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
               title={`Candlestick Momentum: ${candlestickSentimentDot.title}`}
             >
-              <Compass className="w-4 h-4 text-emerald-400" />
-              <span>Candlestick Momentum</span>
-              <span className={`w-2 h-2 rounded-full ${candlestickSentimentDot.color} animate-pulse`} />
+              <Compass className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span><span className="hidden sm:inline">Candlestick </span>Momentum</span>
+              <span className={`w-2 h-2 rounded-full ${candlestickSentimentDot.color} animate-pulse shrink-0`} />
             </button>
 
             {/* Tab 3: Quant & Order Flow */}
             <button
               onClick={() => setActiveTab('quant')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
                 activeTab === 'quant'
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
               title={`Order Flow & Quant: ${quantSentimentDot.title}`}
             >
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span>Order Flow & Quant</span>
-              <span className={`w-2 h-2 rounded-full ${quantSentimentDot.color} animate-pulse`} />
+              <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span><span className="hidden sm:inline">Order Flow &amp; </span>Quant</span>
+              <span className={`w-2 h-2 rounded-full ${quantSentimentDot.color} animate-pulse shrink-0`} />
             </button>
 
             {/* Tab 4: News & Catalysts */}
             <button
               onClick={() => setActiveTab('news')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] relative ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] relative ${
                 activeTab === 'news'
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
               title={`News & Catalysts: ${newsSentimentDot.title}`}
             >
-              <Radio className="w-4 h-4 text-amber-400" />
-              <span>News & Catalysts</span>
-              <span className={`w-2 h-2 rounded-full ${newsSentimentDot.color} animate-pulse`} />
+              <Radio className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>News<span className="hidden sm:inline"> &amp; Catalysts</span></span>
+              <span className={`w-2 h-2 rounded-full ${newsSentimentDot.color} animate-pulse shrink-0`} />
             </button>
 
             {/* Tab 5: Audit Report */}
             <button
               onClick={() => setActiveTab('report')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
                 activeTab === 'report'
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
-              <FileCheck2 className="w-4 h-4 text-emerald-400" />
-              <span>Audit Report</span>
+              <FileCheck2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Audit<span className="hidden sm:inline"> Report</span></span>
             </button>
           </div>
         </div>
