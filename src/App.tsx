@@ -199,6 +199,35 @@ export default function App() {
     );
   }, [signal.htfPredictions, selectedTicker, metrics, chain, marketStatus, signal.interMarketTelemetry, newsFeed, signal.volumeAnalytics, strikeAnalytics]);
 
+  // Trade Dynamics Tab Status Indicator Dot (based on predicted trade signal)
+  const tradeSentimentDot = useMemo(() => {
+    const action = signal?.action;
+    const isSideways = Boolean(signal?.sidewaysMarketAnalysis?.isSideways);
+
+    if (action === 'BUY_CE') {
+      return {
+        color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
+        title: 'Predicted Trade: Bullish (BUY CE)',
+      };
+    }
+    if (action === 'BUY_PE') {
+      return {
+        color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
+        title: 'Predicted Trade: Bearish (BUY PE)',
+      };
+    }
+    if (isSideways) {
+      return {
+        color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
+        title: 'Predicted Trade: Sideways / Compression Range',
+      };
+    }
+    return {
+      color: 'bg-slate-400',
+      title: 'Predicted Trade: Neutral / Wait',
+    };
+  }, [signal?.action, signal?.sidewaysMarketAnalysis?.isSideways]);
+
   // Candlestick Momentum Tab Status Indicator Dot
   const candlestickSentimentDot = useMemo(() => {
     const bias = htfPredictions?.overallHTFBias || '';
@@ -245,6 +274,60 @@ export default function App() {
       title: 'Overall: NEUTRAL',
     };
   }, [overallNewsSentiment, newsBullCount, newsBearCount]);
+
+  // Order Flow & Quant Tab Status Indicator Dot (Summarizes Order Flow, PCR, Volume Imbalance & Gamma)
+  const quantSentimentDot = useMemo(() => {
+    const rt = signal?.realtimeIndicators;
+    const orderFlowSentiment = rt?.orderFlow?.sentiment || 'BALANCED_FLOW';
+    const volumeDivergence = rt?.volumeAnalytics?.volumeDivergence || 'LOW_VOLUME_CHOP';
+    const flowDelta = rt?.orderFlow?.volumeImbalancePercent || 0;
+    const pcr = metrics?.pcrTotalOI || 1.0;
+    const isSideways = Boolean(signal?.sidewaysMarketAnalysis?.isSideways);
+
+    // 1. Bullish Order Flow & Quant (Green)
+    if (
+      orderFlowSentiment === 'BUYER_DOMINANCE' || 
+      volumeDivergence === 'BULLISH_VOLUME_EXPANSION' || 
+      flowDelta >= 10 || 
+      (pcr >= 1.10 && flowDelta > 0)
+    ) {
+      return {
+        color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
+        title: `Bullish Order Flow & Quant (${flowDelta >= 0 ? '+' : ''}${flowDelta}% Delta Imbalance, PCR ${pcr.toFixed(2)})`,
+      };
+    }
+
+    // 2. Bearish Order Flow & Quant (Red)
+    if (
+      orderFlowSentiment === 'SELLER_DOMINANCE' || 
+      volumeDivergence === 'BEARISH_VOLUME_EXPANSION' || 
+      flowDelta <= -10 || 
+      (pcr <= 0.88 && flowDelta < 0)
+    ) {
+      return {
+        color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
+        title: `Bearish Order Flow & Quant (${flowDelta}% Delta Imbalance, PCR ${pcr.toFixed(2)})`,
+      };
+    }
+
+    // 3. Sideways Range / Compression Flow (Yellow)
+    if (
+      isSideways || 
+      volumeDivergence === 'LOW_VOLUME_CHOP' || 
+      (Math.abs(flowDelta) < 5 && (pcr >= 0.95 && pcr <= 1.05))
+    ) {
+      return {
+        color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
+        title: `Sideways / Range Chop Quant Flow (${flowDelta >= 0 ? '+' : ''}${flowDelta}% Delta, PCR ${pcr.toFixed(2)})`,
+      };
+    }
+
+    // 4. Neutral Equilibrium Flow (Grey)
+    return {
+      color: 'bg-slate-400',
+      title: `Neutral Quant Flow (PCR ${pcr.toFixed(2)})`,
+    };
+  }, [signal?.realtimeIndicators, metrics?.pcrTotalOI, signal?.sidewaysMarketAnalysis?.isSideways]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -324,7 +407,7 @@ export default function App() {
         {/* Workstation Tab Navigation Bar */}
         <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-14 z-30 backdrop-blur-md">
           <div className="flex items-center justify-between gap-1 overflow-x-auto no-scrollbar text-xs font-medium">
-            {/* Tab 1: Option Chain */}
+            {/* Tab 1: Option Chain / Trade Dynamics */}
             <button
               onClick={() => setActiveTab('chain')}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
@@ -332,9 +415,11 @@ export default function App() {
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
+              title={`Trade Dynamics: ${tradeSentimentDot.title}`}
             >
               <Table2 className="w-4 h-4 text-emerald-400" />
               <span>Trade Dynamics</span>
+              <span className={`w-2 h-2 rounded-full ${tradeSentimentDot.color} animate-pulse`} />
             </button>
 
             {/* Tab 2: 1H · 1D · 1W & Expiry Predictions */}
@@ -360,9 +445,11 @@ export default function App() {
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
+              title={`Order Flow & Quant: ${quantSentimentDot.title}`}
             >
               <Zap className="w-4 h-4 text-emerald-400" />
               <span>Order Flow & Quant</span>
+              <span className={`w-2 h-2 rounded-full ${quantSentimentDot.color} animate-pulse`} />
             </button>
 
             {/* Tab 4: News & Catalysts */}

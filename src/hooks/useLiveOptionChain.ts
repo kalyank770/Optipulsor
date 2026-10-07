@@ -19,6 +19,7 @@ import {
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
+import { getInterMarketTelemetry } from '../data/globalMacroData';
 import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
 import { filterActiveExpiries } from '../utils/expiryEngine';
 import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
@@ -368,7 +369,9 @@ export function useLiveOptionChain() {
   const [usePreMarket, setUsePreMarket] = useState<boolean>(false);
   const [isNewsLoading, setIsNewsLoading] = useState<boolean>(false);
   const [isHeavyweightsLoading, setIsHeavyweightsLoading] = useState<boolean>(false);
-  const [liveGlobalMacro, setLiveGlobalMacro] = useState<InterMarketTelemetry | undefined>(undefined);
+  const [liveGlobalMacro, setLiveGlobalMacro] = useState<InterMarketTelemetry | undefined>(() =>
+    getInterMarketTelemetry(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].spotPrice)
+  );
   const [liveConstituentAnalysis, setLiveConstituentAnalysis] = useState<NiftyConstituentAnalysis | undefined>(() =>
     POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined
   );
@@ -397,7 +400,9 @@ export function useLiveOptionChain() {
   );
 
   const [signal, setSignal] = useState<TradeSignal>(() => {
-    const s = generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED);
+    const initMacro = getInterMarketTelemetry(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].spotPrice);
+    const initConstituents = POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined;
+    const s = generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED, undefined, 0, initConstituents, initMacro);
     s.allExpiriesSignals = computeAllExpiriesSignals(POPULAR_TICKERS[0], INITIAL_NEWS_FEED, 0, s);
     return s;
   });

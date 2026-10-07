@@ -217,153 +217,18 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         ? (isCE ? 'bg-white border-emerald-500/50 text-slate-900 shadow-xl' : isPE ? 'bg-white border-rose-500/50 text-slate-900 shadow-xl' : 'bg-white border-slate-300 text-slate-900 shadow-xl')
         : (isCE ? 'bg-slate-900/95 border-emerald-500/40 text-slate-100 shadow-xl' : isPE ? 'bg-slate-900/95 border-rose-500/40 text-slate-100 shadow-xl' : 'bg-slate-900/95 border-slate-800 text-slate-100')
     }`}>
-      {/* Top Header: Recommendation & Action Buttons */}
-      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b ${
-        isLight ? 'border-slate-200' : 'border-slate-800/80'
-      }`}>
-        <div className="flex items-start sm:items-center gap-3">
-          <div className={`p-2.5 sm:p-3 rounded-lg flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
-            isCE ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-            isPE ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
-            'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-          }`}>
-            {isCE && <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6" />}
-            {isPE && <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6" />}
-            {isNeutral && <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />}
-          </div>
-
-          <div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="uppercase font-semibold tracking-wider text-[11px]">
-                {marketStatus?.isHoliday 
-                  ? `Next Trading Session Prediction (${marketStatus.nextTradingDayName || 'Monday'} Open)`
-                  : marketStatus?.isCasSession
-                  ? 'Closing Auction (CAS)'
-                  : marketStatus && !marketStatus.isOpen 
-                  ? "Next Session Opening Prediction" 
-                  : 'Trade Recommendation'}
-              </span>
-              
-              {/* Compact Copy Icon beside header */}
-              <button
-                onClick={handleCopy}
-                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-center shrink-0"
-                title="Copy Trade Recommendation Details"
-              >
-                {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400 hover:text-slate-200" />}
-              </button>
-
-              <span className="text-slate-600">·</span>
-              <span className="font-mono text-slate-300">
-                {marketStatus?.isOpen && !marketStatus?.isHoliday ? 'Live Spot:' : 'Spot:'} <strong className="text-white">{ticker.currency}{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 mt-0.5">
-              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-                {isAdvActive && advSetup ? (
-                  <>
-                    {advSetup.anticipatedAction === 'BUY_CE' && (
-                      <span className="text-emerald-400">BUY CALL — {advSetup.recommendedStrike} CE</span>
-                    )}
-                    {advSetup.anticipatedAction === 'BUY_PE' && (
-                      <span className="text-rose-400">BUY PUT — {advSetup.recommendedStrike} PE</span>
-                    )}
-                  </>
-                ) : signal.tradeStage === 'POST_TARGET_RETRACEMENT' ? (
-                  <span className="text-amber-400">
-                    {isCE ? 'BUY CALL' : 'BUY PUT'} — {signal.recommendedStrike} {signal.recommendedType} (Target 1 Reached)
-                  </span>
-                ) : (
-                  <>
-                    {isCE && <span className="text-emerald-400">BUY CALL — {signal.recommendedStrike} CE</span>}
-                    {isPE && <span className="text-rose-400">BUY PUT — {signal.recommendedStrike} PE</span>}
-                    {isNeutral && <span className="text-amber-400">STAY NEUTRAL / WAIT</span>}
-                  </>
-                )}
-              </h2>
-
-              {/* Trade Lifecycle State Badge (Active live trading hours only) */}
-              {marketStatus?.isOpen && signal.tradeStage && (
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded border font-mono ${
-                  signal.tradeStage === 'POST_TARGET_RETRACEMENT'
-                    ? 'border-amber-500/50 bg-amber-950/60 text-amber-300 animate-pulse'
-                    : signal.tradeStage === 'TARGET_1_HIT' || signal.tradeStage === 'TARGET_2_HIT'
-                    ? 'border-emerald-500/50 bg-emerald-950/60 text-emerald-300'
-                    : signal.tradeStage === 'EXPANDING_IN_PROFIT'
-                    ? 'border-sky-500/50 bg-sky-950/60 text-sky-300'
-                    : signal.tradeStage === 'STOP_LOSS_HIT'
-                    ? 'border-rose-500/50 bg-rose-950/60 text-rose-300'
-                    : 'border-slate-700 bg-slate-800 text-slate-300'
-                }`}>
-                  {signal.tradeStage === 'POST_TARGET_RETRACEMENT' && '⚠️ TARGET 1 HIT · RETRACED'}
-                  {signal.tradeStage === 'TARGET_1_HIT' && '🎯 TARGET 1 HIT'}
-                  {signal.tradeStage === 'TARGET_2_HIT' && '🚀 TARGET 2 HIT'}
-                  {signal.tradeStage === 'EXPANDING_IN_PROFIT' && '📈 IN PROFIT'}
-                  {signal.tradeStage === 'FRESH_ENTRY' && '⚡ ENTRY ZONE'}
-                  {signal.tradeStage === 'STOP_LOSS_HIT' && '🛑 STOP LOSS HIT'}
-                  {signal.tradeStage === 'NEUTRAL_WAIT' && '⏸️ WAIT'}
-                </span>
-              )}
-
-              {/* Dynamic Market Regime & Momentum Badge */}
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded border flex items-center gap-1.5 font-mono shadow-xs ${
-                isCE
-                  ? 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
-                  : isPE
-                  ? 'border-rose-500/50 bg-rose-950/70 text-rose-300'
-                  : 'border-amber-500/50 bg-amber-950/70 text-amber-300'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                  isCE ? 'bg-emerald-400' : isPE ? 'bg-rose-400' : 'bg-amber-400'
-                }`} />
-                <span>
-                  {isCE
-                    ? `BULLISH EXPANSION (${signal.confidence}% MOMENTUM)`
-                    : isPE
-                    ? `BEARISH BREAKDOWN (${signal.confidence}% MOMENTUM)`
-                    : `SIDEWAYS / RANGE CHOP (${signal.sidewaysMarketAnalysis?.compressionPercentage || 64}% SQUEEZE)`}
-                </span>
-              </span>
-
-              {/* Closing Auction (CAS) Badge */}
-              {marketStatus?.isCasSession && (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/80 text-amber-300 flex items-center gap-1.5 font-mono shadow-xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span>CAS (3:30 – 3:40 PM)</span>
-                </span>
-              )}
-
-              {/* Pre-Market Predictor Active Badge & Turn Off Button */}
-              {(usePreMarket || ticker.isUsingPreMarket) && (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs">
-                  <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                  <span>Pre-Market Predictor Active</span>
-                  {onTogglePreMarket && (
-                    <button
-                      onClick={onTogglePreMarket}
-                      className="ml-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-rose-500/30 hover:text-rose-200 text-amber-200 transition-colors cursor-pointer flex items-center gap-1 border border-amber-500/40 text-[10px] font-sans"
-                      title="Turn Off Pre-Market Predictor & Return to Regular Spot Feed"
-                    >
-                      <Power className="w-3 h-3 text-rose-400" />
-                      <span>Turn Off</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Advance Trade Radar Card: Prominently featured leading institutional setup */}
+      {/* Primary Institutional Early-Anticipation Recommendation Card */}
       {signal.advanceTradeSetup && (
-        <div className="mt-3.5">
+        <div>
           <AdvanceTradeCard
             setup={signal.advanceTradeSetup}
+            signal={signal}
             ticker={ticker}
             metrics={metrics}
             chain={chain}
+            marketStatus={marketStatus}
+            usePreMarket={usePreMarket}
+            onTogglePreMarket={onTogglePreMarket}
             onSelectContractForSimulation={onSelectContractForSimulation}
             onSelectTab={onSelectTab}
             theme={theme}

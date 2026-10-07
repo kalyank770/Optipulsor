@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V5.0</span>
+            <span className="text-xs font-normal text-slate-400 font-mono ml-1.5 select-none">V5.0</span>
           </button>
         </div>
 
