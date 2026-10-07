@@ -20,6 +20,7 @@ import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
 import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
+import { getGlobalRealCandles } from './candlestickEngine';
 
 /**
  * Helper to format timestamp into human readable time/date string
@@ -151,6 +152,27 @@ export function generateHTFCandles(
   timeframe: HTFTimeframe
 ): Candle[] {
   const S = ticker.spotPrice;
+
+  // 1. Check if real exchange candles exist for this timeframe
+  const realStore = getGlobalRealCandles(ticker.symbol);
+  if (realStore) {
+    const key = timeframe === '1h' ? 'h1' : timeframe === '1d' ? 'd1' : 'w1';
+    const storeCandles = realStore[key];
+    if (storeCandles && storeCandles.length > 0) {
+      const raw = storeCandles.map(c => ({ ...c }));
+      if (raw.length > 0) {
+        // Anchor the latest candle close to live spot S
+        raw[raw.length - 1] = {
+          ...raw[raw.length - 1],
+          close: S,
+          high: Math.max(raw[raw.length - 1].high, S),
+          low: Math.min(raw[raw.length - 1].low, S),
+        };
+        return raw;
+      }
+    }
+  }
+
   const step = ticker.strikeStep;
   const now = Date.now();
   const vix = Math.max(9.5, ticker.vix || 13.0);

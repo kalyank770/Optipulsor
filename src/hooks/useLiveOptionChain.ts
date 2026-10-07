@@ -33,6 +33,7 @@ import {
   deriveStrikeTrendAnalytics 
 } from '../utils/strikeHistoryEngine';
 import { getMarketHoursStatus, MarketHoursStatus } from '../utils/marketHours';
+import { setGlobalRealCandles } from '../utils/candlestickEngine';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -588,7 +589,7 @@ export function useLiveOptionChain() {
           setUsePreMarket(false);
         }
 
-        if (activePreMarket && (!prePrice || Math.abs(prePrice - regularPrice) < 0.1)) {
+        if (activePreMarket && (!prePrice || prePrice === 0)) {
           const defaultGap = tickerToFetch.symbol.includes('BANK') ? 142.50 : 40.0;
           prePrice = Number(((data.prevClose || regularPrice) + defaultGap).toFixed(2));
         }
@@ -605,17 +606,17 @@ export function useLiveOptionChain() {
         const step = tickerToFetch.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = activePreMarket && prePrice
-          ? Number((activeSpot - (data.prevClose || tickerToFetch.prevClose || activeSpot)).toFixed(2))
-          : (data.change !== undefined ? data.change : Number((activeSpot - (data.prevClose || activeSpot)).toFixed(2)));
-        
-        const activeChangePct = Number(((activeChange / Math.max(data.prevClose || tickerToFetch.prevClose || activeSpot, 1)) * 100).toFixed(2));
+        const basePrevClose = activePreMarket 
+          ? regularPrice 
+          : (data.prevClose || tickerToFetch.prevClose || (activeSpot - (data.change || 0)));
+        const activeChange = Number((activeSpot - basePrevClose).toFixed(2));
+        const activeChangePct = Number(((activeChange / Math.max(basePrevClose, 1)) * 100).toFixed(2));
 
         const updatedTicker: TickerConfig = {
           ...tickerToFetch,
           spotPrice: activeSpot,
           regularPrice,
-          prevClose: data.prevClose || tickerToFetch.prevClose,
+          prevClose: basePrevClose,
           change: activeChange,
           changePercent: activeChangePct,
           dayHigh: Math.max(data.dayHigh || activeSpot, activeSpot),
@@ -689,15 +690,6 @@ export function useLiveOptionChain() {
             self.findIndex(t => t.id === item.id) === idx
           );
           setNewsFeed(uniqueArticles);
-          // Re-evaluate signal with updated live catalysts
-          setSignal(prev => {
-            if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, uniqueArticles, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, liveGlobalMacro);
-              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, uniqueArticles, expiryIndex, s);
-              return s;
-            }
-            return prev;
-          });
         }
       }
     } catch (e) {
@@ -705,7 +697,7 @@ export function useLiveOptionChain() {
     } finally {
       setIsNewsLoading(false);
     }
-  }, [selectedTicker, metrics, chain, expiryIndex, liveConstituentAnalysis, liveGlobalMacro]);
+  }, [selectedTicker.symbol]);
 
   // Fetch genuine real-time Nifty & Bank Nifty heavyweight derivative constituents
   const fetchHeavyweights = useCallback(async (sym = selectedTicker.symbol) => {
@@ -723,14 +715,6 @@ export function useLiveOptionChain() {
             isLiveSynced: true,
           };
           setLiveConstituentAnalysis(analysisObj);
-          setSignal(prev => {
-            if (chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, analysisObj, liveGlobalMacro);
-              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, s);
-              return s;
-            }
-            return prev;
-          });
         }
       }
     } catch (e) {
@@ -738,30 +722,51 @@ export function useLiveOptionChain() {
     } finally {
       setIsHeavyweightsLoading(false);
     }
-  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex, liveGlobalMacro]);
+  }, [selectedTicker.symbol, selectedTicker.currency]);
 
-  // Fetch genuine real-time global macro inter-market telemetry
-  const fetchGlobalMacro = useCallback(async (sym = selectedTicker.symbol) => {
+  const [isGiftNiftySyncing, setIsGiftNiftySyncing] = useState<boolean>(false);
+  const [giftNiftyLastSynced, setGiftNiftyLastSynced] = useState<Date>(new Date());
+
+  // Fetch genuine real-time global macro inter-market telemetry with aggressive cache-busting
+  const fetchGlobalMacro = useCallback(async (sym = selectedTicker.symbol, force = false) => {
+    setIsGiftNiftySyncing(true);
     try {
-      const res = await fetch(`/api/global-macro?symbol=${encodeURIComponent(sym)}`);
+      const res = await fetch(`/api/global-macro?symbol=${encodeURIComponent(sym)}&_t=${Date.now()}${force ? '&refresh=true' : ''}`, {
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.giftNifty) {
           setLiveGlobalMacro(data);
-          setSignal(prev => {
-            if (chain && chain.length > 0) {
-              const s = generateTradeSignal(selectedTicker, metrics, chain, newsFeed, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, data);
-              s.allExpiriesSignals = computeAllExpiriesSignals(selectedTicker, newsFeed, expiryIndex, s, liveConstituentAnalysis, data);
-              return s;
-            }
-            return prev;
-          });
+          setGiftNiftyLastSynced(new Date());
         }
       }
     } catch (e) {
       console.warn('Failed to fetch live global macro:', e);
+    } finally {
+      setIsGiftNiftySyncing(false);
     }
-  }, [selectedTicker, metrics, chain, newsFeed, expiryIndex, liveConstituentAnalysis]);
+  }, [selectedTicker.symbol]);
+
+  // Real live exchange candlestick stream state (2m, 5m, 15m, 1h, 1d, 1w OHLCV from NSE)
+  const [isCandlesLiveFeed, setIsCandlesLiveFeed] = useState<boolean>(false);
+  const [candlesLastSynced, setCandlesLastSynced] = useState<Date>(new Date());
+
+  const fetchMarketCandles = useCallback(async (sym = selectedTicker.symbol) => {
+    try {
+      const res = await fetch(`/api/market-candles?symbol=${encodeURIComponent(sym)}&_t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.candles) {
+          setGlobalRealCandles(sym, data.candles);
+          setIsCandlesLiveFeed(true);
+          setCandlesLastSynced(new Date());
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch real market candles:', e);
+    }
+  }, [selectedTicker.symbol]);
 
   // Initial load
   useEffect(() => {
@@ -769,7 +774,17 @@ export function useLiveOptionChain() {
     fetchRealNews(selectedTicker.symbol);
     fetchHeavyweights(selectedTicker.symbol);
     fetchGlobalMacro(selectedTicker.symbol);
+    fetchMarketCandles(selectedTicker.symbol);
   }, []);
+
+  // Periodic refresh loop for real exchange market candles (every 15s)
+  useEffect(() => {
+    fetchMarketCandles(selectedTicker.symbol);
+    const candleTimer = setInterval(() => {
+      fetchMarketCandles(selectedTicker.symbol);
+    }, 15000);
+    return () => clearInterval(candleTimer);
+  }, [selectedTicker.symbol, fetchMarketCandles]);
 
   // Periodically refresh news during market hours (every 60s)
   useEffect(() => {
@@ -780,14 +795,14 @@ export function useLiveOptionChain() {
     return () => clearInterval(newsTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
 
-  // Periodically refresh global macro telemetry (every 45s)
+  // Aggressive 24/7 refresh loop for GIFT Nifty & Inter-Market Telemetry (every 8s continuously)
   useEffect(() => {
-    if (!isLiveActive) return;
+    fetchGlobalMacro(selectedTicker.symbol);
     const macroTimer = setInterval(() => {
       fetchGlobalMacro(selectedTicker.symbol);
-    }, 45000);
+    }, 8000);
     return () => clearInterval(macroTimer);
-  }, [isLiveActive, selectedTicker.symbol, fetchGlobalMacro]);
+  }, [selectedTicker.symbol, fetchGlobalMacro]);
 
   // Periodically refresh heavyweights during market hours (every 6s)
   useEffect(() => {
@@ -817,6 +832,7 @@ export function useLiveOptionChain() {
     fetchRealNews(newTicker.symbol);
     fetchHeavyweights(newTicker.symbol);
     fetchGlobalMacro(newTicker.symbol);
+    fetchMarketCandles(newTicker.symbol);
   };
 
   // Helper to check if a chain belongs to the selected ticker
@@ -1021,6 +1037,8 @@ export function useLiveOptionChain() {
     fetchOptionChainFromBackend(selectedTicker, expiryIndex);
     fetchRealNews(selectedTicker.symbol, true);
     fetchHeavyweights(selectedTicker.symbol);
+    fetchGlobalMacro(selectedTicker.symbol, true);
+    fetchMarketCandles(selectedTicker.symbol);
     playTone(750, 0.05);
   };
 
@@ -1039,6 +1057,13 @@ export function useLiveOptionChain() {
     liveConstituentAnalysis,
     isHeavyweightsLoading,
     refreshHeavyweights: () => fetchHeavyweights(selectedTicker.symbol),
+    liveGlobalMacro,
+    isGiftNiftySyncing,
+    giftNiftyLastSynced,
+    refreshGiftNifty: (force = true) => fetchGlobalMacro(selectedTicker.symbol, force),
+    isCandlesLiveFeed,
+    candlesLastSynced,
+    refreshMarketCandles: () => fetchMarketCandles(selectedTicker.symbol),
     filters,
     setFilters,
     newsFeed,
@@ -1056,7 +1081,10 @@ export function useLiveOptionChain() {
     setSoundEnabled,
     dataSourceNote,
     marketStatus,
-    syncLiveExchange: () => fetchOptionChainFromBackend(selectedTicker, expiryIndex),
+    syncLiveExchange: () => {
+      fetchOptionChainFromBackend(selectedTicker, expiryIndex);
+      fetchMarketCandles(selectedTicker.symbol);
+    },
     logCurrentSignalToHistory,
     refreshStrikeHistory,
     resetStrikeHistory,

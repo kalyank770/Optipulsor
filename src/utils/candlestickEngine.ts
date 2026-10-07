@@ -1,6 +1,38 @@
 import { TickerConfig, Candle, TimeframeCandleAnalysis, MultiTimeframeChartPatterns } from '../types/options';
 
 /**
+ * In-memory cache for real exchange candles
+ */
+const realCandlesMap = new Map<string, { m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }>();
+
+export function setGlobalRealCandles(
+  symbol: string, 
+  candles: { m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }
+) {
+  const s = symbol.trim().toUpperCase();
+  realCandlesMap.set(symbol, candles);
+  realCandlesMap.set(s, candles);
+  realCandlesMap.set(s.replace(/\s+/g, ''), candles);
+  if (s.includes('NIFTY')) {
+    realCandlesMap.set('NIFTY', candles);
+    realCandlesMap.set('NIFTY 50', candles);
+    realCandlesMap.set('NIFTY50', candles);
+  } else if (s.includes('BANK')) {
+    realCandlesMap.set('BANKNIFTY', candles);
+    realCandlesMap.set('BANK NIFTY', candles);
+  }
+}
+
+export function getGlobalRealCandles(symbol: string) {
+  const s = symbol.trim().toUpperCase();
+  return realCandlesMap.get(symbol) || 
+         realCandlesMap.get(s) || 
+         realCandlesMap.get(s.replace(/\s+/g, '')) ||
+         (s.includes('NIFTY') ? (realCandlesMap.get('NIFTY 50') || realCandlesMap.get('NIFTY') || realCandlesMap.get('NIFTY50')) : undefined) ||
+         (s.includes('BANK') ? (realCandlesMap.get('BANK NIFTY') || realCandlesMap.get('BANKNIFTY')) : undefined);
+}
+
+/**
  * Format timestamp to HH:mm string
  */
 function formatTime(ts: number): string {
@@ -11,6 +43,7 @@ function formatTime(ts: number): string {
 /**
  * Generates rolling candlestick series for a given timeframe (in minutes)
  * anchored on live spot price, previous close, day's high/low, and ongoing momentum.
+ * PRIORITIZES REAL LIVE EXCHANGE CANDLES when available.
  */
 export function generateRollingCandles(
   ticker: TickerConfig,
@@ -18,6 +51,24 @@ export function generateRollingCandles(
   count = 15
 ): Candle[] {
   const S = ticker.spotPrice;
+
+  // 1. If REAL exchange candles exist for this symbol & timeframe, use them directly!
+  const realStore = getGlobalRealCandles(ticker.symbol);
+  const tfKey = timeframeMinutes === 2 ? 'm2' : timeframeMinutes === 5 ? 'm5' : timeframeMinutes === 15 ? 'm15' : null;
+  if (tfKey && realStore && realStore[tfKey] && realStore[tfKey]!.length > 0) {
+    const raw = realStore[tfKey]!.map(c => ({ ...c }));
+    if (raw.length > 0) {
+      // Anchor latest forming candle to live spot price
+      raw[raw.length - 1] = {
+        ...raw[raw.length - 1],
+        close: S,
+        high: Math.max(raw[raw.length - 1].high, S),
+        low: Math.min(raw[raw.length - 1].low, S),
+      };
+      return raw.slice(-count);
+    }
+  }
+
   const changePct = ticker.changePercent;
   const step = ticker.strikeStep;
   const now = Date.now();

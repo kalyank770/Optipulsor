@@ -11,6 +11,7 @@ import { OptionPayoffModal } from './components/OptionPayoffModal';
 import { RealtimeQuantSection } from './components/RealtimeQuantSection';
 import { GroundedPayoffSection } from './components/GroundedPayoffSection';
 import { HTFPredictionsWorkstation } from './components/HTFPredictionsWorkstation';
+import { DaysReportTab } from './components/DaysReportTab';
 import { computeMultiTimeframePredictions } from './utils/htfPredictionEngine';
 import { OptionContract, OptionType } from './types/options';
 import { POPULAR_TICKERS } from './data/marketTickers';
@@ -32,10 +33,11 @@ import {
   X,
   Calendar,
   RefreshCw,
-  Compass
+  Compass,
+  FileCheck2
 } from 'lucide-react';
 
-export type WorkspaceTab = 'chain' | 'htf' | 'quant' | 'performance' | 'news';
+export type WorkspaceTab = 'chain' | 'htf' | 'quant' | 'performance' | 'news' | 'report';
 
 export default function App() {
   const {
@@ -62,6 +64,9 @@ export default function App() {
     dataSourceNote,
     marketStatus,
     syncLiveExchange,
+    isGiftNiftySyncing,
+    giftNiftyLastSynced,
+    refreshGiftNifty,
     logCurrentSignalToHistory,
     refreshStrikeHistory,
     resetStrikeHistory,
@@ -194,6 +199,53 @@ export default function App() {
     );
   }, [signal.htfPredictions, selectedTicker, metrics, chain, marketStatus, signal.interMarketTelemetry, newsFeed, signal.volumeAnalytics, strikeAnalytics]);
 
+  // Candlestick Momentum Tab Status Indicator Dot
+  const candlestickSentimentDot = useMemo(() => {
+    const bias = htfPredictions?.overallHTFBias || '';
+    if (bias.includes('BULLISH') || signal.action === 'BUY_CE') {
+      return {
+        color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
+        title: 'Bullish Momentum',
+      };
+    }
+    if (bias.includes('BEARISH') || signal.action === 'BUY_PE') {
+      return {
+        color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
+        title: 'Bearish Momentum',
+      };
+    }
+    if (bias.includes('SIDEWAYS') || bias.includes('RANGE') || signal.sidewaysMarketAnalysis?.isSideways) {
+      return {
+        color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
+        title: 'Sideways / Range',
+      };
+    }
+    return {
+      color: 'bg-slate-400',
+      title: 'Neutral / Equilibrium',
+    };
+  }, [htfPredictions?.overallHTFBias, signal.action, signal.sidewaysMarketAnalysis?.isSideways]);
+
+  // News & Catalysts Tab Status Indicator Dot (matches Overall label in News & Catalysts)
+  const newsSentimentDot = useMemo(() => {
+    if (overallNewsSentiment === 'BULLISH') {
+      return {
+        color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
+        title: `Overall: BULLISH (${newsBullCount} positive vs ${newsBearCount} negative)`,
+      };
+    }
+    if (overallNewsSentiment === 'BEARISH') {
+      return {
+        color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
+        title: `Overall: BEARISH (${newsBearCount} negative vs ${newsBullCount} positive)`,
+      };
+    }
+    return {
+      color: 'bg-slate-400',
+      title: 'Overall: NEUTRAL',
+    };
+  }, [overallNewsSentiment, newsBullCount, newsBearCount]);
+
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -293,10 +345,11 @@ export default function App() {
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
+              title={`Candlestick Momentum: ${candlestickSentimentDot.title}`}
             >
               <Compass className="w-4 h-4 text-emerald-400" />
               <span>Candlestick Momentum</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className={`w-2 h-2 rounded-full ${candlestickSentimentDot.color} animate-pulse`} />
             </button>
 
             {/* Tab 3: Quant & Order Flow */}
@@ -312,23 +365,7 @@ export default function App() {
               <span>Order Flow & Quant</span>
             </button>
 
-            {/* Tab 4: Strike History & Stats */}
-            <button
-              onClick={() => setActiveTab('performance')}
-              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
-                activeTab === 'performance'
-                  ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <History className="w-4 h-4 text-sky-400" />
-              <span>Strike History</span>
-              <span className="text-[10px] font-mono text-sky-300 bg-sky-950/60 px-1.5 py-0.2 rounded border border-sky-800/50">
-                {strikeAnalytics.overallWinRate}% Win
-              </span>
-            </button>
-
-            {/* Tab 5: News & Catalysts */}
+            {/* Tab 4: News & Catalysts */}
             <button
               onClick={() => setActiveTab('news')}
               className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] relative ${
@@ -336,12 +373,24 @@ export default function App() {
                   ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
+              title={`News & Catalysts: ${newsSentimentDot.title}`}
             >
               <Radio className="w-4 h-4 text-amber-400" />
               <span>News & Catalysts</span>
-              {newsFeed.length > 0 && (
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              )}
+              <span className={`w-2 h-2 rounded-full ${newsSentimentDot.color} animate-pulse`} />
+            </button>
+
+            {/* Tab 5: Audit Report */}
+            <button
+              onClick={() => setActiveTab('report')}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+                activeTab === 'report'
+                  ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <FileCheck2 className="w-4 h-4 text-emerald-400" />
+              <span>Audit Report</span>
             </button>
           </div>
         </div>
@@ -365,6 +414,9 @@ export default function App() {
                 onTogglePreMarket={toggleUsePreMarket}
                 marketStatus={marketStatus}
                 onSelectTab={(tab) => setActiveTab(tab as WorkspaceTab)}
+                giftNiftyLastSynced={giftNiftyLastSynced}
+                isGiftNiftySyncing={isGiftNiftySyncing}
+                onRefreshGiftNifty={refreshGiftNifty}
               />
             </div>
 
@@ -562,6 +614,20 @@ export default function App() {
               onRefreshNews={refreshNews}
               isNewsLoading={isNewsLoading}
               theme="dark"
+            />
+          </section>
+        )}
+
+        {/* WORKSPACE VIEW 5: DAY'S REPORT & PREDICTION AUDIT */}
+        {activeTab === 'report' && (
+          <section id="section-report" className="space-y-4 animate-fade-in">
+            <DaysReportTab
+              ticker={selectedTicker}
+              chain={chain}
+              signal={signal}
+              onSelectContract={handleSelectContract}
+              onSyncLiveExchange={syncLiveExchange}
+              isSyncing={isSyncing}
             />
           </section>
         )}

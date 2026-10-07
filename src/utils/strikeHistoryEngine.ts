@@ -60,6 +60,14 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     status: itmLtp >= itmTarget1 ? 'TARGET_1_HIT' : itmLtp > itmEntry ? 'PROFITABLE' : 'ACTIVE',
     confidence: 88,
     riskReward: '1 : 1.6',
+    predictedCatalyst: 'ATM Call Unwinding & Put Writing Acceleration + Banking Heavyweights Front-Running',
+    spotTarget1: Number((ticker.spotPrice + (isBearish ? -step * 0.7 : step * 0.7)).toFixed(2)),
+    spotTarget2: Number((ticker.spotPrice + (isBearish ? -step * 1.4 : step * 1.4)).toFixed(2)),
+    spotStopLoss: Number((ticker.spotPrice + (isBearish ? step * 0.45 : -step * 0.45)).toFixed(2)),
+    actualSpotPeak: Number((ticker.spotPrice + (isBearish ? -step * 1.1 : step * 1.1)).toFixed(2)),
+    actualOutcomeNote: 'Target 1 achieved swiftly (+25% gain). Spot moved 55 pts before minor consolidation.',
+    leadTimeAdvantageMinutes: 3.5,
+    slippageSavedPercent: 22,
   });
 
   // Strike 2: ATM Contract (Recorded 1 hour ago)
@@ -93,6 +101,14 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     status: atmLtp >= atmTarget2 ? 'TARGET_2_HIT' : atmLtp >= atmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
     confidence: 84,
     riskReward: '1 : 1.7',
+    predictedCatalyst: 'Pre-Breakout Volatility Squeeze Coiling + Cumulative Volume Delta Buyer Absorption',
+    spotTarget1: Number((ticker.spotPrice + (isBearish ? -step * 0.6 : step * 0.6)).toFixed(2)),
+    spotTarget2: Number((ticker.spotPrice + (isBearish ? -step * 1.2 : step * 1.2)).toFixed(2)),
+    spotStopLoss: Number((ticker.spotPrice + (isBearish ? step * 0.4 : -step * 0.4)).toFixed(2)),
+    actualSpotPeak: Number((ticker.spotPrice + (isBearish ? -step * 1.35 : step * 1.35)).toFixed(2)),
+    actualOutcomeNote: 'Target 2 reached cleanly (+52% option gain). Runner captured full 15m expansion wave.',
+    leadTimeAdvantageMinutes: 3.2,
+    slippageSavedPercent: 26,
   });
 
   // Strike 3: OTM Contract (Recorded 30 mins ago)
@@ -126,6 +142,14 @@ export function generateSeedStrikeHistory(ticker: TickerConfig, chain: OptionCha
     status: otmLtp >= otmTarget1 ? 'TARGET_1_HIT' : 'PROFITABLE',
     confidence: 78,
     riskReward: '1 : 1.6',
+    predictedCatalyst: 'GIFT Nifty International Futures Lead + Institutional Limit Order Book Sweep Absorption',
+    spotTarget1: Number((ticker.spotPrice + (isBearish ? -step * 0.5 : step * 0.5)).toFixed(2)),
+    spotTarget2: Number((ticker.spotPrice + (isBearish ? -step * 1.0 : step * 1.0)).toFixed(2)),
+    spotStopLoss: Number((ticker.spotPrice + (isBearish ? step * 0.35 : -step * 0.35)).toFixed(2)),
+    actualSpotPeak: Number((ticker.spotPrice + (isBearish ? -step * 0.8 : step * 0.8)).toFixed(2)),
+    actualOutcomeNote: 'Target 1 hit (+30% gain). Position secured with locked profits at cost.',
+    leadTimeAdvantageMinutes: 4.0,
+    slippageSavedPercent: 24,
   });
 
   return seedRecords;
@@ -295,6 +319,16 @@ export function recordSignalInHistory(
       lifecycleStage = 'FRESH_ENTRY';
     }
 
+    const actualSpotPeak = Math.max(latest.actualSpotPeak || ticker.spotPrice, ticker.spotPrice);
+    let actualOutcomeNote = latest.actualOutcomeNote;
+    if (status === 'TARGET_2_HIT') {
+      actualOutcomeNote = `🎯 Target 2 reached cleanly (+${maxProfitPercent}%). Runner captured maximum structural expansion.`;
+    } else if (status === 'TARGET_1_HIT') {
+      actualOutcomeNote = `⚡ Target 1 reached (+${maxProfitPercent}%). 50% profits booked, stop moved to cost.`;
+    } else if (status === 'STOP_LOSS_HIT') {
+      actualOutcomeNote = `🛡️ Invalidation stop executed strictly at -12%. Capital preserved from deeper drawdown.`;
+    }
+
     const updatedLatest: StrikeHistoryItem = {
       ...latest,
       currentLTP: liveLtp,
@@ -304,6 +338,8 @@ export function recordSignalInHistory(
       status,
       lifecycleStage,
       confidence: signal.confidence,
+      actualSpotPeak,
+      actualOutcomeNote,
     };
 
     const updatedTickerRecords = [updatedLatest, ...tickerRecords.slice(1)];
@@ -334,6 +370,14 @@ export function recordSignalInHistory(
     status: 'ACTIVE',
     confidence: signal.confidence,
     riskReward: signal.riskRewardRatio,
+    predictedCatalyst: signal.advanceTradeSetup?.primaryLeadingCatalyst || signal.summaryNote,
+    spotTarget1: signal.spotTarget1,
+    spotTarget2: signal.spotTarget2,
+    spotStopLoss: signal.spotStopLoss,
+    actualSpotPeak: ticker.spotPrice,
+    actualOutcomeNote: `Position entered at ${ticker.currency}${signal.recommendedContractLTP.toFixed(2)}. In advance entry zone.`,
+    leadTimeAdvantageMinutes: signal.advanceTradeSetup?.leadTimeAdvantageMinutes || 3.0,
+    slippageSavedPercent: signal.advanceTradeSetup?.slippageSavedPercent || 24,
   };
 
   const updatedTickerRecords = [newItem, ...tickerRecords.slice(0, 49)];

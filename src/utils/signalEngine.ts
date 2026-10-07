@@ -22,6 +22,7 @@ import { getMarketHoursStatus } from './marketHours';
 import { computeMultiTimeframePredictions } from './htfPredictionEngine';
 import { loadStrikeHistory, deriveStrikeTrendAnalytics } from './strikeHistoryEngine';
 import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { computeAdvanceTradeSetup } from './advanceTradeEngine';
 
 /**
  * Computes market metrics from an option chain
@@ -1570,6 +1571,28 @@ export function generateTradeSignal(
     });
   }
 
+  // --- 9. ADVANCE TRADE RECOMMENDATION ENGINE (LEADING PREDICTIVE SETUPS) ---
+  const advanceTradeSetup = computeAdvanceTradeSetup(
+    ticker,
+    metrics,
+    chain,
+    rt,
+    candlePatterns,
+    constituentAnalysis,
+    interMarketTelemetry,
+    action,
+    expiryIndex
+  );
+
+  // When market is in After-Market / Closed session, synchronize advance trade strike with the projected opening target strike
+  if (!marketStatus.isOpen && afterMarketAnalytics.tomorrowHitStrike) {
+    advanceTradeSetup.recommendedStrike = targetStrike;
+    advanceTradeSetup.recommendedType = recommendedType;
+    if (action === 'BUY_CE' || action === 'BUY_PE') {
+      advanceTradeSetup.anticipatedAction = action;
+    }
+  }
+
   return {
     action,
     strength,
@@ -1611,6 +1634,7 @@ export function generateTradeSignal(
     afterMarketAnalytics,
     sidewaysMarketAnalysis,
     htfPredictions,
+    advanceTradeSetup,
   };
 }
 

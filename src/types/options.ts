@@ -451,6 +451,64 @@ export interface ExpirySignalSummary {
   entryRange?: [number, number];
 }
 
+export type AdvanceSetupType = 
+  | 'PRE_BREAKOUT_COILING_CE' 
+  | 'PRE_BREAKDOWN_COILING_PE' 
+  | 'EARLY_ACCUMULATION_REVERSAL_CE' 
+  | 'EARLY_DISTRIBUTION_REVERSAL_PE' 
+  | 'HEAVYWEIGHT_FRONT_RUN_CE' 
+  | 'HEAVYWEIGHT_FRONT_RUN_PE' 
+  | 'OI_UNWINDING_THRUST_CE' 
+  | 'OI_UNWINDING_THRUST_PE'
+  | 'EQUILIBRIUM_WAIT';
+
+export interface LeadingPredictorFactor {
+  name: string;
+  category: 'OI_VELOCITY' | 'HEAVYWEIGHT_LEAD' | 'ORDER_FLOW_DELTA' | 'VOLATILITY_SQUEEZE' | 'LIQUIDITY_SWEEP' | 'GLOBAL_MACRO_LEAD';
+  state: 'STRONG_BULLISH' | 'MODERATE_BULLISH' | 'NEUTRAL' | 'MODERATE_BEARISH' | 'STRONG_BEARISH';
+  leadTimeMinutes: number;
+  valueDescription: string;
+  confidenceScore: number;
+}
+
+export interface AdvanceTradeSetup {
+  isAvailable: boolean;
+  setupType: AdvanceSetupType;
+  anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL';
+  recommendedStrike: number;
+  recommendedType: OptionType;
+  title: string;
+  subTitle: string;
+  advanceEntryZoneSpot: [number, number];
+  breakoutConfirmationSpot: number;
+  advanceStopLossSpot: number;
+  advanceEntryOptionRange: [number, number];
+  advanceOptionTarget1: number;
+  advanceOptionTarget2: number;
+  advanceOptionStopLoss: number;
+  advanceRiskRewardRatio: string;
+  leadTimeAdvantageMinutes: number;
+  probabilityScore: number;
+  primaryLeadingCatalyst: string;
+  leadingPredictorFactors: LeadingPredictorFactor[];
+  executionPlaybook: {
+    advanceAggressiveNote: string;
+    laggingConservativeNote: string;
+    whyAdvanceMatters: string;
+  };
+  slippageSavedPercent?: number;
+  advanceVsLaggingComparison?: {
+    advanceEntryOptionPrice: number;
+    laggingEntryOptionPrice: number;
+    advanceSpotPrice: number;
+    laggingBreakoutSpotPrice: number;
+    advanceRiskRewardRatio: string;
+    laggingRiskRewardRatio: string;
+    slippageSavedPercent: number;
+  };
+  invalidationReason?: string;
+}
+
 export interface TradeSignal {
   action: SignalAction;
   strength: SignalStrength;
@@ -493,6 +551,7 @@ export interface TradeSignal {
   afterMarketAnalytics?: import('../utils/afterMarketEngine').AfterMarketOpeningAnalytics;
   sidewaysMarketAnalysis?: SidewaysMarketAnalysis;
   htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
+  advanceTradeSetup?: AdvanceTradeSetup;
 }
 
 export * from './htfPredictions';
@@ -575,6 +634,14 @@ export interface StrikeHistoryItem {
   lifecycleStage?: TradeLifecycleStage;
   confidence: number;
   riskReward: string;
+  predictedCatalyst?: string;
+  spotTarget1?: number;
+  spotTarget2?: number;
+  spotStopLoss?: number;
+  actualSpotPeak?: number;
+  actualOutcomeNote?: string;
+  leadTimeAdvantageMinutes?: number;
+  slippageSavedPercent?: number;
 }
 
 export interface StrikeProfitTrend {

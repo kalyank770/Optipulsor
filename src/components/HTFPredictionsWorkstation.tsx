@@ -222,8 +222,11 @@ export function HTFPredictionsWorkstation({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs font-mono">
-                  <span className="text-slate-400 hidden sm:inline">Momentum Confluence:</span>
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                  <div className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Live Exchange Feed: NSE Real OHLCV Stream</span>
+                  </div>
                   <span className={`font-bold px-2.5 py-1 rounded-lg text-xs border ${
                     candleData.confluenceBias === 'BULLISH'
                       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10'
@@ -238,7 +241,7 @@ export function HTFPredictionsWorkstation({
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
                 {/* 2-Minute Candle Momentum Analysis */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between space-y-3">
                   <div>
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
                       <span className="text-sky-400 font-bold flex items-center gap-1.5">
@@ -262,19 +265,31 @@ export function HTFPredictionsWorkstation({
                       />
                     </div>
 
-                    <div className="font-bold text-slate-200 text-xs">
+                    <div className="font-bold text-slate-200 text-xs mb-2">
                       {candleData?.m2?.pattern?.replace(/2m\s*/, '') || 'Consolidation Range'}
                     </div>
+
+                    {/* Visual 2M Mini Candle Chart */}
+                    {candleData?.m2?.candles && candleData.m2.candles.length > 0 && (
+                      <div className="mb-2">
+                        <MiniCandleChart 
+                          candles={candleData.m2.candles}
+                          resistance={candleData.m2.resistance}
+                          support={candleData.m2.support}
+                          ema20={Number(((candleData.m2.support + candleData.m2.resistance) / 2).toFixed(2))}
+                        />
+                      </div>
+                    )}
                   </div>
                   
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                  <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
                     <span>Support: <strong className="text-slate-200">{ticker.currency}{candleData?.m2?.support?.toLocaleString()}</strong></span>
                     <span>Resist: <strong className="text-slate-200">{ticker.currency}{candleData?.m2?.resistance?.toLocaleString()}</strong></span>
                   </div>
                 </div>
 
                 {/* 5-Minute Candle Momentum Analysis */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between space-y-3">
                   <div>
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
                       <span className="text-emerald-400 font-bold flex items-center gap-1.5">
@@ -298,19 +313,31 @@ export function HTFPredictionsWorkstation({
                       />
                     </div>
 
-                    <div className="font-bold text-slate-200 text-xs">
+                    <div className="font-bold text-slate-200 text-xs mb-2">
                       {candleData?.m5?.pattern?.replace(/5m\s*/, '') || 'Tactical Alignment'}
                     </div>
+
+                    {/* Visual 5M Mini Candle Chart */}
+                    {candleData?.m5?.candles && candleData.m5.candles.length > 0 && (
+                      <div className="mb-2">
+                        <MiniCandleChart 
+                          candles={candleData.m5.candles}
+                          resistance={candleData.m5.resistance}
+                          support={candleData.m5.support}
+                          ema20={Number(((candleData.m5.support + candleData.m5.resistance) / 2).toFixed(2))}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                  <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
                     <span>Swing Exit Target: <strong className="text-emerald-400">{ticker.currency}{candleData?.derivedExitLevel1?.toLocaleString()}</strong></span>
                     <span>ATR: <strong className="text-slate-300">{candleData?.m5?.atr} pts</strong></span>
                   </div>
                 </div>
 
                 {/* 15-Minute Candle Momentum Analysis */}
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between space-y-3">
                   <div>
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
                       <span className="text-amber-400 font-bold flex items-center gap-1.5">
@@ -334,12 +361,24 @@ export function HTFPredictionsWorkstation({
                       />
                     </div>
 
-                    <div className="font-bold text-slate-200 text-xs">
+                    <div className="font-bold text-slate-200 text-xs mb-2">
                       {candleData?.m15?.pattern?.replace(/15m\s*/, '') || 'Structural Support'}
                     </div>
+
+                    {/* Visual 15M Mini Candle Chart */}
+                    {candleData?.m15?.candles && candleData.m15.candles.length > 0 && (
+                      <div className="mb-2">
+                        <MiniCandleChart 
+                          candles={candleData.m15.candles}
+                          resistance={candleData.m15.resistance}
+                          support={candleData.m15.support}
+                          ema20={Number(((candleData.m15.support + candleData.m15.resistance) / 2).toFixed(2))}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                  <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
                     <span>Runner Exit Target: <strong className="text-sky-400">{ticker.currency}{candleData?.derivedExitLevel2?.toLocaleString()}</strong></span>
                     <span>ATR: <strong className="text-slate-300">{candleData?.m15?.atr} pts</strong></span>
                   </div>

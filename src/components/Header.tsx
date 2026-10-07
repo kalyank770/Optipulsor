@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V4.0</span>
+            <span className="text-[11px] font-semibold text-emerald-400 font-mono tracking-wider bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded ml-1 select-none">V5.0</span>
           </button>
         </div>
 
@@ -201,10 +201,6 @@ export const Header: React.FC<HeaderProps> = ({
                 NSE {selectedTicker.category ? selectedTicker.category.toUpperCase() : 'INDEX'}
               </span>
             </div>
-
-            <span className="hidden md:inline-block text-xs font-semibold text-slate-400 font-mono">
-              F&amp;O Predictor
-            </span>
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3 text-xs font-mono text-slate-400 shrink-0">
