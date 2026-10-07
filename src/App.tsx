@@ -12,6 +12,8 @@ import { RealtimeQuantSection } from './components/RealtimeQuantSection';
 import { GroundedPayoffSection } from './components/GroundedPayoffSection';
 import { HTFPredictionsWorkstation } from './components/HTFPredictionsWorkstation';
 import { DaysReportTab } from './components/DaysReportTab';
+import { PaperTradingTab } from './components/PaperTradingTab';
+import { usePaperTrading } from './hooks/usePaperTrading';
 import { computeMultiTimeframePredictions } from './utils/htfPredictionEngine';
 import { OptionContract, OptionType } from './types/options';
 import { POPULAR_TICKERS } from './data/marketTickers';
@@ -34,10 +36,11 @@ import {
   Calendar,
   RefreshCw,
   Compass,
-  FileCheck2
+  FileCheck2,
+  Wallet
 } from 'lucide-react';
 
-export type WorkspaceTab = 'chain' | 'htf' | 'quant' | 'performance' | 'news' | 'report';
+export type WorkspaceTab = 'chain' | 'htf' | 'quant' | 'performance' | 'news' | 'report' | 'paper';
 
 export default function App() {
   const {
@@ -74,6 +77,9 @@ export default function App() {
     handleSelectExpiry,
     handleForceRefresh,
   } = useLiveOptionChain();
+
+  // Paper Trading Hook
+  const paperTrading = usePaperTrading(selectedTicker, chain);
 
   // Force dark theme
   useEffect(() => {
@@ -479,6 +485,25 @@ export default function App() {
               <FileCheck2 className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>Audit<span className="hidden sm:inline"> Report</span></span>
             </button>
+
+            {/* Tab 6: Paper Trading Desk */}
+            <button
+              onClick={() => setActiveTab('paper')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg transition-all cursor-pointer shrink-0 min-h-[38px] ${
+                activeTab === 'paper'
+                  ? 'bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+              title="Paper Trading Simulator: Trade real market data with virtual dummy money"
+            >
+              <Wallet className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Paper<span className="hidden sm:inline"> Trading</span></span>
+              {paperTrading.portfolio.openPositions.length > 0 && (
+                <span className="px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-emerald-500 text-slate-950 shrink-0">
+                  {paperTrading.portfolio.openPositions.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -715,6 +740,29 @@ export default function App() {
               onSelectContract={handleSelectContract}
               onSyncLiveExchange={syncLiveExchange}
               isSyncing={isSyncing}
+            />
+          </section>
+        )}
+
+        {/* WORKSPACE VIEW 6: PAPER TRADING SIMULATOR DESK */}
+        {activeTab === 'paper' && (
+          <section id="section-paper" className="space-y-4 animate-fade-in">
+            <PaperTradingTab
+              portfolio={paperTrading.portfolio}
+              summaryMetrics={paperTrading.summaryMetrics}
+              currentTicker={selectedTicker}
+              chain={chain}
+              signal={signal}
+              htfPredictions={htfPredictions}
+              onExecuteOrder={paperTrading.executeOrder}
+              onSquareOffPosition={paperTrading.squareOffPosition}
+              onPartialSquareOff={paperTrading.partialSquareOff}
+              onUpdatePositionSlTp={paperTrading.updatePositionSlTp}
+              onResetPortfolio={paperTrading.resetPortfolio}
+              autoExecuteStopLoss={paperTrading.autoExecuteStopLoss}
+              onToggleAutoStopLoss={paperTrading.setAutoExecuteStopLoss}
+              lastNotification={paperTrading.lastNotification}
+              onDismissNotification={() => paperTrading.setLastNotification(null)}
             />
           </section>
         )}
