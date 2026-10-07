@@ -1591,6 +1591,20 @@ export function generateTradeSignal(
     if (action === 'BUY_CE' || action === 'BUY_PE') {
       advanceTradeSetup.anticipatedAction = action;
     }
+
+    // Re-synchronize option price entry zone, stop loss, and targets with the exact LTP of the target strike
+    const roundToTick = (val: number) => Math.max(0.05, Math.round(val * 20) / 20);
+    const spreadBuf = ticker.currency === '$' ? 0.05 : (ticker.symbol.includes('BANK') ? 1.50 : 0.75);
+    advanceTradeSetup.advanceEntryOptionRange = [
+      roundToTick(Math.max(0.05, premium - spreadBuf)),
+      roundToTick(premium + spreadBuf)
+    ];
+    advanceTradeSetup.advanceOptionStopLoss = roundToTick(Math.max(0.05, premium * 0.85));
+    advanceTradeSetup.advanceOptionTarget1 = roundToTick(premium * 1.35);
+    advanceTradeSetup.advanceOptionTarget2 = roundToTick(premium * 1.70);
+    const advRisk = Math.max(0.5, premium - advanceTradeSetup.advanceOptionStopLoss);
+    const advReward = advanceTradeSetup.advanceOptionTarget1 - premium;
+    advanceTradeSetup.advanceRiskRewardRatio = `1 : ${(advReward / advRisk).toFixed(1)}`;
   }
 
   return {

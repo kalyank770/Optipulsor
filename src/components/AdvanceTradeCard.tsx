@@ -77,8 +77,23 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
     ? liveOption.ltp
     : setup.advanceEntryOptionRange[0] || 105;
 
+  // Synchronize Option Entry Range, Stop Loss, and Targets directly with currentLTP of the active recommended contract
+  const isUSD = ticker.currency === '$';
+  const isBankNifty = ticker.symbol.includes('BANK');
+  const roundToTick = (val: number) => Math.max(0.05, Math.round(val * 20) / 20);
+  const spreadBuf = isUSD ? 0.05 : (isBankNifty ? 1.50 : 0.75);
+
+  const optEntryLow = roundToTick(Math.max(0.05, currentLTP - spreadBuf));
+  const optEntryHigh = roundToTick(currentLTP + spreadBuf);
+  const optStopLoss = roundToTick(Math.max(0.05, currentLTP * 0.85));
+  const optTarget1 = roundToTick(currentLTP * 1.35);
+  const optTarget2 = roundToTick(currentLTP * 1.70);
+  const optRisk = Math.max(0.5, currentLTP - optStopLoss);
+  const optReward = optTarget1 - currentLTP;
+  const optRR = `1 : ${(optReward / optRisk).toFixed(1)}`;
+
   const handleCopy = () => {
-    const text = `OptiPulse Signal: ${isBull ? 'CALL (CE)' : isBear ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${setup.recommendedStrike} ${setup.recommendedType} @ ${ticker.currency}${currentLTP.toFixed(2)}\nConfidence: ${setup.probabilityScore}%\nTarget 1: ${ticker.currency}${setup.advanceOptionTarget1.toFixed(2)}\nTarget 2: ${ticker.currency}${setup.advanceOptionTarget2.toFixed(2)}\nStop Loss: ${ticker.currency}${setup.advanceOptionStopLoss.toFixed(2)}\nR:R: ${setup.advanceRiskRewardRatio}`;
+    const text = `OptiPulse Signal: ${isBull ? 'CALL (CE)' : isBear ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${setup.recommendedStrike} ${setup.recommendedType} @ ${ticker.currency}${currentLTP.toFixed(2)}\nConfidence: ${setup.probabilityScore}%\nTarget 1: ${ticker.currency}${optTarget1.toFixed(2)}\nTarget 2: ${ticker.currency}${optTarget2.toFixed(2)}\nStop Loss: ${ticker.currency}${optStopLoss.toFixed(2)}\nR:R: ${optRR}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -272,7 +287,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
               {ticker.currency}{setup.advanceEntryZoneSpot[0].toLocaleString()} – {ticker.currency}{setup.advanceEntryZoneSpot[1].toLocaleString()}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Option: <span className="text-slate-200">{ticker.currency}{setup.advanceEntryOptionRange[0].toFixed(2)} – {ticker.currency}{setup.advanceEntryOptionRange[1].toFixed(2)}</span>
+              Option: <span className="text-slate-200">{ticker.currency}{optEntryLow.toFixed(2)} – {ticker.currency}{optEntryHigh.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -288,7 +303,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
               Spot: {ticker.currency}{setup.advanceStopLossSpot.toLocaleString()}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Option SL: <strong className="text-rose-400">{ticker.currency}{setup.advanceOptionStopLoss.toFixed(2)}</strong>
+              Option SL: <strong className="text-rose-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong>
             </div>
           </div>
         </div>
@@ -297,14 +312,14 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span>TARGETS</span>
-            <span className="text-emerald-400 font-bold text-[10px]">R:R {setup.advanceRiskRewardRatio}</span>
+            <span className="text-emerald-400 font-bold text-[10px]">R:R {optRR}</span>
           </div>
           <div className="mt-1">
             <div className="text-xs sm:text-sm font-bold font-mono text-emerald-300">
-              T1: {ticker.currency}{setup.advanceOptionTarget1.toFixed(2)} <span className="text-[10px] text-emerald-400">(+{Math.max(1, Math.round(((setup.advanceOptionTarget1 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)</span>
+              T1: {ticker.currency}{optTarget1.toFixed(2)} <span className="text-[10px] text-emerald-400">(+{Math.max(1, Math.round(((optTarget1 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)</span>
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              T2: <span className="text-emerald-400">{ticker.currency}{setup.advanceOptionTarget2.toFixed(2)}</span> (+{Math.max(2, Math.round(((setup.advanceOptionTarget2 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)
+              T2: <span className="text-emerald-400">{ticker.currency}{optTarget2.toFixed(2)}</span> (+{Math.max(2, Math.round(((optTarget2 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)
             </div>
           </div>
         </div>
