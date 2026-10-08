@@ -178,6 +178,7 @@ export const GroundedPayoffSection: React.FC<GroundedPayoffSectionProps> = ({
           </div>
         </div>
       </div>
+
     </div>
   );
 };

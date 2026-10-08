@@ -943,6 +943,67 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         <span className="font-bold text-white mr-1.5">Trade Rationale:</span>
         {signal.summaryNote}
       </div>
+
+      {/* Active Prediction Guidance for Previous CE & PE Positions */}
+      <div className="mt-3.5 bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-2.5 font-mono">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+          <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
+            Prediction Guidance for Previous CE &amp; PE Positions
+          </h4>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
+            Action Plan
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+          {/* Previous CE Entries */}
+          <div className={`p-2.5 rounded-lg border ${
+            signal.action === 'BUY_CE' 
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
+              : signal.action === 'BUY_PE'
+              ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+              : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+          }`}>
+            <div className="font-bold flex items-center justify-between mb-1">
+              <span>Previous CE (Call) Entries</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900">
+                {signal.action === 'BUY_CE' ? 'HOLD / TRAIL' : signal.action === 'BUY_PE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 font-sans leading-normal">
+              {signal.action === 'BUY_CE' 
+                ? 'Bullish prediction active. Hold existing Call positions, move stop loss to cost, and trail towards targets.'
+                : signal.action === 'BUY_PE'
+                ? 'Bearish prediction active. Square off previous Call positions immediately to prevent capital erosion.'
+                : 'Neutral consolidation. Book partial profits on previous Calls and maintain tight stop losses.'}
+            </p>
+          </div>
+
+          {/* Previous PE Entries */}
+          <div className={`p-2.5 rounded-lg border ${
+            signal.action === 'BUY_PE' 
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
+              : signal.action === 'BUY_CE'
+              ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+              : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+          }`}>
+            <div className="font-bold flex items-center justify-between mb-1">
+              <span>Previous PE (Put) Entries</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900">
+                {signal.action === 'BUY_PE' ? 'HOLD / TRAIL' : signal.action === 'BUY_CE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 font-sans leading-normal">
+              {signal.action === 'BUY_PE' 
+                ? 'Bearish prediction active. Hold existing Put positions and trail stop losses.'
+                : signal.action === 'BUY_CE'
+                ? 'Bullish prediction active. Square off previous Put positions immediately to avoid adverse spot rise and theta decay.'
+                : 'Neutral chop. Book partial profits on Puts and avoid holding fresh shorts.'}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
