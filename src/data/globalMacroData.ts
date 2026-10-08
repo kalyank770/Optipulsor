@@ -10,19 +10,22 @@ export function getInterMarketTelemetry(
   spotPrice?: number
 ): InterMarketTelemetry {
   const isBankNifty = tickerSymbol.toUpperCase().includes('BANK');
-  const baseSpot = spotPrice || (isBankNifty ? 54205.25 : 22776.10);
-  const drift = isBankNifty ? 120.0 : 58.75;
-  
+
+  // GIFT Nifty tracks NIFTY 50 Index Futures (NSE IX)
+  const giftPrice = 22240.00;
+  const giftNetChange = -15.00;
+  const giftNetChangePct = -0.06;
+
   const giftNifty: GlobalMacroMarketItem = {
     symbol: 'GIFT NIFTY',
     name: 'GIFT Nifty Futures (NSE IX)',
     category: 'GIFT_NIFTY',
-    price: Number((baseSpot + drift).toFixed(2)),
-    change: drift,
-    changePercent: Number(((drift / Math.max(1, baseSpot)) * 100).toFixed(2)),
-    impactOnIndianFO: 'HIGH_BULLISH',
+    price: giftPrice,
+    change: giftNetChange,
+    changePercent: giftNetChangePct,
+    impactOnIndianFO: 'NEUTRAL',
     correlationWeight: 0.95,
-    insightNote: 'GIFT Nifty trading in alignment with overnight global institutional flows.',
+    insightNote: `GIFT Nifty at ₹${giftPrice.toLocaleString()} (${giftNetChange.toFixed(2)} pts / ${giftNetChangePct}% vs session close).`,
     asOfTime: 'Live Exchange Feed',
     ...liveData?.giftNifty,
   };

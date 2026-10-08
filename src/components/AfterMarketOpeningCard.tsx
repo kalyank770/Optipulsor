@@ -151,7 +151,11 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
           <div className="mt-1 pt-1 border-t border-slate-800/60 flex items-center justify-between text-[9px] text-slate-400 font-mono">
             <span className="flex items-center gap-1 text-slate-400">
               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-              <span>Synced:</span>
+              <span>
+                {ticker.symbol.includes('NIFTY') && !ticker.symbol.includes('BANK') 
+                  ? `${(giftNiftyPrice - ticker.spotPrice) >= 0 ? '+' : ''}${(giftNiftyPrice - ticker.spotPrice).toFixed(1)} pts vs Spot` 
+                  : `Implied Gap: ${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts`}
+              </span>
             </span>
             <span className="text-emerald-300 font-bold">
               {(giftNiftyLastSynced || new Date()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}

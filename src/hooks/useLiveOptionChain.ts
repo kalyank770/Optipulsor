@@ -611,11 +611,11 @@ export function useLiveOptionChain() {
         const step = tickerToFetch.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
+        const activeChange = data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (tickerToFetch.prevClose || activeSpot)).toFixed(2));
+        const activeChangePct = data.changePercent !== undefined ? Number(data.changePercent.toFixed(2)) : (tickerToFetch.prevClose ? Number(((activeChange / tickerToFetch.prevClose) * 100).toFixed(2)) : 0);
         const basePrevClose = activePreMarket 
           ? regularPrice 
-          : (data.prevClose || tickerToFetch.prevClose || (activeSpot - (data.change || 0)));
-        const activeChange = Number((activeSpot - basePrevClose).toFixed(2));
-        const activeChangePct = Number(((activeChange / Math.max(basePrevClose, 1)) * 100).toFixed(2));
+          : (data.prevClose || Number((activeSpot - activeChange).toFixed(2)));
 
         const updatedTicker: TickerConfig = {
           ...tickerToFetch,

@@ -134,19 +134,17 @@ export function computeAfterMarketOpeningAnalytics(
   const isNifty = ticker.symbol.toUpperCase().includes('NIFTY') && !isBankNifty;
   const beta = isBankNifty ? 1.25 : isNifty ? 1.0 : 0.90;
 
-  const rawGiftNiftyPct = interMarket?.giftNifty?.changePercent || 0;
-  const rawGiftNiftyChange = interMarket?.giftNifty?.change || 0;
+  // GIFT Nifty level is always bound to Nifty 50 scale
+  const rawGiftNiftyPrice = interMarket?.giftNifty?.price || 22240.00;
+  const rawGiftNiftyChange = interMarket?.giftNifty?.change !== undefined ? interMarket.giftNifty.change : -15.00;
+  const rawGiftNiftyPct = interMarket?.giftNifty?.changePercent !== undefined ? interMarket.giftNifty.changePercent : -0.06;
 
-  // Percentage drift applied to current spot:
-  const tickerExpectedGapPercent = Number((rawGiftNiftyPct * beta).toFixed(3));
-  const giftNiftyChangePoints = isNifty && Math.abs(rawGiftNiftyChange) > 0 
-    ? rawGiftNiftyChange 
-    : Number(((spotClose * tickerExpectedGapPercent) / 100).toFixed(2));
-  
-  const giftNiftyPrice = isNifty 
-    ? (interMarket?.giftNifty?.price || spotClose + giftNiftyChangePoints) 
-    : spotClose + giftNiftyChangePoints;
+  const giftNiftyPrice = rawGiftNiftyPrice;
+  const giftNiftyChangePoints = rawGiftNiftyChange;
   const giftNiftyChangePercent = rawGiftNiftyPct;
+
+  // Percentage gap drift applied to current ticker spot:
+  const tickerExpectedGapPercent = Number(((rawGiftNiftyPct * 0.25) * beta).toFixed(3));
 
   const globalScore = interMarket?.globalCompositeScore || 0;
   const globalCueSentiment = globalScore >= 15 ? 'BULLISH' : globalScore <= -15 ? 'BEARISH' : 'NEUTRAL';
@@ -193,7 +191,8 @@ export function computeAfterMarketOpeningAnalytics(
     predictedOpeningGapPoints = Number((predictedOpeningSpot - ticker.prevClose).toFixed(2));
   } else {
     const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.002)).toFixed(2));
-    predictedOpeningSpot = Number((spotClose + giftNiftyChangePoints + macroAdjustment).toFixed(2));
+    const gapDriftForTicker = Number((giftNiftyChangePoints * beta).toFixed(2));
+    predictedOpeningSpot = Number((spotClose + gapDriftForTicker + macroAdjustment).toFixed(2));
     predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
   }
 
