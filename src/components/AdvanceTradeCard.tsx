@@ -184,7 +184,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                 <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
                   {isBull && <span className="text-emerald-400">BUY CALL — {setup.recommendedStrike} CE</span>}
                   {isBear && <span className="text-rose-400">BUY PUT — {setup.recommendedStrike} PE</span>}
-                  {isWait && <span className="text-amber-400">STAY NEUTRAL / WAIT</span>}
+                  {isWait && <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>}
                 </h2>
 
                 {/* Dynamic Regime & Momentum Badge */}
@@ -203,6 +203,8 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                       ? `BULLISH EXPANSION (${setup.probabilityScore}% MOMENTUM)`
                       : isBear
                       ? `BEARISH BREAKDOWN (${setup.probabilityScore}% MOMENTUM)`
+                      : signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING'
+                      ? `FLAT OPEN (${signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${signal.afterMarketAnalytics.predictedOpeningGapPoints} pts) · WAIT 15M ORB`
                       : `SIDEWAYS / RANGE CHOP (${signal?.sidewaysMarketAnalysis?.compressionPercentage || 64}% SQUEEZE)`}
                   </span>
                 </span>
@@ -258,13 +260,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>RECOMMENDED STRIKE</span>
+            <span>{isWait ? 'REFERENCE STRIKE (ORB)' : 'RECOMMENDED STRIKE'}</span>
             <span className={`font-bold text-[10px] px-1.5 py-0.2 rounded border ${
               isBull ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' :
               isBear ? 'bg-rose-950 text-rose-300 border-rose-500/40' :
-              'bg-slate-800 text-slate-300 border-slate-700'
+              'bg-amber-950 text-amber-300 border-amber-500/40'
             }`}>
-              {setup.anticipatedAction.replace('_', ' ')}
+              {isWait ? 'STAND ASIDE' : setup.anticipatedAction.replace('_', ' ')}
             </span>
           </div>
           <div className="mt-1">

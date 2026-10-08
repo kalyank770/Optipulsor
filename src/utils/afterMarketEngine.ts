@@ -211,17 +211,23 @@ export function computeAfterMarketOpeningAnalytics(
   let projectedSpotAtHit = predictedOpeningSpot;
   let hitReason = '';
 
-  const isFlatConsolidation = Math.abs(openMomentumScore) < 0.40 || 
-    (predictedOpeningType === 'FLAT_OPENING' && Math.abs(predictedOpeningGapPercent) < 0.12 && dayStructureVerdict === 'NEUTRAL_CONSOLIDATION');
+  const supFloor = metrics?.majorSupportStrike || (spotClose - step);
+  const resWall = metrics?.majorResistanceStrike || (spotClose + step);
 
-  if (isFlatConsolidation) {
+  // A flat opening occurs when gap is within ±0.15% or points change is negligible (e.g. -2 pts)
+  const isFlatOpening = predictedOpeningType === 'FLAT_OPENING' || 
+    Math.abs(predictedOpeningGapPercent) < 0.15 || 
+    Math.abs(predictedOpeningGapPoints) < (isBankNifty ? 60 : (ticker.currency === '$' ? 1.0 : 25));
+
+  if (isFlatOpening) {
     // Neutral / Flat Opening: Capital Protection First!
+    // Never suggest aggressive option buying at 09:15 AM open when gap is flat (IV crush & whipsaw trap)
     tomorrowAction = 'WAIT_FIRST_15M';
-    tomorrowType = closeVsVwapPoints >= 0 ? 'CE' : 'PE';
+    tomorrowType = (openMomentumScore < 0 || closeVsVwapPoints < 0) ? 'PE' : 'CE';
     tomorrowStrike = Math.round(spotClose / step) * step;
     projectedSpotAtHit = predictedOpeningSpot;
-    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts, ${predictedOpeningGapPercent}%). Chart closed in ${dayStructureVerdict?.replace(/_/g, ' ') || 'NEUTRAL CONSOLIDATION'} with flat GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts). Stand aside at 09:15 AM open; wait for the first 15-minute range breakout (09:30 AM) to confirm institutional direction.`;
-  } else if (openMomentumScore > 0) {
+    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). Even though prior session closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}), a flat opening offers zero gap impulse at 09:15 AM. Buying naked options (CE or PE) at market open on a flat gap carries severe risk of rapid Theta decay and instant IV crush. CAPITAL PRESERVATION PROTOCOL: STAND ASIDE in WAIT for the first 15 minutes (09:15 - 09:30 AM). Allow the market to print its 15-Minute Opening Range (ORB); monitor reference contract ${tomorrowStrike} ${tomorrowType} for entry ONLY if spot decisively breaks down below the 15-Minute Range Low / Support (${ticker.currency}${supFloor.toLocaleString()}) after 09:30 AM. If spot reverses above ${ticker.currency}${resWall.toLocaleString()}, wait for Call setup.`;
+  } else if (openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING') {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';
     tomorrowType = 'CE';
@@ -236,8 +242,6 @@ export function computeAfterMarketOpeningAnalytics(
       tomorrowStrike = Math.ceil((spotClose + step * 0.3) / step) * step;
     }
     projectedSpotAtHit = Number(Math.max(predictedOpeningSpot, tomorrowStrike).toFixed(2));
-    const resWall = metrics?.majorResistanceStrike || (spotClose + step);
-    const supFloor = metrics?.majorSupportStrike || (spotClose - step);
     const isAboveResWall = predictedOpeningSpot >= resWall;
     
     hitReason = isAboveResWall
@@ -258,8 +262,6 @@ export function computeAfterMarketOpeningAnalytics(
       tomorrowStrike = Math.floor((spotClose - step * 0.3) / step) * step;
     }
     projectedSpotAtHit = Number(Math.min(predictedOpeningSpot, tomorrowStrike).toFixed(2));
-    
-    const supFloor = metrics?.majorSupportStrike || (spotClose - step);
     const isBelowSupFloor = predictedOpeningSpot <= supFloor;
 
     hitReason = isBelowSupFloor
@@ -295,9 +297,10 @@ export function computeAfterMarketOpeningAnalytics(
   };
 
   // 6. Strategy Playbook
+  const closeVsVwapPercent = Number(((closeVsVwapPoints / (vwapClose || 1)) * 100).toFixed(2));
   const vwapDeltaLabel = closeVsVwapPoints >= 0 
-    ? `+${closeVsVwapPoints} pts above VWAP (Late Accumulation)` 
-    : `${closeVsVwapPoints} pts below VWAP (Late Unwinding)`;
+    ? `+${closeVsVwapPoints} pts (+${closeVsVwapPercent}%) above VWAP` 
+    : `${closeVsVwapPoints} pts (${closeVsVwapPercent}%) below VWAP`;
 
   let openingBias: AfterMarketOpeningAnalytics['openingStrategyPlaybook']['openingBias'] = 
     tomorrowAction === 'WAIT_FIRST_15M' 
@@ -306,11 +309,15 @@ export function computeAfterMarketOpeningAnalytics(
       ? 'BULLISH_GAP_MOMENTUM' 
       : 'BEARISH_GAP_BREAKDOWN';
   let strategyTitle = tomorrowAction === 'WAIT_FIRST_15M'
-    ? `Flat Open: Wait for 15-Minute Range Breakout (Reference ${tomorrowStrike} ${tomorrowType})`
+    ? `Flat Open (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts): Wait for 15-Minute Range Breakout (Reference ${tomorrowStrike} ${tomorrowType})`
     : tomorrowAction === 'BUY_CE' 
     ? `Bullish Open: Target Strike ${tomorrowStrike} CE` 
     : `Bearish Open: Target Strike ${tomorrowStrike} PE`;
   let playbookDescription = hitReason;
+
+  const openingExecutionTrigger = tomorrowAction === 'WAIT_FIRST_15M'
+    ? `STAND ASIDE at 09:15 AM open (Capital Preservation: High risk of IV crush & chop on flat open). Watch ${tomorrowStrike} ${tomorrowType} for entry ONLY upon a confirmed 09:30 AM 15-Minute Opening Range Breakout below ${ticker.currency}${supFloor.toLocaleString()}.`
+    : `Buy ${tomorrowStrike} ${tomorrowType} at 09:15 AM open with target ${ticker.currency}${target1} and SL ${ticker.currency}${stopLoss}.`;
 
   return {
     isAfterMarketMode,
@@ -347,7 +354,7 @@ export function computeAfterMarketOpeningAnalytics(
       openingContractTarget1: target1,
       openingContractTarget2: target2,
       openingContractStopLoss: stopLoss,
-      openingExecutionTrigger: `Buy ${tomorrowStrike} ${tomorrowType} at 09:15 AM open with target ₹${target1} and SL ₹${stopLoss}.`,
+      openingExecutionTrigger,
     },
   };
 }

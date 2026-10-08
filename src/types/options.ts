@@ -87,6 +87,7 @@ export interface TickerConfig {
   isUsingPreMarket?: boolean;
   isHoliday?: boolean;
   holidayName?: string;
+  vwap?: number;
 }
 
 export interface RealtimePredictionIndicators {

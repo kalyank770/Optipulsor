@@ -626,6 +626,7 @@ export function useLiveOptionChain() {
           changePercent: activeChangePct,
           dayHigh: Math.max(data.dayHigh || activeSpot, activeSpot),
           dayLow: Math.min(data.dayLow || activeSpot, activeSpot),
+          vwap: data.vwap !== undefined ? data.vwap : tickerToFetch.vwap,
           atmStrike: newAtm,
           vix: data.vix !== undefined ? data.vix : tickerToFetch.vix,
           vixChange: data.vixChange !== undefined ? data.vixChange : tickerToFetch.vixChange,

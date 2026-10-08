@@ -360,6 +360,7 @@ export function computeRealtimeIndicators(
   const closes = candles.map(c => c.close);
 
   // 1. INTRADAY VWAP & VOLATILITY BANDS
+  // Prioritize verified session VWAP from exchange feed / ticker; otherwise compute institutional full-session benchmark (H+L+C)/3
   let cumulativeTypicalVol = 0;
   let cumulativeVol = 0;
   for (const c of candles) {
@@ -367,8 +368,17 @@ export function computeRealtimeIndicators(
     cumulativeTypicalVol += typical * c.volume;
     cumulativeVol += c.volume;
   }
-  const rawVwap = cumulativeVol > 0 ? cumulativeTypicalVol / cumulativeVol : S;
-  const vwap = Number(rawVwap.toFixed(2));
+  const rollingVwap = cumulativeVol > 0 ? cumulativeTypicalVol / cumulativeVol : S;
+
+  let vwap: number;
+  if (typeof ticker.vwap === 'number' && ticker.vwap > 0) {
+    vwap = Number(ticker.vwap.toFixed(2));
+  } else if (ticker.dayHigh && ticker.dayLow && ticker.dayHigh >= ticker.dayLow && ticker.dayHigh > S * 0.5) {
+    // Official Institutional Full-Session Benchmark Typical Price: (High + Low + Close) / 3
+    vwap = Number(((ticker.dayHigh + ticker.dayLow + S) / 3).toFixed(2));
+  } else {
+    vwap = Number(rollingVwap.toFixed(2));
+  }
 
   // VWAP Variance & Standard Deviation Bands
   let sumSquaredDiff = 0;

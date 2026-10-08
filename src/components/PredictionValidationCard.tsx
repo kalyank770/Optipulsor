@@ -370,11 +370,21 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                         </td>
 
                         <td className="p-1.5">
-                          <div className="font-semibold text-slate-200">
-                            {r.parameters.predictedOpeningType.replace(/_/g, ' ')} ({r.parameters.predictedGapPoints >= 0 ? '+' : ''}{r.parameters.predictedGapPoints} pts)
+                          <div className="font-semibold text-slate-200 flex items-center gap-1.5 flex-wrap">
+                            <span>{r.parameters.predictedOpeningType.replace(/_/g, ' ')}</span>
+                            <span className="text-[10px] text-slate-400">({r.parameters.predictedGapPoints >= 0 ? '+' : ''}{r.parameters.predictedGapPoints} pts)</span>
                           </div>
-                          <div className="text-[10px] text-sky-400">
-                            Strike: {r.parameters.predictedHitStrike} {r.parameters.predictedOptionType}
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold font-mono border ${
+                              r.parameters.recommendedAction === 'BUY_CE' ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40' :
+                              r.parameters.recommendedAction === 'BUY_PE' ? 'bg-rose-950/70 text-rose-300 border-rose-500/40' :
+                              'bg-amber-950/70 text-amber-300 border-amber-500/40'
+                            }`}>
+                              {r.parameters.recommendedAction === 'BUY_CE' ? 'BUY CALL (CE)' : r.parameters.recommendedAction === 'BUY_PE' ? 'BUY PUT (PE)' : 'WAIT 15M ORB'}
+                            </span>
+                            <span className="text-[10px] text-sky-300 font-mono">
+                              Strike: {r.parameters.predictedHitStrike} {r.parameters.predictedOptionType}
+                            </span>
                           </div>
                         </td>
 

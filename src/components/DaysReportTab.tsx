@@ -10,6 +10,7 @@ import {
   DayReportSummary,
   loadDaysReport, 
   saveDaysReport, 
+  generateSeedDaysReport,
   updateDaysReportWithLiveTicks, 
   addLiveSignalToReport, 
   computeDaysReportSummary,
@@ -38,7 +39,12 @@ import {
   Award,
   Calendar,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Eye,
+  LayoutList,
+  ArrowUpRight,
+  ArrowDownRight,
+  Info
 } from 'lucide-react';
 
 interface DaysReportTabProps {
@@ -51,6 +57,7 @@ interface DaysReportTabProps {
 }
 
 type FilterStatus = 'ALL' | 'TARGET_HITS' | 'TARGET_2_ONLY' | 'ACTIVE_ONLY' | 'CE_ONLY' | 'PE_ONLY';
+type ViewMode = 'SIMPLE' | 'DETAILED';
 
 interface DateGroup {
   dateKey: string;
@@ -59,6 +66,8 @@ interface DateGroup {
   trades: DayReportTrade[];
   summary: {
     total: number;
+    ceCount: number;
+    peCount: number;
     targetsHit: number;
     winRate: number;
     netSpotPoints: number;
@@ -76,10 +85,19 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 }) => {
   const [trades, setTrades] = useState<DayReportTrade[]>(() => loadDaysReport(ticker, chain));
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('ALL');
+  const [viewMode, setViewMode] = useState<ViewMode>('SIMPLE');
+  const [expandedTradeIds, setExpandedTradeIds] = useState<Record<string, boolean>>({});
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [forceAutoRefresh, setForceAutoRefresh] = useState<boolean>(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
+
+  const toggleTradeDetails = (tradeId: string) => {
+    setExpandedTradeIds(prev => ({
+      ...prev,
+      [tradeId]: !prev[tradeId]
+    }));
+  };
 
   const toggleDate = (dateKey: string) => {
     setCollapsedDates(prev => ({
@@ -93,10 +111,15 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     return isMarketAutoRefreshActive(ticker);
   }, [ticker]);
 
-  // Sync / update report when chain changes or ticker changes
+  // Reload report when active ticker changes
+  React.useEffect(() => {
+    setTrades(loadDaysReport(ticker, chain));
+  }, [ticker.symbol]);
+
+  // Sync / update report when chain changes or ticker spot ticks
   React.useEffect(() => {
     setTrades(prev => deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain)));
-  }, [chain, ticker]);
+  }, [chain, ticker.spotPrice]);
 
   // Active Market Session Auto-Refresh Loop (Runs every 5 seconds when market is active or force-enabled)
   React.useEffect(() => {
@@ -157,12 +180,13 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
   const handleLogCurrentSignal = () => {
     if (signal.action === 'WAIT_NEUTRAL') {
-      showFeedback('Active signal is currently NEUTRAL. No directional trade to log right now.');
+      showFeedback('Active signal is currently NEUTRAL / WAIT. No directional trade to log right now.');
       return;
     }
     const updated = addLiveSignalToReport(trades, signal, ticker);
     setTrades(updated);
-    showFeedback(`Current live signal (${signal.action.replace('_', ' ')} ${signal.recommendedStrike}) logged to Day's Report!`);
+    const actionName = signal.action === 'BUY_CE' ? 'BUY CALL' : 'BUY PUT';
+    showFeedback(`Current live signal (${actionName} ${signal.recommendedStrike} ${signal.recommendedType}) logged to Day's Report!`);
   };
 
   const handleResetReport = () => {
@@ -170,9 +194,10 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
       localStorage.removeItem(`optipulse_days_report_v3_${ticker.symbol}`);
       localStorage.removeItem(`optipulse_days_report_v2_${ticker.symbol}`);
     } catch {}
-    const fresh = loadDaysReport(ticker, chain);
+    const fresh = generateSeedDaysReport(ticker, chain);
     setTrades(fresh);
-    showFeedback('Reset Day\'s Report to multi-session benchmark exchange log.');
+    saveDaysReport(ticker.symbol, fresh);
+    showFeedback(`Reset Day's Report to verified benchmark exchange log for ${ticker.symbol}.`);
   };
 
   const handleExportCSV = () => {
@@ -249,6 +274,8 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
       const firstTrade = groupTrades[0];
       const dateInfo = formatTradeDateDisplay(firstTrade.timestamp);
 
+      const ceCount = groupTrades.filter(t => t.optionType === 'CE').length;
+      const peCount = groupTrades.filter(t => t.optionType === 'PE').length;
       const targetsHit = groupTrades.filter(t => t.status === 'TARGET_1_HIT' || t.status === 'TARGET_2_HIT').length;
       const completed = groupTrades.filter(t => t.status === 'TARGET_1_HIT' || t.status === 'TARGET_2_HIT' || t.status === 'STOP_LOSS_HIT');
       const winRate = completed.length > 0 
@@ -265,6 +292,8 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
         trades: groupTrades, // already ordered latest on top
         summary: {
           total: groupTrades.length,
+          ceCount,
+          peCount,
           targetsHit,
           winRate,
           netSpotPoints,
@@ -395,7 +424,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 {summary.winRatePercent}%
               </div>
               <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
-                {summary.successfulCalls} of {summary.totalCalls} hit targets ({summary.target2Hits} hit Target 2)
+                {summary.successfulCalls} of {summary.totalCalls} recommendations hit targets ({summary.target2Hits} hit Target 2)
               </div>
             </div>
           </div>
@@ -439,7 +468,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 +{summary.maxProfitPercent}%
               </div>
               <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 truncate" title={summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (${summary.bestTrade.timeFormatted})` : ''}>
-                {summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (₹${summary.bestTrade.recommendedEntry} ➔ ₹${summary.bestTrade.actualOptionPeakPrice})` : 'Awaiting calls'}
+                {summary.bestTrade ? `${summary.bestTrade.strike} ${summary.bestTrade.optionType} (${ticker.currency}${summary.bestTrade.recommendedEntry} ➔ ${ticker.currency}${summary.bestTrade.actualOptionPeakPrice})` : 'Awaiting trades'}
               </div>
             </div>
           </div>
@@ -486,34 +515,89 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
         </div>
       </div>
 
-      {/* 2. FILTER SWITCHER BAR */}
-      <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar pb-1 text-xs font-mono">
-        <div className="flex items-center gap-1.5">
-          <Filter className="w-3.5 h-3.5 text-slate-500" />
-          <span className="text-slate-400 font-sans text-xs">Filter Trades:</span>
+      {/* 2. FILTER & VIEW MODE TOOLBAR */}
+      <div className="space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          {/* Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs font-mono">
+            <div className="flex items-center gap-1 text-slate-400 font-sans shrink-0 mr-1">
+              <Filter className="w-3.5 h-3.5 text-slate-500" />
+              <span>Filter:</span>
+            </div>
+
+            {[
+              { id: 'ALL', label: `All Trades (${trades.length})` },
+              { id: 'TARGET_HITS', label: `🎯 Targets Cleared (${trades.filter(t => t.status.includes('HIT')).length})` },
+              { id: 'TARGET_2_ONLY', label: `Target 2 Runners (${trades.filter(t => t.status === 'TARGET_2_HIT').length})` },
+              { id: 'ACTIVE_ONLY', label: `Active (${trades.filter(t => t.status.includes('ACTIVE')).length})` },
+              { id: 'CE_ONLY', label: `Calls (CE) (${trades.filter(t => t.optionType === 'CE').length})` },
+              { id: 'PE_ONLY', label: `Puts (PE) (${trades.filter(t => t.optionType === 'PE').length})` },
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setActiveFilter(f.id as FilterStatus)}
+                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer text-xs font-semibold shrink-0 ${
+                  activeFilter === f.id
+                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* View Mode Toggle: Simple vs Detailed */}
+          <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl shrink-0 self-start sm:self-auto">
+            <button
+              onClick={() => setViewMode('SIMPLE')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'SIMPLE'
+                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Simple View: Clean, high-impact scannable cards with visual 3-step price journey"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Simple View</span>
+            </button>
+            <button
+              onClick={() => setViewMode('DETAILED')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'DETAILED'
+                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Detailed Audit: Full technical 2-column comparative audit grid for all trades"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>Detailed Audit</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {[
-            { id: 'ALL', label: `All Calls (${trades.length})` },
-            { id: 'TARGET_HITS', label: `🎯 Targets Cleared (${trades.filter(t => t.status.includes('HIT')).length})` },
-            { id: 'TARGET_2_ONLY', label: `Target 2 Runners (${trades.filter(t => t.status === 'TARGET_2_HIT').length})` },
-            { id: 'ACTIVE_ONLY', label: `Active / Running (${trades.filter(t => t.status.includes('ACTIVE')).length})` },
-            { id: 'PE_ONLY', label: `Puts (${trades.filter(t => t.optionType === 'PE').length})` },
-            { id: 'CE_ONLY', label: `Calls (${trades.filter(t => t.optionType === 'CE').length})` },
-          ].map(f => (
+        {/* User-Friendly Explainer Tip */}
+        <div className="flex items-center justify-between text-[11px] text-slate-400 font-sans px-1">
+          <span className="flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>
+              {viewMode === 'SIMPLE' 
+                ? 'Simple View active: Shows entry, target, and actual profit in a clean 3-step summary. Click "Details & Audit" on any trade for full proof.'
+                : 'Detailed Audit active: Showing full technical parameters, predictive catalysts, and verified exchange audit notes.'}
+            </span>
+          </span>
+          {viewMode === 'SIMPLE' && (
             <button
-              key={f.id}
-              onClick={() => setActiveFilter(f.id as FilterStatus)}
-              className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer text-xs font-semibold ${
-                activeFilter === f.id
-                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-              }`}
+              onClick={() => {
+                const allExpanded: Record<string, boolean> = {};
+                filteredTrades.forEach(t => { allExpanded[t.id] = true; });
+                setExpandedTradeIds(allExpanded);
+              }}
+              className="text-emerald-400 hover:text-emerald-300 transition-colors underline cursor-pointer hidden md:inline"
             >
-              {f.label}
+              Expand All Details
             </button>
-          ))}
+          )}
         </div>
       </div>
 
@@ -536,7 +620,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 onClick={() => setCollapsedDates({})}
                 className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
               >
-                Expand All
+                Expand All Dates
               </button>
               <span className="text-slate-700">·</span>
               <button
@@ -547,7 +631,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 }}
                 className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
               >
-                Collapse All
+                Collapse All Dates
               </button>
             </div>
           )}
@@ -557,7 +641,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           <div className="p-8 text-center bg-slate-900/60 border border-slate-800 rounded-2xl">
             <AlertCircle className="w-8 h-8 text-slate-500 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-300">No predictions match the active filter</p>
-            <p className="text-xs text-slate-500 mt-1">Switch filter back to "All Calls" to view all logged session trades.</p>
+            <p className="text-xs text-slate-500 mt-1">Switch filter back to "All Trades" to view all logged session trades.</p>
           </div>
         ) : (
           groupedTrades.map(group => {
@@ -608,8 +692,12 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
                   {/* Summary Metric Badges & Collapse Toggle */}
                   <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-300 border border-slate-800 font-mono text-xs font-semibold">
-                      {group.trades.length} {group.trades.length === 1 ? 'Trade' : 'Trades'}
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-300 border border-slate-800 font-mono text-xs font-semibold flex items-center gap-1.5">
+                      <span>{group.trades.length} {group.trades.length === 1 ? 'Trade' : 'Trades'}</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-emerald-400 font-bold">{group.summary.ceCount} CE</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-rose-400 font-bold">{group.summary.peCount} PE</span>
                     </span>
 
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 font-mono text-xs font-bold flex items-center gap-1">
@@ -640,13 +728,14 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                       const isT1 = trade.status === 'TARGET_1_HIT';
                       const isSL = trade.status === 'STOP_LOSS_HIT';
                       const isWin = isT1 || isT2;
+                      const isDetailedOpen = viewMode === 'DETAILED' || Boolean(expandedTradeIds[trade.id]);
 
                       return (
                         <div 
                           key={trade.id}
                           className={`rounded-2xl border transition-all overflow-hidden shadow-lg ${
                             isT2 
-                              ? 'bg-slate-900/90 border-emerald-500/50 shadow-emerald-950/20' 
+                              ? 'bg-slate-900/90 border-emerald-500/40 shadow-emerald-950/20' 
                               : isT1 
                               ? 'bg-slate-900/90 border-sky-500/40 shadow-sky-950/20' 
                               : isSL
@@ -654,28 +743,39 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                               : 'bg-slate-900/90 border-slate-800'
                           }`}
                         >
-                          {/* Header Strip */}
-                          <div className={`px-4 sm:px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                          {/* 1. CARD HEADER STRIP */}
+                          <div className={`px-3.5 sm:px-5 py-2.5 sm:py-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
                             isWin ? 'bg-emerald-500/10 border-emerald-500/20' : isSL ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800/40 border-slate-800'
                           }`}>
-                            <div className="flex items-center gap-2.5 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-950 text-slate-300 font-bold border border-slate-800 flex items-center gap-1">
                                 <span>⏱️</span>
                                 <span>{trade.timeFormatted}</span>
                               </span>
 
-                              <span className="text-xs font-bold text-white">
-                                {trade.tradeTypeLabel}
-                              </span>
-
-                              <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${
+                              <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-black border flex items-center gap-1 ${
                                 isCall ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' : 'bg-rose-950 text-rose-300 border-rose-500/40'
                               }`}>
-                                {trade.actionLabel}
+                                {isCall ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                                <span>{trade.actionLabel}</span>
+                              </span>
+
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-black border uppercase tracking-wider ${
+                                isCall ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                              }`}>
+                                {isCall ? 'CALL (CE)' : 'PUT (PE)'}
+                              </span>
+
+                              <span className="text-xs sm:text-sm font-bold text-white">
+                                {ticker.symbol} {trade.strike} {trade.optionType}
+                              </span>
+
+                              <span className="text-[11px] font-mono text-slate-400">
+                                ({trade.moneyness})
                               </span>
                             </div>
 
-                            {/* Outcome Badge */}
+                            {/* Outcome Badge & Option Chain Action */}
                             <div className="flex items-center gap-2 self-start sm:self-auto">
                               <div className={`px-3 py-1 rounded-lg text-xs font-mono font-black border flex items-center gap-1.5 shadow-sm ${
                                 isT2 ? 'bg-emerald-500 text-slate-950 border-emerald-400' :
@@ -684,140 +784,227 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                                 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                               }`}>
                                 <span>{trade.statusLabel}</span>
-                                <span className="font-bold">({trade.netPnlPercent > 0 ? '+' : ''}{trade.netPnlPercent}%)</span>
+                                <span className="font-extrabold">({trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%)</span>
                               </div>
 
                               {onSelectContract && (
                                 <button
                                   onClick={() => onSelectContract(trade.strike, trade.optionType)}
-                                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
-                                  title="Inspect contract in Option Chain"
+                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-sky-200 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-slate-700"
+                                  title="Inspect contract live in Option Chain"
                                 >
-                                  View Chain →
+                                  <span>Chain</span>
+                                  <ArrowRight className="w-3 h-3" />
                                 </button>
                               )}
                             </div>
                           </div>
 
-                          {/* Two-Column Comparison: "What It Said" vs "What Happened Actually" */}
-                          <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800/80 p-4 sm:p-5 gap-4 lg:gap-6 text-xs">
-                            {/* COLUMN 1: WHAT THE ALGORITHM PREDICTED ("WHAT IT SAID") */}
-                            <div className="space-y-3.5 pr-0 lg:pr-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] uppercase tracking-wider font-bold text-sky-400 flex items-center gap-1.5">
-                                  <span>1. What Algorithm Predicted ("What It Said")</span>
-                                </span>
-                                <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                  R:R {trade.riskRewardRatio}
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 font-mono">
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Spot Entry Zone</span>
-                                  <strong className="text-white text-xs sm:text-sm">
-                                    {ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}
-                                  </strong>
+                          {/* 2. VISUAL 3-STAGE PRICE JOURNEY (SIMPLE, FAST & INSTANTLY CLEAR) */}
+                          <div className="p-3.5 sm:p-5 space-y-3.5">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5 font-mono">
+                              {/* Step 1: Recommended Entry */}
+                              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between">
+                                <div className="flex items-center justify-between text-[11px] font-sans text-slate-400 mb-1">
+                                  <span className="font-bold text-slate-300">1. RECOMMENDED ENTRY</span>
+                                  <span className="text-[10px] text-slate-500 font-mono">At {trade.timeFormatted}</span>
                                 </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Option Entry Price</span>
-                                  <strong className="text-sky-300 text-xs sm:text-sm">
-                                    {ticker.currency}{trade.recommendedEntry.toFixed(2)}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-500 block">({ticker.currency}{trade.entryRange[0]} - {trade.entryRange[1]})</span>
-                                </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Stop Loss</span>
-                                  <strong className="text-rose-400 text-xs sm:text-sm">
-                                    {ticker.currency}{trade.stopLoss.toFixed(2)}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-500 block">Spot: {ticker.currency}{trade.spotStopLoss}</span>
-                                </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Target 1 (Tactical)</span>
-                                  <strong className="text-emerald-400 text-xs sm:text-sm">
-                                    {ticker.currency}{trade.target1.toFixed(2)}
-                                  </strong>
-                                  <span className="text-[9.5px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget1}</span>
-                                </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 col-span-2 sm:col-span-1">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Target 2 (Runner)</span>
-                                  <strong className="text-emerald-300 text-xs sm:text-sm">
-                                    {ticker.currency}{trade.target2.toFixed(2)}
-                                  </strong>
-                                  <span className="text-[9.5px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget2}</span>
-                                </div>
-                              </div>
-
-                              {/* Leading Catalyst */}
-                              <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-[11px] leading-relaxed">
-                                <span className="text-slate-400 font-semibold block mb-0.5">🧠 Predictive Catalyst &amp; Triggers:</span>
-                                <p className="text-slate-300">
-                                  {trade.predictedCatalyst}
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* COLUMN 2: WHAT HAPPENED ACTUALLY ("MARKET REALITY") */}
-                            <div className="space-y-3.5 pt-3 lg:pt-0 pl-0 lg:pl-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] uppercase tracking-wider font-bold text-emerald-400 flex items-center gap-1.5">
-                                  <span>2. What Actually Happened ("Market Reality")</span>
-                                </span>
-                                <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                  Time to target: {trade.timeToTargetMinutes}m
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 font-mono">
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Subsequent Spot Move</span>
-                                  <strong className="text-emerald-400 text-xs sm:text-sm">
-                                    +{trade.actualSpotMovementPoints} pts
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-500 block">Peak: {ticker.currency}{trade.actualSpotSubsequentPeak}</span>
-                                </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Option Peak Price</span>
-                                  <strong className="text-amber-300 text-xs sm:text-sm">
-                                    {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-400 block">Current: {ticker.currency}{trade.actualOptionCurrentPrice.toFixed(2)}</span>
-                                </div>
-
-                                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                                  <span className="text-[10px] text-slate-400 block font-sans">Realized P&amp;L</span>
-                                  <strong className={`text-xs sm:text-sm ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-400 block">+{ticker.currency}{trade.netPnlPoints}/sh</span>
-                                </div>
-                              </div>
-
-                              {/* Outcome Narrative */}
-                              <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-[11px] leading-relaxed">
-                                <span className="text-slate-400 font-semibold block mb-0.5">📊 Verified Market Outcome:</span>
-                                <p className="text-slate-200">
-                                  {trade.actualOutcomeNote}
-                                </p>
-                              </div>
-
-                              {/* Assurance Takeaway */}
-                              <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] leading-relaxed flex items-start gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                                 <div>
-                                  <span className="text-emerald-300 font-bold block mb-0.5">Reliability Assurance Takeaway:</span>
-                                  <p className="text-slate-300">
-                                    {trade.assuranceTakeaway}
-                                  </p>
+                                  <div className="text-base sm:text-xl font-black text-sky-300 tracking-tight">
+                                    {ticker.currency}{trade.recommendedEntry.toFixed(2)}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-1 font-sans">
+                                    Spot: <strong className="text-white font-mono">{ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}</strong>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Step 2: Targets & Risk Parameters */}
+                              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between">
+                                <div className="flex items-center justify-between text-[11px] font-sans text-slate-400 mb-1">
+                                  <span className="font-bold text-emerald-400">2. PREDICTED TARGETS</span>
+                                  <span className="text-[10px] text-rose-400 font-mono">SL: {ticker.currency}{trade.stopLoss.toFixed(2)}</span>
+                                </div>
+                                <div>
+                                  <div className="flex items-baseline gap-2 flex-wrap">
+                                    <span className="text-base sm:text-xl font-black text-emerald-400 tracking-tight">
+                                      T1: {ticker.currency}{trade.target1.toFixed(2)}
+                                    </span>
+                                    <span className="text-xs sm:text-sm font-bold text-emerald-300/80">
+                                      T2: {ticker.currency}{trade.target2.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-1 font-sans">
+                                    Target Spot: <strong className="text-white font-mono">{ticker.currency}{trade.spotTarget1.toLocaleString()}</strong>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Step 3: Actual Market Outcome */}
+                              <div className={`p-3 sm:p-3.5 rounded-xl border flex flex-col justify-between ${
+                                isWin 
+                                  ? 'bg-emerald-950/30 border-emerald-500/40' 
+                                  : isSL 
+                                  ? 'bg-rose-950/30 border-rose-500/40' 
+                                  : 'bg-slate-950/80 border-slate-800'
+                              }`}>
+                                <div className="flex items-center justify-between text-[11px] font-sans mb-1">
+                                  <span className={`font-bold ${isWin ? 'text-emerald-300' : isSL ? 'text-rose-300' : 'text-slate-300'}`}>
+                                    3. ACTUAL MARKET PEAK
+                                  </span>
+                                  <span className="text-[10px] font-mono text-slate-400">In {trade.timeToTargetMinutes} mins</span>
+                                </div>
+                                <div>
+                                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                                    <span className="text-base sm:text-xl font-black text-amber-300 tracking-tight">
+                                      {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
+                                    </span>
+                                    <span className={`text-xs sm:text-sm font-bold ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                      ({trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%)
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-300 mt-1 font-sans">
+                                    Spot Move: <strong className="text-emerald-400 font-mono">+{trade.actualSpotMovementPoints} pts</strong> (+{ticker.currency}{trade.netPnlPoints}/sh)
+                                  </div>
                                 </div>
                               </div>
                             </div>
+
+                            {/* Plain English Outcome Summary */}
+                            <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                              <p className="text-slate-300 text-[11.5px] leading-relaxed font-sans">
+                                <strong className="text-emerald-400 font-semibold">Verified Result: </strong>
+                                {trade.actualOutcomeNote}
+                              </p>
+
+                              {/* Toggle Details Button */}
+                              <button
+                                onClick={() => toggleTradeDetails(trade.id)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 self-end sm:self-center border ${
+                                  isDetailedOpen 
+                                    ? 'bg-slate-800 text-emerald-300 border-emerald-500/40' 
+                                    : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
+                                }`}
+                              >
+                                <span>{isDetailedOpen ? 'Hide Audit Details' : 'Details & Audit Proof'}</span>
+                                {isDetailedOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+
+                            {/* 3. EXPANDABLE DEEP TECHNICAL AUDIT COMPARISON (REVEALED ON DEMAND) */}
+                            {isDetailedOpen && (
+                              <div className="mt-3 pt-3.5 border-t border-slate-800/90 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800/80 gap-4 lg:gap-6 text-xs animate-fade-in">
+                                {/* COLUMN 1: WHAT THE ALGORITHM PREDICTED ("WHAT IT SAID") */}
+                                <div className="space-y-3 pr-0 lg:pr-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] uppercase tracking-wider font-bold text-sky-400 flex items-center gap-1.5">
+                                      <span>1. Detailed Algorithm Targets ("What It Said")</span>
+                                    </span>
+                                    <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                                      R:R {trade.riskRewardRatio}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Spot Entry Zone</span>
+                                      <strong className="text-white text-xs">
+                                        {ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}
+                                      </strong>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Option Entry Price</span>
+                                      <strong className="text-sky-300 text-xs">
+                                        {ticker.currency}{trade.recommendedEntry.toFixed(2)}
+                                      </strong>
+                                      <span className="text-[9px] text-slate-500 block">({ticker.currency}{trade.entryRange[0]} - {trade.entryRange[1]})</span>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Stop Loss</span>
+                                      <strong className="text-rose-400 text-xs">
+                                        {ticker.currency}{trade.stopLoss.toFixed(2)}
+                                      </strong>
+                                      <span className="text-[9px] text-slate-500 block">Spot: {ticker.currency}{trade.spotStopLoss}</span>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Target 1 (Tactical)</span>
+                                      <strong className="text-emerald-400 text-xs">
+                                        {ticker.currency}{trade.target1.toFixed(2)}
+                                      </strong>
+                                      <span className="text-[9px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget1}</span>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 col-span-2 sm:col-span-1">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Target 2 (Runner)</span>
+                                      <strong className="text-emerald-300 text-xs">
+                                        {ticker.currency}{trade.target2.toFixed(2)}
+                                      </strong>
+                                      <span className="text-[9px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget2}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Leading Catalyst */}
+                                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-[11px] leading-relaxed">
+                                    <span className="text-slate-400 font-semibold block mb-0.5">🧠 Predictive Catalyst &amp; Triggers:</span>
+                                    <p className="text-slate-300">
+                                      {trade.predictedCatalyst}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* COLUMN 2: WHAT HAPPENED ACTUALLY ("MARKET REALITY") */}
+                                <div className="space-y-3 pt-3 lg:pt-0 pl-0 lg:pl-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] uppercase tracking-wider font-bold text-emerald-400 flex items-center gap-1.5">
+                                      <span>2. Verified Exchange Audit ("Market Reality")</span>
+                                    </span>
+                                    <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                                      Time to target: {trade.timeToTargetMinutes}m
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Subsequent Spot Move</span>
+                                      <strong className="text-emerald-400 text-xs">
+                                        +{trade.actualSpotMovementPoints} pts
+                                      </strong>
+                                      <span className="text-[9px] text-slate-500 block">Peak: {ticker.currency}{trade.actualSpotSubsequentPeak}</span>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Option Peak Price</span>
+                                      <strong className="text-amber-300 text-xs">
+                                        {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
+                                      </strong>
+                                      <span className="text-[9px] text-slate-400 block">Current: {ticker.currency}{trade.actualOptionCurrentPrice.toFixed(2)}</span>
+                                    </div>
+
+                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                                      <span className="text-[9.5px] text-slate-400 block font-sans">Realized P&amp;L</span>
+                                      <strong className={`text-xs ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%
+                                      </strong>
+                                      <span className="text-[9px] text-slate-400 block">+{ticker.currency}{trade.netPnlPoints}/sh</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Assurance Takeaway */}
+                                  <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] leading-relaxed flex items-start gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                    <div>
+                                      <span className="text-emerald-300 font-bold block mb-0.5">Reliability Assurance Takeaway:</span>
+                                      <p className="text-slate-300">
+                                        {trade.assuranceTakeaway}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

@@ -1519,9 +1519,13 @@ export function generateTradeSignal(
   // Rationale 11: After-Market Opening Projection
   if (!marketStatus.isOpen) {
     rationalePoints.push({
-      title: `Opening Target Strike: ${targetStrike} ${recommendedType} (${afterMarketAnalytics?.predictedOpeningType?.replace(/_/g, ' ') || 'MARKET OPEN'})`,
-      verdict: action === 'BUY_CE' ? 'BULLISH' : 'BEARISH',
-      description: `Today's entire day chart (${afterMarketAnalytics.fullDayChartAnalysis.dayChartSummary}) combined with overnight GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts) indicates spot will drive to ${afterMarketAnalytics.tomorrowHitStrike.projectedSpotAtHit} at 09:15 AM open, hitting strike ${targetStrike} ${recommendedType}. Strategy: ${afterMarketAnalytics.openingStrategyPlaybook.openingExecutionTrigger}`,
+      title: action === 'WAIT_NEUTRAL'
+        ? `Opening Stance: Flat Opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts) · Wait First 15m`
+        : `Opening Target Strike: ${targetStrike} ${recommendedType} (${afterMarketAnalytics?.predictedOpeningType?.replace(/_/g, ' ') || 'MARKET OPEN'})`,
+      verdict: action === 'WAIT_NEUTRAL' ? 'NEUTRAL' : (action === 'BUY_CE' ? 'BULLISH' : 'BEARISH'),
+      description: action === 'WAIT_NEUTRAL'
+        ? `Overnight GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts) points to a flat opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts). Stand aside at 09:15 AM open to avoid theta bleed and IV crush; wait for 09:30 AM 15-minute range breakout before entering ${targetStrike} ${recommendedType}.`
+        : `Today's entire day chart (${afterMarketAnalytics.fullDayChartAnalysis.dayChartSummary}) combined with overnight GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts) indicates spot will drive to ${afterMarketAnalytics.tomorrowHitStrike.projectedSpotAtHit} at 09:15 AM open, hitting strike ${targetStrike} ${recommendedType}. Strategy: ${afterMarketAnalytics.openingStrategyPlaybook.openingExecutionTrigger}`,
     });
   }
 
@@ -1590,6 +1594,13 @@ export function generateTradeSignal(
     advanceTradeSetup.recommendedType = recommendedType;
     if (action === 'BUY_CE' || action === 'BUY_PE') {
       advanceTradeSetup.anticipatedAction = action;
+      advanceTradeSetup.probabilityScore = Math.max(confidence, 82);
+    } else {
+      advanceTradeSetup.anticipatedAction = 'WAIT_NEUTRAL';
+      advanceTradeSetup.probabilityScore = 58;
+      advanceTradeSetup.subTitle = afterMarketAnalytics.tomorrowHitStrike.hitReason;
+      advanceTradeSetup.invalidationReason = afterMarketAnalytics.tomorrowHitStrike.hitReason;
+      advanceTradeSetup.primaryLeadingCatalyst = `Flat Opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts · ${afterMarketAnalytics.predictedOpeningGapPercent}%) · Stand aside at open; wait for 15-minute Opening Range Breakout (ORB).`;
     }
 
     // Re-synchronize option price entry zone, stop loss, and targets with the exact LTP of the target strike

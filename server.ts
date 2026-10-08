@@ -720,7 +720,7 @@ async function fetchLiveQuote(rawSymbol: string) {
         headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
         body: JSON.stringify({
           symbols: { tickers: [tvTicker] },
-          columns: ['close', 'change', 'change_abs', 'high', 'low', 'open', 'volume']
+          columns: ['close', 'change', 'change_abs', 'high', 'low', 'open', 'volume', 'VWAP']
         }),
         signal: AbortSignal.timeout(3000)
       });
@@ -735,6 +735,11 @@ async function fetchLiveQuote(rawSymbol: string) {
           const dayLow = Number(row.d[4].toFixed(2));
           const dayOpen = Number(row.d[5].toFixed(2));
           const prevClose = Number((spotPrice - change).toFixed(2));
+          const rawVwap = row.d[7];
+          const vwap = typeof rawVwap === 'number' && rawVwap > 1000
+            ? Number(rawVwap.toFixed(2))
+            : Number(((dayHigh + dayLow + spotPrice) / 3).toFixed(2));
+
           const holiday = checkMarketHoliday(new Date(), true);
           const tz = 'Asia/Kolkata';
           const ist = getExchangeClock(tz);
@@ -766,6 +771,7 @@ async function fetchLiveQuote(rawSymbol: string) {
             dayHigh,
             dayLow,
             dayOpen,
+            vwap,
             marketTime: Date.now(),
             formattedTime: holiday.isHoliday ? `Closed (${holiday.holidayName})` : istString,
             currency: '₹',
@@ -938,6 +944,7 @@ async function fetchLiveQuote(rawSymbol: string) {
           postMarketPrice,
           postMarketChange,
           postMarketChangePercent,
+          vwap: Number(((dayHigh + dayLow + spotPrice) / 3).toFixed(2)),
           extendedHours,
         };
       }
@@ -1028,6 +1035,7 @@ async function fetchLiveQuote(rawSymbol: string) {
     changePercent,
     dayHigh,
     dayLow,
+    vwap: Number(((dayHigh + dayLow + spotPrice) / 3).toFixed(2)),
     marketTime,
     formattedTime: holiday.isHoliday ? `Closed (${holiday.holidayName})` : istString,
     currency: isINR ? '₹' : '$',

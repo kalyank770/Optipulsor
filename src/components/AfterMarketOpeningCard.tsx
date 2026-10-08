@@ -39,6 +39,7 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
   const {
     sessionStateLabel,
     lastSpotClose,
+    lastVwapClose,
     vwapDeltaPoints,
     vwapDeltaLabel,
     giftNiftyPrice,
@@ -99,19 +100,48 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
       {/* 2. HIGH-DENSITY 4-PILLAR METRICS STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
         {/* A. Closing Spot vs VWAP Delta */}
-        <div className={`p-2 rounded-lg border ${
+        <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
           isLight ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800/80'
         }`}>
           <div className="text-[10px] text-slate-400 font-bold uppercase font-sans flex items-center justify-between">
             <span>Close vs VWAP</span>
-            <Clock className="w-3 h-3 text-indigo-400" />
+            <Clock className="w-3 h-3 text-indigo-400 shrink-0" />
           </div>
-          <div className="text-xs font-extrabold text-white mt-0.5">
-            {ticker.currency}{lastSpotClose.toLocaleString()}
+
+          <div className="my-0.5">
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <span className={`text-sm sm:text-base font-black font-mono tracking-tight ${
+                vwapDeltaPoints >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              }`}>
+                {vwapDeltaPoints >= 0 ? '+' : ''}{vwapDeltaPoints} pts
+              </span>
+              <span className={`text-[11px] font-bold font-mono ${
+                vwapDeltaPoints >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'
+              }`}>
+                ({vwapDeltaPoints >= 0 ? '+' : ''}{((vwapDeltaPoints / (lastVwapClose || 1)) * 100).toFixed(2)}%)
+              </span>
+            </div>
+
+            <div className="text-[10px] text-slate-300 font-mono mt-0.5 flex items-center justify-between gap-1 flex-wrap">
+              <span className="text-slate-400">
+                Close: <strong className="text-white">{ticker.currency}{lastSpotClose.toLocaleString()}</strong>
+              </span>
+              <span className="text-slate-400">
+                VWAP: <strong className="text-sky-300">{ticker.currency}{(lastVwapClose || 0).toLocaleString()}</strong>
+              </span>
+            </div>
           </div>
-          <p className={`text-[10.5px] font-semibold truncate ${vwapDeltaPoints >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {vwapDeltaLabel}
-          </p>
+
+          <div className="mt-1 pt-1 border-t border-slate-800/60 flex items-center justify-between text-[9px] font-sans">
+            <span className={`font-semibold truncate ${
+              vwapDeltaPoints >= 0 ? 'text-emerald-400' : 'text-rose-400'
+            }`}>
+              {vwapDeltaPoints >= 0 ? '▲ Above VWAP · Bullish' : '▼ Below VWAP · Bearish'}
+            </span>
+            <span className="text-slate-400 font-mono text-[8.5px] shrink-0" title="Full-Session Volume Weighted Average Price">
+              Session VWAP
+            </span>
+          </div>
         </div>
 
         {/* B. GIFT Nifty Overnight Trading */}
