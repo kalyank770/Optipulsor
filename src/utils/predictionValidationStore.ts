@@ -330,6 +330,13 @@ export function recordPredictionSnapshot(
   const dateStr = new Date().toISOString().split('T')[0];
   const recordId = `pred_${dateStr}_${ticker.symbol.replace(/\s+/g, '_')}`;
 
+  const recommendedAction: PredictionParameters['recommendedAction'] = 
+    analytics.tomorrowHitStrike?.action 
+      ? analytics.tomorrowHitStrike.action 
+      : signal.action === 'WAIT_NEUTRAL'
+      ? 'WAIT_FIRST_15M'
+      : (signal.action as any) || 'WAIT_FIRST_15M';
+
   const parameters: PredictionParameters = {
     lastSpotClose: analytics.lastSpotClose,
     predictedOpeningSpot: analytics.predictedOpeningSpot,
@@ -338,7 +345,7 @@ export function recordPredictionSnapshot(
     predictedOpeningType: analytics.predictedOpeningType,
     predictedHitStrike: analytics.tomorrowHitStrike?.strike || signal.recommendedStrike,
     predictedOptionType: analytics.tomorrowHitStrike?.type || signal.recommendedType,
-    recommendedAction: analytics.tomorrowHitStrike?.action || (signal.action as any) || 'BUY_CE',
+    recommendedAction,
     dayStructureVerdict: analytics.fullDayChartAnalysis?.dayStructureVerdict || 'NEUTRAL_CONSOLIDATION',
     giftNiftyChangePoints: analytics.giftNiftyChangePoints,
     giftNiftyChangePercent: analytics.giftNiftyChangePercent,
@@ -355,8 +362,20 @@ export function recordPredictionSnapshot(
   let record: PredictionRecord;
 
   if (existingIdx >= 0) {
+    const prev = records[existingIdx];
+    // Check if parameters actually changed to prevent redundant storage writes on fractional spot ticks
+    const hasChanged = 
+      prev.parameters.predictedOpeningSpot !== parameters.predictedOpeningSpot ||
+      prev.parameters.recommendedAction !== parameters.recommendedAction ||
+      prev.parameters.predictedHitStrike !== parameters.predictedHitStrike ||
+      prev.parameters.predictedOpeningType !== parameters.predictedOpeningType;
+
+    if (!hasChanged && prev.status === 'VALIDATED') {
+      return prev;
+    }
+
     record = {
-      ...records[existingIdx],
+      ...prev,
       timestamp: Date.now(),
       parameters,
     };
@@ -401,27 +420,31 @@ export function validatePredictionAgainstLiveOpen(
   const actualGapPoints = isMarketPreOpen 
     ? Number((params.predictedGapPoints * 0.96).toFixed(2)) 
     : Number((currentSpot - params.lastSpotClose).toFixed(2));
-  const actualGapPercent = Number(((actualGapPoints / params.lastSpotClose) * 100).toFixed(2));
+  const actualGapPercent = Number(((actualGapPoints / Math.max(1, params.lastSpotClose)) * 100).toFixed(2));
 
   let actualOpeningType: ActualOutcome['actualOpeningType'] = 'FLAT_OPENING';
   if (actualGapPercent >= 0.15) actualOpeningType = 'GAP_UP_OPENING';
   else if (actualGapPercent <= -0.15) actualOpeningType = 'GAP_DOWN_OPENING';
 
   // Check direction accuracy
-  const actualDirectionWorked = (params.predictedOpeningType === 'GAP_UP_OPENING' && actualGapPoints > 0) ||
-    (params.predictedOpeningType === 'GAP_DOWN_OPENING' && actualGapPoints < 0) ||
-    (params.predictedOpeningType === 'FLAT_OPENING' && Math.abs(actualGapPercent) < 0.25);
+  const isFlatExpected = params.predictedOpeningType === 'FLAT_OPENING' || params.recommendedAction === 'WAIT_FIRST_15M';
+  const actualDirectionWorked = isFlatExpected 
+    ? (Math.abs(actualGapPercent) < 0.25 || actualOpeningType === 'FLAT_OPENING')
+    : ((params.predictedOpeningType === 'GAP_UP_OPENING' && actualGapPoints > 0) ||
+       (params.predictedOpeningType === 'GAP_DOWN_OPENING' && actualGapPoints < 0));
 
   // Check strike hit
   const isCe = params.predictedOptionType === 'CE';
-  const actualStrikeTested = isCe 
+  const actualStrikeTested = isFlatExpected
+    ? Math.abs(currentSpot - params.predictedHitStrike) <= ticker.strikeStep * 1.2
+    : isCe 
     ? (isMarketPreOpen ? true : currentSpot >= (params.predictedHitStrike - ticker.strikeStep * 0.2))
     : (isMarketPreOpen ? true : currentSpot <= (params.predictedHitStrike + ticker.strikeStep * 0.2));
 
   // Check GIFT Nifty correlation
   const giftDirMatch = (params.giftNiftyChangePoints > 0 && actualGapPoints > 0) ||
     (params.giftNiftyChangePoints < 0 && actualGapPoints < 0) ||
-    (Math.abs(params.giftNiftyChangePoints) < 15 && Math.abs(actualGapPoints) < 20);
+    (Math.abs(params.giftNiftyChangePoints) < 15 && Math.abs(actualGapPoints) < 25);
 
   // Check Day Chart structure correlation
   const dayStructMatch = (params.dayStructureVerdict === 'BULLISH_ACCUMULATION' && actualGapPoints >= 0) ||
@@ -449,9 +472,9 @@ export function validatePredictionAgainstLiveOpen(
   if (dayStructMatch) points += 8;
   if (actualTarget1Hit) points += 5;
 
-  const overallAccuracyScore = Number(Math.min(100, Math.max(75, points)).toFixed(1));
+  const overallAccuracyScore = Number(Math.min(100, Math.max(45, points)).toFixed(1));
   let validationStatus: ActualOutcome['validationStatus'] = 'VERIFIED_ACCURATE';
-  if (overallAccuracyScore < 75) validationStatus = 'FAILED_INACCURATE';
+  if (overallAccuracyScore < 70) validationStatus = 'FAILED_INACCURATE';
   else if (overallAccuracyScore < 85) validationStatus = 'PARTIALLY_ACCURATE';
 
   const actualOutcome: ActualOutcome = {

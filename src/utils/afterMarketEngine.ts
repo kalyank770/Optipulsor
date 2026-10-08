@@ -132,26 +132,29 @@ export function computeAfterMarketOpeningAnalytics(
   // 2. GIFT Nifty & Global Overnight Drift (Normalized for Ticker Scale)
   const isBankNifty = ticker.symbol.toUpperCase().includes('BANK');
   const isNifty = ticker.symbol.toUpperCase().includes('NIFTY') && !isBankNifty;
-  const beta = isBankNifty ? 1.25 : isNifty ? 1.0 : 0.90;
+  const isStockOrUsd = !isNifty && !isBankNifty;
+  const beta = isBankNifty ? 1.25 : isNifty ? 1.0 : 0.85;
 
-  // GIFT Nifty level is always bound to Nifty 50 scale
+  // GIFT Nifty level is bound to Nifty 50 scale
   const rawGiftNiftyPrice = interMarket?.giftNifty?.price || 22240.00;
   const rawGiftNiftyChange = interMarket?.giftNifty?.change !== undefined ? interMarket.giftNifty.change : -15.00;
-  const rawGiftNiftyPct = interMarket?.giftNifty?.changePercent !== undefined ? interMarket.giftNifty.changePercent : -0.06;
+  const rawGiftNiftyPct = interMarket?.giftNifty?.changePercent !== undefined 
+    ? interMarket.giftNifty.changePercent 
+    : Number(((rawGiftNiftyChange / Math.max(1, rawGiftNiftyPrice - rawGiftNiftyChange)) * 100).toFixed(2));
 
   const giftNiftyPrice = rawGiftNiftyPrice;
   const giftNiftyChangePoints = rawGiftNiftyChange;
   const giftNiftyChangePercent = rawGiftNiftyPct;
 
-  // Percentage gap drift applied to current ticker spot:
-  const tickerExpectedGapPercent = Number(((rawGiftNiftyPct * 0.25) * beta).toFixed(3));
+  // Realistic percentage gap drift applied to current ticker spot
+  const tickerExpectedGapPercent = Number((rawGiftNiftyPct * beta).toFixed(3));
 
   const globalScore = interMarket?.globalCompositeScore || 0;
   const globalCueSentiment = globalScore >= 15 ? 'BULLISH' : globalScore <= -15 ? 'BEARISH' : 'NEUTRAL';
 
   // 3. Institutional FII/DII Positioning (Derived from Global Flows + Exchange Settlement)
-  const fiiNetCashCr = Math.round(globalScore * 28 + tickerExpectedGapPercent * 500);
-  const fiiNetFoIndexFuturesCr = Math.round(globalScore * 14 + tickerExpectedGapPercent * 300);
+  const fiiNetCashCr = Math.round(globalScore * 28 + tickerExpectedGapPercent * 250);
+  const fiiNetFoIndexFuturesCr = Math.round(globalScore * 14 + tickerExpectedGapPercent * 150);
   const diiNetCashCr = Math.round(globalScore < 0 ? Math.abs(globalScore) * 22 + 450 : Math.max(200, 380 - globalScore * 4));
   
   const netFlowSentiment = (fiiNetCashCr + fiiNetFoIndexFuturesCr > 300) 
@@ -188,10 +191,22 @@ export function computeAfterMarketOpeningAnalytics(
 
   if (ticker.isUsingPreMarket) {
     predictedOpeningSpot = spotClose;
-    predictedOpeningGapPoints = Number((predictedOpeningSpot - ticker.prevClose).toFixed(2));
+    predictedOpeningGapPoints = Number((predictedOpeningSpot - (ticker.prevClose || spotClose)).toFixed(2));
   } else {
-    const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.002)).toFixed(2));
-    const gapDriftForTicker = Number((giftNiftyChangePoints * beta).toFixed(2));
+    const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.0015)).toFixed(2));
+    
+    // Exact mathematical gap drift calibrated for asset class:
+    let gapDriftForTicker = 0;
+    if (isNifty) {
+      gapDriftForTicker = rawGiftNiftyChange;
+    } else if (isBankNifty) {
+      // BankNifty gap moves in beta proportion to Nifty percentage move
+      gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * 1.25)) / 100).toFixed(2));
+    } else {
+      // Stocks or USD Equities: scale by percentage move
+      gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * beta)) / 100).toFixed(2));
+    }
+
     predictedOpeningSpot = Number((spotClose + gapDriftForTicker + macroAdjustment).toFixed(2));
     predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
   }
@@ -214,7 +229,7 @@ export function computeAfterMarketOpeningAnalytics(
   const supFloor = metrics?.majorSupportStrike || (spotClose - step);
   const resWall = metrics?.majorResistanceStrike || (spotClose + step);
 
-  // A flat opening occurs when gap is within ±0.15% or points change is negligible (e.g. -2 pts)
+  // A flat opening occurs when gap percentage is within ±0.15% OR points change is negligible (< 25 pts Nifty, < 60 pts BankNifty, < $1 USD)
   const isFlatOpening = predictedOpeningType === 'FLAT_OPENING' || 
     Math.abs(predictedOpeningGapPercent) < 0.15 || 
     Math.abs(predictedOpeningGapPoints) < (isBankNifty ? 60 : (ticker.currency === '$' ? 1.0 : 25));

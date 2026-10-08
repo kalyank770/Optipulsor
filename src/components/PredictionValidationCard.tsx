@@ -55,7 +55,9 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
   const [simulationActive, setSimulationActive] = useState(false);
   const [simulationToast, setSimulationToast] = useState<string | null>(null);
 
-  // Load records and sync snapshot / validation
+  const [filterMode, setFilterMode] = useState<'ALL' | 'CURRENT_TICKER' | 'ACCURATE' | 'PENDING'>('CURRENT_TICKER');
+
+  // Load records and sync snapshot / validation with smart change-gating
   useEffect(() => {
     let currentRecords = loadAllPredictionRecords();
 
@@ -80,7 +82,15 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
 
     setRecords(currentRecords);
     setMetricsData(getParameterAccuracyMetrics());
-  }, [ticker.symbol, ticker.spotPrice, analytics, signal, optionChain.length, metrics, marketStatus?.isOpen, marketStatus?.session]);
+  }, [
+    ticker.symbol, 
+    analytics?.predictedOpeningSpot, 
+    analytics?.predictedOpeningType, 
+    analytics?.tomorrowHitStrike?.strike, 
+    analytics?.tomorrowHitStrike?.type,
+    marketStatus?.isOpen, 
+    marketStatus?.session
+  ]);
 
   // Run instant manual validation test pass
   const handleRunValidationTest = () => {
@@ -101,11 +111,25 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
     }, 600);
   };
 
-  const filteredRecords = records.filter(r => 
-    r.tickerSymbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.dateStr.includes(searchQuery) ||
-    r.parameters.predictedOpeningType.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredRecords = records.filter(r => {
+    const matchesSearch = 
+      r.tickerSymbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.dateStr.includes(searchQuery) ||
+      r.parameters.predictedOpeningType.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    if (!matchesSearch) return false;
+
+    if (filterMode === 'CURRENT_TICKER') {
+      return r.tickerSymbol === ticker.symbol;
+    }
+    if (filterMode === 'ACCURATE') {
+      return r.actualOutcome?.validationStatus === 'VERIFIED_ACCURATE';
+    }
+    if (filterMode === 'PENDING') {
+      return r.status === 'PENDING_LIVE_OPEN';
+    }
+    return true;
+  });
 
   return (
     <div className={`mt-3 rounded-xl border p-3.5 sm:p-4 shadow-xl space-y-3.5 font-sans transition-all ${
@@ -342,6 +366,51 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                   className="pl-7 pr-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono w-48 sm:w-60"
                 />
               </div>
+            </div>
+
+            {/* Quick Filter Chips */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-[11px] font-mono pb-0.5">
+              <span className="text-slate-400 font-sans text-[10px] mr-1 shrink-0">Filter:</span>
+              <button
+                onClick={() => setFilterMode('CURRENT_TICKER')}
+                className={`px-2 py-0.5 rounded border transition-colors cursor-pointer shrink-0 ${
+                  filterMode === 'CURRENT_TICKER'
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                {ticker.symbol} Only
+              </button>
+              <button
+                onClick={() => setFilterMode('ALL')}
+                className={`px-2 py-0.5 rounded border transition-colors cursor-pointer shrink-0 ${
+                  filterMode === 'ALL'
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                All Records ({records.length})
+              </button>
+              <button
+                onClick={() => setFilterMode('ACCURATE')}
+                className={`px-2 py-0.5 rounded border transition-colors cursor-pointer shrink-0 ${
+                  filterMode === 'ACCURATE'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-bold'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                🎯 Accurate
+              </button>
+              <button
+                onClick={() => setFilterMode('PENDING')}
+                className={`px-2 py-0.5 rounded border transition-colors cursor-pointer shrink-0 ${
+                  filterMode === 'PENDING'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+              >
+                ⚡ Pending Open
+              </button>
             </div>
 
             <div className="overflow-x-auto max-h-52 overflow-y-auto rounded bg-slate-950 border border-slate-800">

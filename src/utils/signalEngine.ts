@@ -1597,10 +1597,11 @@ export function generateTradeSignal(
       advanceTradeSetup.probabilityScore = Math.max(confidence, 82);
     } else {
       advanceTradeSetup.anticipatedAction = 'WAIT_NEUTRAL';
-      advanceTradeSetup.probabilityScore = 58;
+      advanceTradeSetup.probabilityScore = 62;
       advanceTradeSetup.subTitle = afterMarketAnalytics.tomorrowHitStrike.hitReason;
-      advanceTradeSetup.invalidationReason = afterMarketAnalytics.tomorrowHitStrike.hitReason;
+      advanceTradeSetup.invalidationReason = `Flat Opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts). Stand aside at 09:15 AM to avoid IV crush.`;
       advanceTradeSetup.primaryLeadingCatalyst = `Flat Opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts · ${afterMarketAnalytics.predictedOpeningGapPercent}%) · Stand aside at open; wait for 15-minute Opening Range Breakout (ORB).`;
+      advanceTradeSetup.advanceEntryZoneSpot = [metrics.majorSupportStrike || (ticker.spotPrice - ticker.strikeStep), metrics.majorResistanceStrike || (ticker.spotPrice + ticker.strikeStep)];
     }
 
     // Re-synchronize option price entry zone, stop loss, and targets with the exact LTP of the target strike
