@@ -34,6 +34,7 @@ export interface ActualOutcome {
   actualDirectionWorked: boolean;
   actualGiftNiftyCorrelated: boolean;
   actualDayStructureCorrelated: boolean;
+  actualGlobalMacroCorrelated: boolean;
   validatedAtIso: string;
   validationStatus: 'VERIFIED_ACCURATE' | 'PARTIALLY_ACCURATE' | 'FAILED_INACCURATE';
   overallAccuracyScore: number; // 0 to 100%
@@ -60,6 +61,7 @@ export interface ParameterAccuracyMetrics {
   openingTypeAccuracyPct: number;
   giftNiftyCorrelationPct: number;
   dayStructureCorrelationPct: number;
+  globalMacroCorrelationPct: number;
   target1AchievementPct: number;
   fiiFlowCorrelationPct: number;
 
@@ -115,6 +117,7 @@ function getInitialSeedRecords(): PredictionRecord[] {
         actualDirectionWorked: true,
         actualGiftNiftyCorrelated: true,
         actualDayStructureCorrelated: true,
+        actualGlobalMacroCorrelated: true,
         validatedAtIso: new Date(Date.now() - 86400000 + 33300000).toISOString(),
         validationStatus: 'VERIFIED_ACCURATE',
         overallAccuracyScore: 94.5,
@@ -158,6 +161,7 @@ function getInitialSeedRecords(): PredictionRecord[] {
         actualDirectionWorked: true,
         actualGiftNiftyCorrelated: true,
         actualDayStructureCorrelated: true,
+        actualGlobalMacroCorrelated: true,
         validatedAtIso: new Date(Date.now() - 172800000 + 33300000).toISOString(),
         validationStatus: 'VERIFIED_ACCURATE',
         overallAccuracyScore: 93.0,
@@ -201,6 +205,7 @@ function getInitialSeedRecords(): PredictionRecord[] {
         actualDirectionWorked: true,
         actualGiftNiftyCorrelated: true,
         actualDayStructureCorrelated: true,
+        actualGlobalMacroCorrelated: true,
         validatedAtIso: new Date(Date.now() - 432000000 + 33300000).toISOString(),
         validationStatus: 'VERIFIED_ACCURATE',
         overallAccuracyScore: 95.0,
@@ -244,6 +249,7 @@ function getInitialSeedRecords(): PredictionRecord[] {
         actualDirectionWorked: true,
         actualGiftNiftyCorrelated: true,
         actualDayStructureCorrelated: true,
+        actualGlobalMacroCorrelated: true,
         validatedAtIso: new Date(Date.now() - 518400000 + 33300000).toISOString(),
         validationStatus: 'VERIFIED_ACCURATE',
         overallAccuracyScore: 96.0,
@@ -287,6 +293,7 @@ function getInitialSeedRecords(): PredictionRecord[] {
         actualDirectionWorked: true,
         actualGiftNiftyCorrelated: true,
         actualDayStructureCorrelated: true,
+        actualGlobalMacroCorrelated: true,
         validatedAtIso: new Date(Date.now() - 604800000 + 33300000).toISOString(),
         validationStatus: 'VERIFIED_ACCURATE',
         overallAccuracyScore: 88.5,
@@ -463,13 +470,20 @@ export function validatePredictionAgainstLiveOpen(
   const actualTarget1Hit = isMarketPreOpen ? true : actualMaxPremiumHit >= params.target1;
   const actualTarget2Hit = actualMaxPremiumHit >= params.target2;
 
+  // Check Global Macro cue correlation
+  const globalMacroMatch = 
+    (params.globalCueSentiment === 'BULLISH' && actualGapPoints >= 0) ||
+    (params.globalCueSentiment === 'BEARISH' && actualGapPoints <= 0) ||
+    (params.globalCueSentiment === 'NEUTRAL' && Math.abs(actualGapPercent) < 0.30);
+
   // Calculate composite accuracy score (0 to 100)
   let points = 0;
-  if (actualDirectionWorked) points += 35;
+  if (actualDirectionWorked) points += 30;
   if (params.predictedOpeningType === actualOpeningType) points += 20;
   if (actualStrikeTested) points += 20;
   if (giftDirMatch) points += 12;
   if (dayStructMatch) points += 8;
+  if (globalMacroMatch) points += 5;
   if (actualTarget1Hit) points += 5;
 
   const overallAccuracyScore = Number(Math.min(100, Math.max(45, points)).toFixed(1));
@@ -489,6 +503,7 @@ export function validatePredictionAgainstLiveOpen(
     actualDirectionWorked,
     actualGiftNiftyCorrelated: giftDirMatch,
     actualDayStructureCorrelated: dayStructMatch,
+    actualGlobalMacroCorrelated: globalMacroMatch,
     validatedAtIso: new Date().toISOString(),
     validationStatus,
     overallAccuracyScore,
@@ -518,6 +533,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
       openingTypeAccuracyPct: 85.0,
       giftNiftyCorrelationPct: 89.0,
       dayStructureCorrelationPct: 84.5,
+      globalMacroCorrelationPct: 87.5,
       target1AchievementPct: 82.0,
       fiiFlowCorrelationPct: 81.5,
       parameterWeights: {
@@ -535,6 +551,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
   let openingTypePass = 0;
   let giftPass = 0;
   let dayStructPass = 0;
+  let macroPass = 0;
   let target1Pass = 0;
 
   for (const r of validated) {
@@ -545,6 +562,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
     if (o.actualOpeningType === r.parameters.predictedOpeningType) openingTypePass++;
     if (o.actualGiftNiftyCorrelated) giftPass++;
     if (o.actualDayStructureCorrelated) dayStructPass++;
+    if (o.actualGlobalMacroCorrelated !== false) macroPass++;
     if (o.actualTarget1Hit) target1Pass++;
   }
 
@@ -555,6 +573,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
   const openingTypeAccuracyPct = Number(((openingTypePass / n) * 100).toFixed(1));
   const giftNiftyCorrelationPct = Number(((giftPass / n) * 100).toFixed(1));
   const dayStructureCorrelationPct = Number(((dayStructPass / n) * 100).toFixed(1));
+  const globalMacroCorrelationPct = Number(((macroPass / n) * 100).toFixed(1));
   const target1AchievementPct = Number(((target1Pass / n) * 100).toFixed(1));
   const fiiFlowCorrelationPct = Number(((giftNiftyCorrelationPct * 0.95)).toFixed(1));
 
@@ -562,7 +581,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
   const giftNiftyWeight = Number((1.0 + (giftNiftyCorrelationPct - 80) * 0.015).toFixed(2));
   const dayStructureWeight = Number((1.0 + (dayStructureCorrelationPct - 80) * 0.015).toFixed(2));
   const fiiFlowWeight = Number((1.0 + (fiiFlowCorrelationPct - 80) * 0.012).toFixed(2));
-  const globalMacroWeight = Number((1.0 + (directionAccuracyPct - 80) * 0.010).toFixed(2));
+  const globalMacroWeight = Number((1.0 + (globalMacroCorrelationPct - 80) * 0.010).toFixed(2));
 
   return {
     totalPredictionsCount: records.length,
@@ -573,6 +592,7 @@ export function getParameterAccuracyMetrics(): ParameterAccuracyMetrics {
     openingTypeAccuracyPct,
     giftNiftyCorrelationPct,
     dayStructureCorrelationPct,
+    globalMacroCorrelationPct,
     target1AchievementPct,
     fiiFlowCorrelationPct,
     parameterWeights: {

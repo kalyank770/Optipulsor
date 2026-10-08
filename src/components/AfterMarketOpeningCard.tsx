@@ -209,21 +209,57 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
           </p>
         </div>
 
-        {/* D. Global Macro Score */}
-        <div className={`p-2 rounded-lg border ${
-          isLight ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800/80'
-        }`}>
-          <div className="text-[10px] text-slate-400 font-bold uppercase font-sans flex items-center justify-between">
-            <span>Global Macro</span>
-            <Zap className="w-3 h-3 text-amber-400" />
-          </div>
-          <div className="text-xs font-extrabold text-amber-300 mt-0.5">
-            {predictedOpeningType?.replace(/_/g, ' ') || 'FLAT OPEN'}
-          </div>
-          <p className="text-[10.5px] text-slate-300 truncate">
-            Score: {analytics.globalMacroCompositeScore > 0 ? `+${analytics.globalMacroCompositeScore}` : analytics.globalMacroCompositeScore}/100
-          </p>
-        </div>
+        {/* D. Global Macro Score & Bias */}
+        {(() => {
+          const score = analytics.globalMacroCompositeScore;
+          const isBullishMacro = score >= 15;
+          const isBearishMacro = score <= -15;
+          const macroLabel = score >= 40 
+            ? 'STRONG TAILWIND' 
+            : score >= 15 
+            ? 'GLOBAL TAILWIND' 
+            : score <= -40 
+            ? 'SEVERE HEADWIND' 
+            : score <= -15 
+            ? 'GLOBAL HEADWIND' 
+            : 'NEUTRAL CUES';
+
+          const textColor = isBullishMacro 
+            ? 'text-emerald-400' 
+            : isBearishMacro 
+            ? 'text-rose-400' 
+            : 'text-amber-300';
+
+          const borderColor = isBullishMacro
+            ? 'border-emerald-500/30'
+            : isBearishMacro
+            ? 'border-rose-500/30'
+            : 'border-slate-800/80';
+
+          return (
+            <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
+              isLight ? 'bg-white border-slate-200' : `bg-slate-900/80 ${borderColor}`
+            }`}>
+              <div className="text-[10px] text-slate-400 font-bold uppercase font-sans flex items-center justify-between">
+                <span>Global Macro</span>
+                {isBullishMacro ? (
+                  <TrendingUp className="w-3 h-3 text-emerald-400" />
+                ) : isBearishMacro ? (
+                  <TrendingDown className="w-3 h-3 text-rose-400" />
+                ) : (
+                  <Zap className="w-3 h-3 text-amber-400" />
+                )}
+              </div>
+              <div className={`text-xs font-black mt-1 ${textColor}`}>
+                {macroLabel}
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-800/60 flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                <span>Score: <strong className={textColor}>{score > 0 ? `+${score}` : score}/100</strong></span>
+                <span className="truncate max-w-[80px]" title="US Markets, Crude Oil, DXY">US, Oil, DXY</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

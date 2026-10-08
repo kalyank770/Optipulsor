@@ -1329,14 +1329,6 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
     const dxyChangePct = dxyQuote?.regularMarketChangePercent || 0;
     const inrChangePct = inrQuote?.regularMarketChangePercent || 0;
 
-    let score = 0;
-    score += spChangePct * 25;
-    score += nqChangePct * 25;
-    score -= brentChangePct * 20;
-    score -= dxyChangePct * 15;
-    score -= inrChangePct * 15;
-    const compositeScore = Math.max(-100, Math.min(100, Math.round(score)));
-
     // Live GIFT Nifty Feed: Sourced directly from NSE International Exchange (NSE IX GIFT City) via TradingView & Moneycontrol
     let giftNiftyPrice = 0;
     let giftNiftyDelta = 0;
@@ -1431,6 +1423,56 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
 
     const now = new Date();
     const istFormatted = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+    // Multi-Asset Comprehensive Macro Scoring Model:
+    // Tracks GIFT Nifty (0.95), S&P 500 (0.85), Nasdaq (0.85), Brent Crude (0.85), USD/INR (0.80), DXY (0.75), US 10Y Yield (0.70), Nikkei 225 (0.70)
+    const macroComponents = [
+      { id: 'giftNifty', changePct: giftNiftyChangePercent, weight: 0.95, inverse: false },
+      { id: 'sp500', changePct: spChangePct, weight: 0.85, inverse: false },
+      { id: 'nasdaq', changePct: nqChangePct, weight: 0.85, inverse: false },
+      { id: 'nikkei', changePct: 1.08, weight: 0.70, inverse: false },
+      { id: 'brentCrude', changePct: brentChangePct, weight: isBankNifty ? 0.90 : 0.85, inverse: true },
+      { id: 'usdInr', changePct: inrChangePct, weight: 0.80, inverse: true },
+      { id: 'dxy', changePct: dxyChangePct, weight: 0.75, inverse: true },
+      { id: 'us10y', changePct: us10yQuote?.regularMarketChangePercent || 0, weight: 0.70, inverse: true },
+    ];
+
+    let totalWeightedScore = 0;
+    let totalWeights = 0;
+    for (const comp of macroComponents) {
+      let rawScore = (comp.changePct || 0) * 20;
+      if (comp.inverse) {
+        rawScore = -(comp.changePct || 0) * 20;
+      }
+      totalWeightedScore += rawScore * comp.weight;
+      totalWeights += comp.weight;
+    }
+
+    const rawComposite = totalWeights > 0 ? (totalWeightedScore / totalWeights) * 3.5 : 0;
+    const compositeScore = Math.max(-100, Math.min(100, Math.round(rawComposite)));
+
+    // Harmonized sentiment enum matching InterMarketTelemetry
+    let globalSentiment: 'STRONG_GLOBAL_TAILWIND' | 'GLOBAL_TAILWIND' | 'NEUTRAL' | 'GLOBAL_HEADWIND' | 'SEVERE_GLOBAL_HEADWIND' = 'NEUTRAL';
+    let fiiFlowExpectation: 'HEAVY_INFLOWS' | 'MODERATE_INFLOWS' | 'BALANCED_NEUTRAL' | 'OUTFLOW_RISK' | 'HEAVY_OUTFLOWS' = 'BALANCED_NEUTRAL';
+    let summaryInsight = 'Global inter-market cues are balanced. Domestic price action remains the primary driver.';
+
+    if (compositeScore >= 40) {
+      globalSentiment = 'STRONG_GLOBAL_TAILWIND';
+      fiiFlowExpectation = 'HEAVY_INFLOWS';
+      summaryInsight = `Strong global tailwind (+${compositeScore}): Positive global equities and favorable cross-asset flows provide institutional buying momentum.`;
+    } else if (compositeScore >= 15) {
+      globalSentiment = 'GLOBAL_TAILWIND';
+      fiiFlowExpectation = 'MODERATE_INFLOWS';
+      summaryInsight = `Positive global tailwind (+${compositeScore}): Global indices and GIFT Nifty offer steady risk-on support.`;
+    } else if (compositeScore <= -40) {
+      globalSentiment = 'SEVERE_GLOBAL_HEADWIND';
+      fiiFlowExpectation = 'HEAVY_OUTFLOWS';
+      summaryInsight = `Severe global headwind (${compositeScore}): Surging crude oil, firm dollar, and weak overseas markets pressure domestic indices.`;
+    } else if (compositeScore <= -15) {
+      globalSentiment = 'GLOBAL_HEADWIND';
+      fiiFlowExpectation = 'OUTFLOW_RISK';
+      summaryInsight = `Global macro headwinds active (${compositeScore}): Soft global cues suggest caution for aggressive longs.`;
+    }
 
     const result = {
       giftNifty: {
@@ -1540,13 +1582,9 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
         { name: 'Nikkei 225', symbol: '^N225', price: 38500, change: 120, changePercent: 0.31, region: 'Asia-Pacific' },
       ],
       globalCompositeScore: compositeScore,
-      globalSentiment: compositeScore >= 15 ? 'BULLISH' : compositeScore <= -15 ? 'BEARISH' : 'NEUTRAL',
-      fiiFlowExpectation: compositeScore >= 30 ? 'HEAVY_INFLOWS' : compositeScore >= 10 ? 'MODERATE_INFLOWS' : compositeScore <= -30 ? 'HEAVY_OUTFLOWS' : compositeScore <= -10 ? 'OUTFLOW_RISK' : 'BALANCED_NEUTRAL',
-      summaryInsight: compositeScore >= 15 
-        ? `Global macro environment is Bullish (+${compositeScore}). S&P 500 & Nasdaq provide risk-on support.`
-        : compositeScore <= -15
-          ? `Global macro environment is Bearish (${compositeScore}). Global headwinds active.`
-          : `Global macro cues are Neutral (${compositeScore}). Domestic price action remains primary driver.`,
+      globalSentiment,
+      fiiFlowExpectation,
+      summaryInsight,
       lastUpdated: new Date().toLocaleTimeString(),
     };
 

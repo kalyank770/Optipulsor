@@ -196,10 +196,21 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
           {activeRecord && (
             <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-1.5">
-                <span className="font-bold text-sky-400 flex items-center gap-1.5 font-mono">
-                  <Activity className="w-3.5 h-3.5 text-sky-400" />
-                  Active Prediction Snapshot: {activeRecord.tickerSymbol} ({activeRecord.dateStr})
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-sky-400 flex items-center gap-1.5 font-mono">
+                    <Activity className="w-3.5 h-3.5 text-sky-400" />
+                    Active Prediction Snapshot: {activeRecord.tickerSymbol} ({activeRecord.dateStr})
+                  </span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border font-semibold ${
+                    activeRecord.parameters.globalCueSentiment === 'BULLISH'
+                      ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30'
+                      : activeRecord.parameters.globalCueSentiment === 'BEARISH'
+                      ? 'bg-rose-950/60 text-rose-300 border-rose-500/30'
+                      : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                  }`}>
+                    Macro: {activeRecord.parameters.globalCueSentiment}
+                  </span>
+                </div>
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
                   activeRecord.actualOutcome?.validationStatus === 'VERIFIED_ACCURATE'
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
@@ -276,7 +287,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs font-mono">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-xs font-mono">
               {/* Parameter 1: Opening Direction */}
               <div className="p-2 rounded-lg bg-slate-900/90 border border-emerald-500/30">
                 <span className="text-[10px] text-slate-400 uppercase block font-sans truncate">Opening Direction</span>
@@ -304,7 +315,16 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                 <span className="text-[9.5px] text-slate-400 block">Overnight Correlation</span>
               </div>
 
-              {/* Parameter 4: Prior Day Structure */}
+              {/* Parameter 4: Global Macro Correlation */}
+              <div className="p-2 rounded-lg bg-slate-900/90 border border-purple-500/30">
+                <span className="text-[10px] text-slate-400 uppercase block font-sans truncate">Global Macro</span>
+                <span className="text-sm font-extrabold text-purple-300 block mt-0.5">
+                  {metricsData.globalMacroCorrelationPct}%
+                </span>
+                <span className="text-[9.5px] text-slate-400 block">US & Oil Correlation</span>
+              </div>
+
+              {/* Parameter 5: Prior Day Structure */}
               <div className="p-2 rounded-lg bg-slate-900/90 border border-amber-500/30">
                 <span className="text-[10px] text-slate-400 uppercase block font-sans truncate">Day Structure</span>
                 <span className="text-sm font-extrabold text-amber-300 block mt-0.5">
@@ -313,7 +333,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                 <span className="text-[9.5px] text-slate-400 block">Prior Day Alignment</span>
               </div>
 
-              {/* Parameter 5: Opening Gap Classification */}
+              {/* Parameter 6: Opening Gap Classification */}
               <div className="p-2 rounded-lg bg-slate-900/90 border border-emerald-500/30">
                 <span className="text-[10px] text-slate-400 uppercase block font-sans truncate">Gap Type Classification</span>
                 <span className="text-sm font-extrabold text-emerald-300 block mt-0.5">
@@ -322,7 +342,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                 <span className="text-[9.5px] text-slate-400 block">Gap Magnitude Match</span>
               </div>
 
-              {/* Parameter 6: Target 1 Success Rate */}
+              {/* Parameter 7: Target 1 Success Rate */}
               <div className="p-2 rounded-lg bg-slate-900/90 border border-sky-500/30">
                 <span className="text-[10px] text-slate-400 uppercase block font-sans truncate">Target 1 Hit Rate</span>
                 <span className="text-sm font-extrabold text-sky-300 block mt-0.5">
@@ -343,6 +363,7 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
             </div>
             <div className="flex items-center gap-3 text-[11px] font-bold">
               <span className="text-sky-300">GIFT Nifty: {metricsData.parameterWeights.giftNiftyWeight}x</span>
+              <span className="text-purple-300">Global Macro: {metricsData.parameterWeights.globalMacroWeight}x</span>
               <span className="text-emerald-300">Day Chart: {metricsData.parameterWeights.dayStructureWeight}x</span>
               <span className="text-indigo-300">FII Flow: {metricsData.parameterWeights.fiiFlowWeight}x</span>
             </div>
