@@ -313,60 +313,172 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
 
       {/* COMPACT OPTION MISPRICING & VOLATILITY SPECTRUM */}
       {surfaceRows.length > 0 && (
-        <div className="rounded-xl border border-purple-500/20 bg-slate-950 p-3.5 space-y-3.5 shadow-md">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-purple-400" />
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                Option Volatility Arbitrage & Mispricing Spectrum
-              </h4>
+        <div className="space-y-4">
+          <div className="rounded-xl border border-purple-500/20 bg-slate-950 p-3.5 space-y-3.5 shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-purple-400" />
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Option Volatility Arbitrage & Mispricing Spectrum
+                </h4>
+              </div>
+              <div className="text-[10.5px] font-mono text-slate-400 flex items-center gap-2">
+                <span>ATM IV Baseline: <strong className="text-purple-300">{atmIvBaseline}%</strong></span>
+                <span className="text-slate-600">|</span>
+                <span className="text-emerald-400 font-semibold">{underpricedPicks.length} Cheap Options</span>
+              </div>
             </div>
-            <div className="text-[10.5px] font-mono text-slate-400 flex items-center gap-2">
-              <span>ATM IV Baseline: <strong className="text-purple-300">{atmIvBaseline}%</strong></span>
-              <span className="text-slate-600">|</span>
-              <span className="text-emerald-400 font-semibold">{underpricedPicks.length} Cheap Options</span>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Cheap Options */}
+              <div className="p-2.5 rounded-lg bg-emerald-950/10 border border-emerald-500/20 space-y-2">
+                <span className="text-[11px] font-bold text-emerald-300 uppercase block tracking-wider font-mono">
+                  ✓ Underpriced Options (Buy Vol Advantage)
+                </span>
+                {underpricedPicks.length === 0 ? (
+                  <p className="text-[10.5px] text-slate-500 font-mono">No significantly cheap IV strikes detected.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
+                    {underpricedPicks.slice(0, 2).map((pick, i) => (
+                      <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+                        <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
+                        <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1 rounded">{pick.ivVsAtmPct}% Cheap</span>
+                        <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Overpriced Options */}
+              <div className="p-2.5 rounded-lg bg-amber-950/10 border border-amber-500/20 space-y-2">
+                <span className="text-[11px] font-bold text-amber-300 uppercase block tracking-wider font-mono">
+                  ⚠ Overpriced Options (Vol Premium Spike)
+                </span>
+                {overpricedPicks.length === 0 ? (
+                  <p className="text-[10.5px] text-slate-500 font-mono">No extreme IV spikes detected across strikes.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
+                    {overpricedPicks.slice(0, 2).map((pick, i) => (
+                      <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
+                        <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
+                        <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1 rounded">+{pick.ivVsAtmPct}% IV Spike</span>
+                        <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Cheap Options */}
-            <div className="p-2.5 rounded-lg bg-emerald-950/10 border border-emerald-500/20 space-y-2">
-              <span className="text-[11px] font-bold text-emerald-300 uppercase block tracking-wider font-mono">
-                ✓ Underpriced Options (Buy Vol Advantage)
-              </span>
-              {underpricedPicks.length === 0 ? (
-                <p className="text-[10.5px] text-slate-500 font-mono">No significantly cheap IV strikes detected.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
-                  {underpricedPicks.slice(0, 2).map((pick, i) => (
-                    <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
-                      <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
-                      <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1 rounded">{pick.ivVsAtmPct}% Cheap</span>
-                      <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
-                    </div>
-                  ))}
+          {/* IMPLIED VOLATILITY (IV) SKEW & SENTIMENT DISTRIBUTION CHART */}
+          <div className="rounded-xl border border-cyan-500/20 bg-slate-950 p-4 space-y-3.5 shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-cyan-400" />
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Implied Volatility (IV) Skew & Sentiment Distribution
+                  </h4>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    Visualizing Call (CE) vs Put (PE) IV curvature across near-ATM strikes
+                  </p>
                 </div>
-              )}
+              </div>
+              <div className="flex items-center gap-3 text-[10.5px] font-mono">
+                <span className="flex items-center gap-1.5 text-emerald-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Call IV (CE)
+                </span>
+                <span className="flex items-center gap-1.5 text-rose-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Put IV (PE)
+                </span>
+                <span className="flex items-center gap-1.5 text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
+                  Spot: {currency}{currentSpot.toLocaleString()}
+                </span>
+              </div>
             </div>
 
-            {/* Overpriced Options */}
-            <div className="p-2.5 rounded-lg bg-amber-950/10 border border-amber-500/20 space-y-2">
-              <span className="text-[11px] font-bold text-amber-300 uppercase block tracking-wider font-mono">
-                ⚠ Overpriced Options (Vol Premium Spike)
-              </span>
-              {overpricedPicks.length === 0 ? (
-                <p className="text-[10.5px] text-slate-500 font-mono">No extreme IV spikes detected across strikes.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1.5 font-mono text-xs">
-                  {overpricedPicks.slice(0, 2).map((pick, i) => (
-                    <div key={i} className="p-1.5 rounded bg-slate-900/90 border border-slate-800 flex items-center justify-between">
-                      <span className="font-bold text-white">{currency}{pick.strike} {pick.type}</span>
-                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1 rounded">+{pick.ivVsAtmPct}% IV Spike</span>
-                      <span className="text-[11px] text-slate-300">₹{pick.ltp.toFixed(1)} (IV {pick.iv.toFixed(1)}%)</span>
+            {/* Visual Skew Bar / Curve Chart */}
+            <div className="space-y-2 pt-1 font-mono">
+              <div className="grid grid-cols-12 text-[9.5px] text-slate-500 uppercase pb-1 border-b border-slate-900 font-bold px-1">
+                <span className="col-span-3">Strike Level</span>
+                <span className="col-span-4 text-center">Call IV (CE) Skew</span>
+                <span className="col-span-1 text-center">ATM</span>
+                <span className="col-span-4 text-center">Put IV (PE) Skew</span>
+              </div>
+
+              {surfaceRows.map((row, index) => {
+                const isAtm = Math.abs(row.strike - currentSpot) <= (currentSpot * 0.0015);
+                const ceIv = row.ce.iv;
+                const peIv = row.pe.iv;
+                const maxIv = Math.max(...surfaceRows.map(r => Math.max(r.ce.iv, r.pe.iv)), 30);
+                const ceWidthPct = Math.min(100, Math.max(12, (ceIv / maxIv) * 100));
+                const peWidthPct = Math.min(100, Math.max(12, (peIv / maxIv) * 100));
+
+                return (
+                  <div 
+                    key={index} 
+                    className={`grid grid-cols-12 items-center py-1.5 px-2 rounded transition-colors text-xs ${
+                      isAtm ? 'bg-cyan-950/20 border border-cyan-500/30' : 'bg-slate-900/60 hover:bg-slate-900'
+                    }`}
+                  >
+                    {/* Strike & Tag */}
+                    <div className="col-span-3 flex items-center gap-1.5">
+                      <span className={`font-bold ${isAtm ? 'text-cyan-300 font-extrabold' : 'text-white'}`}>
+                        {currency}{row.strike.toLocaleString()}
+                      </span>
+                      {isAtm && (
+                        <span className="text-[9px] bg-cyan-500/20 text-cyan-300 px-1 rounded font-bold">ATM</span>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    {/* CE IV Bar (Right-aligned towards center) */}
+                    <div className="col-span-4 flex items-center justify-end gap-2 pr-2">
+                      <span className="text-[10.5k] text-emerald-300 text-[10px]">{ceIv.toFixed(1)}%</span>
+                      <div className="w-24 bg-slate-800 h-2 rounded-full overflow-hidden flex justify-end">
+                        <div 
+                          className="bg-gradient-to-l from-emerald-400 to-emerald-600 h-full rounded-full" 
+                          style={{ width: `${ceWidthPct}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Center Divider / Moneyness Indicator */}
+                    <div className="col-span-1 text-center">
+                      <span className={`text-[10px] font-bold ${
+                        row.strike < currentSpot ? 'text-emerald-400' : row.strike > currentSpot ? 'text-rose-400' : 'text-cyan-400'
+                      }`}>
+                        {row.strike < currentSpot ? 'ITM' : row.strike > currentSpot ? 'OTM' : 'ATM'}
+                      </span>
+                    </div>
+
+                    {/* PE IV Bar (Left-aligned from center) */}
+                    <div className="col-span-4 flex items-center justify-start gap-2 pl-2">
+                      <div className="w-24 bg-slate-800 h-2 rounded-full overflow-hidden flex justify-start">
+                        <div 
+                          className="bg-gradient-to-r from-rose-400 to-rose-600 h-full rounded-full" 
+                          style={{ width: `${peWidthPct}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-rose-300 text-[10px]">{peIv.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Skew Takeaway Footer */}
+            <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 flex items-start gap-2">
+              <Compass className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-cyan-300">Volatility Skew Insight:</strong>{' '}
+                {atmIvBaseline > 18 
+                  ? 'Elevated ATM volatility indicates strong event risk or premium hedging. Put IV premium on lower strikes signals institutional downside protection demand.'
+                  : atmIvBaseline < 11
+                  ? 'Compressed volatility across strikes points to range-bound consolidation or low-expectation environment. Favor credit spreads or breakout straddles.'
+                  : 'Balanced IV skew distribution across near-ATM strikes. Market pricing reflects normal two-way participation without extreme directional panic.'}
+              </div>
             </div>
           </div>
         </div>
