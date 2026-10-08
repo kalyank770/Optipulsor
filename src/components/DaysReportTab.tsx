@@ -226,7 +226,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   {autoRefreshMarketStatus.isActive || forceAutoRefresh ? (
                     <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold">
-                      <span className="relative flex h-2 w-2">
+                      <span className="relative flex h-2 w-2 shrink-0">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                       </span>
@@ -235,7 +235,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                     </div>
                   ) : (
                     <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-700/60 text-slate-300 text-[11px] font-medium">
-                      <span className="w-2 h-2 rounded-full bg-amber-400" />
+                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
                       <span>Auto-Refresh Paused · {autoRefreshMarketStatus.reason}</span>
                       <span className="text-[10px] text-slate-400">({autoRefreshMarketStatus.windowLabel})</span>
                     </div>
@@ -244,14 +244,14 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                   {/* Test Auto-Refresh Icon Button */}
                   <button
                     onClick={() => setForceAutoRefresh(prev => !prev)}
-                    className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
+                    className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center shrink-0 ${
                       forceAutoRefresh
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-xs shadow-emerald-500/30'
                         : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border-slate-700/80 hover:bg-slate-700/80'
                     }`}
                     title={forceAutoRefresh ? 'Test Auto-Refresh Override: ACTIVE (Click to turn off)' : 'Test Auto-Refresh (Click to simulate continuous live auto-refresh outside market hours)'}
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${forceAutoRefresh ? 'text-emerald-400 animate-spin' : ''}`} />
+                    <Sparkles className={`w-3.5 h-3.5 shrink-0 ${forceAutoRefresh ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
                   </button>
                 </div>
               </div>
@@ -262,37 +262,37 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           <div className="flex flex-wrap items-center gap-2 self-start lg:self-center">
             <button
               onClick={handleLogCurrentSignal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-xs cursor-pointer shrink-0"
               title="Snapshot and add the active live signal to today's prediction log"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
+              <PlusCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Log Live Signal</span>
             </button>
 
             <button
               onClick={handleVerifyWithLiveTicks}
               disabled={isSyncing}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition-all cursor-pointer disabled:opacity-50"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition-all cursor-pointer disabled:opacity-50 shrink-0"
               title="Manual Instant Sync: Force re-verify all trade outcomes against latest exchange ticks now"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
             </button>
 
             <button
               onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition-all cursor-pointer shrink-0"
               title="Download Day's Report as CSV"
             >
-              <Download className="w-3.5 h-3.5 text-slate-400" />
+              <Download className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="hidden sm:inline">Export CSV</span>
             </button>
 
             <button
               onClick={handleResetReport}
-              className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs transition-all cursor-pointer"
+              className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs transition-all cursor-pointer shrink-0"
               title="Reset Session: Clear custom logged signals and restore default intraday benchmark log"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
             </button>
           </div>
         </div>

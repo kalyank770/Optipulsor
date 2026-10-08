@@ -263,7 +263,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           return (
             <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="w-4 h-4 shrink-0" />
               </div>
               <div className="space-y-1 w-full">
                 <div className="font-bold text-amber-300 text-xs flex items-center justify-between">
@@ -288,7 +288,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           return (
             <div className="mt-3 p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               </div>
               <div className="space-y-1 w-full">
                 <div className="font-bold text-emerald-300 text-xs flex items-center justify-between">
@@ -313,7 +313,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           return (
             <div className="mt-3 p-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-sky-500/20 text-sky-400 shrink-0 mt-0.5">
-                <Maximize2 className="w-4 h-4" />
+                <Maximize2 className="w-4 h-4 shrink-0" />
               </div>
               <div className="space-y-1 w-full">
                 <div className="font-bold text-sky-300 text-xs flex items-center justify-between">
@@ -338,7 +338,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           return (
             <div className="mt-3 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
-                <TrendingUp className="w-4 h-4" />
+                <TrendingUp className="w-4 h-4 shrink-0" />
               </div>
               <div className="space-y-1 w-full">
                 <div className="font-bold text-emerald-300 text-xs flex items-center justify-between">
@@ -363,7 +363,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           return (
             <div className="mt-3 p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">
               <div className="p-1.5 rounded bg-rose-500/20 text-rose-400 shrink-0 mt-0.5">
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="w-4 h-4 shrink-0" />
               </div>
               <div className="space-y-1 w-full">
                 <div className="font-bold text-rose-300 text-xs flex items-center justify-between">

@@ -68,7 +68,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const isBull = setup.anticipatedAction === 'BUY_CE';
   const isBear = setup.anticipatedAction === 'BUY_PE';
   const isWait = setup.anticipatedAction === 'WAIT_NEUTRAL';
-  const isSideways = Boolean(signal?.sidewaysMarketAnalysis?.isSideways || (!isBull && !isBear && !isWait));
+  const isSideways = !isBull && !isBear && (Boolean(signal?.sidewaysMarketAnalysis?.isSideways) || isWait);
 
   // Find live option LTP
   const contractRow = chain?.find(r => r.strike === setup.recommendedStrike);
@@ -161,17 +161,22 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {/* Main Recommendation Row: Directional Icon, Headline, Regime Badge & Action Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-1">
           <div className="flex items-start sm:items-center gap-3">
-            {/* Directional Icon Box: Upward Green Arrow (Bullish), Downward Red Arrow (Bearish), '-' Grey (Wait/Neutral), 'O' Orange (Sideways) */}
+            {/* Directional Icon Box: Upward Green Arrow (Bullish), Downward Red Arrow (Bearish), 'O' Orange (Sideways), '-' Grey (Wait/Neutral) */}
             <div className={`p-2.5 sm:p-3 rounded-lg flex items-center justify-center shrink-0 border ${
               isBull ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-xs shadow-emerald-500/20' :
               isBear ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-xs shadow-rose-500/20' :
               isSideways ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-xs shadow-amber-500/20' :
               'bg-slate-800 text-slate-400 border-slate-700'
             }`}>
-              {isBull && <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 stroke-[2.5]" />}
-              {isBear && <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 stroke-[2.5]" />}
-              {isSideways && <Circle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 stroke-[2.5]" />}
-              {isWait && !isSideways && <Minus className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400 stroke-[2.5]" />}
+              {isBull ? (
+                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 stroke-[2.5] shrink-0" />
+              ) : isBear ? (
+                <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 stroke-[2.5] shrink-0" />
+              ) : isSideways ? (
+                <Circle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 stroke-[2.5] shrink-0" />
+              ) : (
+                <Minus className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400 stroke-[2.5] shrink-0" />
+              )}
             </div>
 
             <div>
