@@ -340,54 +340,56 @@ export function computeAdvanceTradeSetup(
     const gnChange = interMarketTelemetry.giftNifty.change;
     const gnChangePct = interMarketTelemetry.giftNifty.changePercent;
     const gnPrice = interMarketTelemetry.giftNifty.price;
+    const fairBasis = isBankNifty ? 45 : (spotPrice > 15000 ? 18 : 0);
+    const impliedCashDiff = gnPrice > 10000 ? (gnPrice - fairBasis) - spotPrice : 0;
 
-    if (gnChangePct >= 0.20 || gnChange >= 40) {
-      macroBullScore = 2.5;
+    if (impliedCashDiff >= 25 || (gnChangePct >= 0.25 && impliedCashDiff >= 10)) {
+      macroBullScore = 2.4;
       macroFactor = {
         name: 'GIFT Nifty International Futures Lead (Bullish Thrust)',
         category: 'GLOBAL_MACRO_LEAD',
         state: 'STRONG_BULLISH',
         leadTimeMinutes: 5.0,
-        valueDescription: `GIFT Nifty futures surging (+${gnChange.toFixed(1)} pts / +${gnChangePct.toFixed(2)}% @ ${gnPrice.toLocaleString()}). Front-running domestic cash market by 5-15 mins`,
+        valueDescription: `GIFT Nifty futures at ₹${gnPrice.toLocaleString()} (${gnChange >= 0 ? '+' : ''}${gnChange.toFixed(1)} pts) indicating strong implied cash premium (+${impliedCashDiff.toFixed(1)} pts vs spot)`,
         confidenceScore: 92,
       };
-    } else if (gnChangePct <= -0.20 || gnChange <= -40) {
-      macroBearScore = 2.5;
+    } else if (impliedCashDiff <= -25 && gnChangePct <= -0.15) {
+      macroBearScore = 2.4;
       macroFactor = {
         name: 'GIFT Nifty International Futures Drag (Bearish Flush)',
         category: 'GLOBAL_MACRO_LEAD',
         state: 'STRONG_BEARISH',
         leadTimeMinutes: 5.0,
-        valueDescription: `GIFT Nifty futures in sharp discount (${gnChange.toFixed(1)} pts / ${gnChangePct.toFixed(2)}% @ ${gnPrice.toLocaleString()}). Front-running domestic cash market to the downside`,
+        valueDescription: `GIFT Nifty futures in confirmed cash discount (${impliedCashDiff.toFixed(1)} pts vs spot, ${gnChange.toFixed(1)} pts vs prev close @ ${gnPrice.toLocaleString()})`,
         confidenceScore: 92,
       };
-    } else if (gnChangePct >= 0.06 || gnChange >= 12) {
-      macroBullScore = 1.4;
+    } else if (impliedCashDiff >= 10 || gnChangePct >= 0.08) {
+      macroBullScore = 1.3;
       macroFactor = {
         name: 'GIFT Nifty Mild Upward Drift',
         category: 'GLOBAL_MACRO_LEAD',
         state: 'MODERATE_BULLISH',
         leadTimeMinutes: 3.5,
-        valueDescription: `GIFT Nifty positive (+${gnChange.toFixed(1)} pts / +${gnChangePct.toFixed(2)}%) providing supportive global baseline`,
+        valueDescription: `GIFT Nifty supportive at ₹${gnPrice.toLocaleString()} (+${impliedCashDiff.toFixed(1)} pts implied vs spot)`,
         confidenceScore: 78,
       };
-    } else if (gnChangePct <= -0.06 || gnChange <= -12) {
-      macroBearScore = 1.4;
+    } else if (impliedCashDiff <= -12 && gnChangePct <= -0.06) {
+      macroBearScore = 1.3;
       macroFactor = {
         name: 'GIFT Nifty Mild Downward Drag',
         category: 'GLOBAL_MACRO_LEAD',
         state: 'MODERATE_BEARISH',
         leadTimeMinutes: 3.5,
-        valueDescription: `GIFT Nifty negative (${gnChange.toFixed(1)} pts / ${gnChangePct.toFixed(2)}%) leaning against upside continuation`,
+        valueDescription: `GIFT Nifty leaning negative (${impliedCashDiff.toFixed(1)} pts vs spot @ ${gnPrice.toLocaleString()})`,
         confidenceScore: 78,
       };
     } else {
       macroFactor = {
-        name: 'GIFT Nifty Flat Alignment',
+        name: 'GIFT Nifty Equilibrium Alignment',
         category: 'GLOBAL_MACRO_LEAD',
         state: 'NEUTRAL',
         leadTimeMinutes: 1.0,
-        valueDescription: `GIFT Nifty trading flat (${gnChange >= 0 ? '+' : ''}${gnChange.toFixed(1)} pts @ ${gnPrice.toLocaleString()})`,
+        valueDescription: `GIFT Nifty trading in fair value alignment (${gnChange >= 0 ? '+' : ''}${gnChange.toFixed(1)} pts @ ${gnPrice.toLocaleString()}, implied gap: ${impliedCashDiff >= 0 ? '+' : ''}${impliedCashDiff.toFixed(1)} pts)`,
         confidenceScore: 55,
       };
     }
@@ -462,8 +464,17 @@ export function computeAdvanceTradeSetup(
   }
 
   // --- STRIKE, ZONE & OPTION TARGET CALCULATIONS ---
-  const recType: OptionType = anticipatedAction === 'BUY_PE' ? 'PE' : 'CE';
-  const recStrike = anticipatedAction === 'BUY_PE'
+  const isBearishSkew = (
+    anticipatedAction === 'BUY_PE' ||
+    (anticipatedAction === 'WAIT_NEUTRAL' && (
+      candlePatterns.confluenceBias === 'BEARISH' ||
+      candlePatterns.confluenceScore < -1.5 ||
+      totalBearScore > totalBullScore
+    ))
+  );
+
+  const recType: OptionType = isBearishSkew ? 'PE' : 'CE';
+  const recStrike = recType === 'PE'
     ? (spotPrice <= atmStrike - step * 0.3 ? atmStrike - step : atmStrike)
     : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike);
 
@@ -491,9 +502,15 @@ export function computeAdvanceTradeSetup(
     breakoutConfirmationSpot = Number((spotPrice - (isUSD ? 1.2 : (isBankNifty ? 45 : 20))).toFixed(2));
     advanceStopLossSpot = Number((spotPrice + spotBuffer).toFixed(2));
   } else {
-    advanceEntryZoneSpot = [spotPrice - 10, spotPrice + 10];
-    breakoutConfirmationSpot = spotPrice + step * 0.5;
-    advanceStopLossSpot = spotPrice - step * 0.5;
+    advanceEntryZoneSpot = isBearishSkew
+      ? [Number((spotPrice - spotBuffer).toFixed(2)), Number((spotPrice + spotBuffer * 0.5).toFixed(2))]
+      : [Number((spotPrice - spotBuffer * 0.5).toFixed(2)), Number((spotPrice + spotBuffer).toFixed(2))];
+    breakoutConfirmationSpot = isBearishSkew
+      ? Number((spotPrice - spotBuffer).toFixed(2))
+      : Number((spotPrice + spotBuffer).toFixed(2));
+    advanceStopLossSpot = isBearishSkew
+      ? Number((spotPrice + spotBuffer).toFixed(2))
+      : Number((spotPrice - spotBuffer).toFixed(2));
   }
 
   // Resolve realistic option pricing

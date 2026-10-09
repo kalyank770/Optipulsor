@@ -171,9 +171,9 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
             </div>
           </div>
 
-          <div className="text-xs font-extrabold text-sky-300 mt-1 flex items-baseline justify-between">
+          <div className="text-xs font-extrabold text-sky-300 mt-1 flex items-baseline justify-between" title="Official NSE IX GIFT Nifty Futures Price and Net Change vs Previous Day Settlement">
             <span>₹{giftNiftyPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}</span>
-            <span className={`text-[10.5px] font-semibold ${giftNiftyChangePoints >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <span className={`text-[10.5px] font-semibold ${giftNiftyChangePoints >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} title="Net Change vs Previous Settlement (matching official exchange/site feed)">
               {giftNiftyChangePoints >= 0 ? '+' : ''}{giftNiftyChangePoints.toFixed(1)} ({giftNiftyChangePercent >= 0 ? '+' : ''}{giftNiftyChangePercent.toFixed(2)}%)
             </span>
           </div>
@@ -181,13 +181,13 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
           <div className="mt-1 pt-1 border-t border-slate-800/60 flex items-center justify-between text-[9px] text-slate-400 font-mono">
             <span className="flex items-center gap-1 text-slate-400">
               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-              <span>
+              <span title="Premium/Discount vs Cash Spot & Implied Cash Open">
                 {ticker.symbol.includes('NIFTY') && !ticker.symbol.includes('BANK') 
-                  ? `${(giftNiftyPrice - ticker.spotPrice) >= 0 ? '+' : ''}${(giftNiftyPrice - ticker.spotPrice).toFixed(1)} pts vs Spot` 
+                  ? `${(giftNiftyPrice - ticker.spotPrice) >= 0 ? '+' : ''}${(giftNiftyPrice - ticker.spotPrice).toFixed(1)} pts vs Spot (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} implied gap)` 
                   : `Implied Gap: ${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts`}
               </span>
             </span>
-            <span className="text-emerald-300 font-bold">
+            <span className="text-emerald-300 font-bold" title="Live Synced Time">
               {(giftNiftyLastSynced || new Date()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
             </span>
           </div>

@@ -161,6 +161,17 @@ export function generateHTFCandles(
     if (storeCandles && storeCandles.length > 0) {
       const raw = storeCandles.map(c => ({ ...c }));
       if (raw.length > 0) {
+        // Clean trailing zero-range auction ticks for intraday timeframes (1h)
+        if (timeframe === '1h' && raw.length >= 2) {
+          const last = raw[raw.length - 1];
+          if (last.open === last.close && last.high === last.low && (last.volume === 0 || last.volume == null)) {
+            const prev = raw[raw.length - 2];
+            prev.close = last.close;
+            prev.high = Math.max(prev.high, last.close);
+            prev.low = Math.min(prev.low, last.close);
+            raw.pop();
+          }
+        }
         // Anchor the latest candle close to live spot S
         raw[raw.length - 1] = {
           ...raw[raw.length - 1],
@@ -351,23 +362,38 @@ export function analyzeHTFCandles(
   ticker: TickerConfig
 ): HTFCandlePatternResult {
   const S = ticker.spotPrice;
-  const latest = candles[candles.length - 1];
-  const prev = candles[candles.length - 2] || latest;
-  const prev2 = candles[candles.length - 3] || prev;
+
+  // 0. Sanitize candles: fold trailing zero-range closing auction ticks for intraday (1h)
+  const cleanCandles = [...candles];
+  if (timeframe === '1h' && cleanCandles.length >= 2) {
+    const last = cleanCandles[cleanCandles.length - 1];
+    if (last.open === last.close && last.high === last.low && (last.volume === 0 || last.volume == null)) {
+      const prevC = cleanCandles[cleanCandles.length - 2];
+      prevC.close = last.close;
+      prevC.high = Math.max(prevC.high, last.close);
+      prevC.low = Math.min(prevC.low, last.close);
+      cleanCandles.pop();
+    }
+  }
+
+  const latest = cleanCandles[cleanCandles.length - 1];
+  const prev = cleanCandles[cleanCandles.length - 2] || latest;
+  const prev2 = cleanCandles[cleanCandles.length - 3] || prev;
 
   // 1. Calculate True Range & Average True Range (ATR)
   let trSum = 0;
-  for (let i = 1; i < candles.length; i++) {
-    const c = candles[i];
-    const p = candles[i - 1];
+  for (let i = 1; i < cleanCandles.length; i++) {
+    const c = cleanCandles[i];
+    const p = cleanCandles[i - 1];
     const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
     trSum += tr;
   }
-  const atr = Number((trSum / Math.max(1, candles.length - 1)).toFixed(2));
+  const rawAtr = trSum / Math.max(1, cleanCandles.length - 1);
+  const atr = Number(Math.max(ticker.strikeStep * 0.10, rawAtr).toFixed(2));
 
   // 2. Highs and Lows of recent window for Support / Resistance
-  const windowCount = Math.min(8, candles.length);
-  const recentWindow = candles.slice(-windowCount);
+  const windowCount = Math.min(8, cleanCandles.length);
+  const recentWindow = cleanCandles.slice(-windowCount);
   const highestRecent = Math.max(...recentWindow.map(c => c.high));
   const lowestRecent = Math.min(...recentWindow.map(c => c.low));
   const resistanceLevel = Number(highestRecent.toFixed(2));
@@ -385,19 +411,19 @@ export function analyzeHTFCandles(
   const pivotPoint = Number(((prevHigh + prevLow + prevClose) / 3).toFixed(2));
 
   // 4. Moving Averages (20 EMA, 50 SMA)
-  const emaPeriod = Math.min(20, candles.length);
+  const emaPeriod = Math.min(20, cleanCandles.length);
   const k = 2 / (emaPeriod + 1);
-  let ema20 = candles[0].close;
-  for (let i = 1; i < candles.length; i++) {
-    ema20 = candles[i].close * k + ema20 * (1 - k);
+  let ema20 = cleanCandles[0].close;
+  for (let i = 1; i < cleanCandles.length; i++) {
+    ema20 = cleanCandles[i].close * k + ema20 * (1 - k);
   }
   ema20 = Number(ema20.toFixed(2));
 
-  const smaPeriod = Math.min(candles.length, 12);
-  const sma50 = Number((candles.slice(-smaPeriod).reduce((acc, c) => acc + c.close, 0) / smaPeriod).toFixed(2));
+  const smaPeriod = Math.min(cleanCandles.length, 12);
+  const sma50 = Number((cleanCandles.slice(-smaPeriod).reduce((acc, c) => acc + c.close, 0) / smaPeriod).toFixed(2));
 
   // 5. RSI(14)
-  const rsi = calculateRSI(candles, Math.min(14, candles.length - 2));
+  const rsi = calculateRSI(cleanCandles, Math.min(14, cleanCandles.length - 2));
 
   // 6. Candle Anatomy
   const body = Math.abs(latest.close - latest.open);
@@ -423,7 +449,7 @@ export function analyzeHTFCandles(
   // Dynamic momentum score (-10 to +10)
   const rsiDelta = Math.abs(rsi - 50);
   const emaDistNorm = Math.min(2.5, Math.abs(latest.close - ema20) / Math.max(1, atr));
-  const avgVol = candles.reduce((acc, c) => acc + c.volume, 0) / Math.max(1, candles.length);
+  const avgVol = cleanCandles.reduce((acc, c) => acc + c.volume, 0) / Math.max(1, cleanCandles.length);
   const volFactor = Math.min(1.5, Math.max(0.6, latest.volume / Math.max(1, avgVol)));
   const bodyRatio = body / Math.max(1, latest.high - latest.low);
 
@@ -441,7 +467,7 @@ export function analyzeHTFCandles(
   const tfName = timeframe === '1h' ? '1-Hour' : timeframe === '1d' ? 'Daily' : 'Weekly';
 
   // Check 1: Bullish Engulfing
-  if (isGreen && prevIsRed && latest.close > prev.open && latest.open < prev.close && body > prevBody * 1.12) {
+  if (isGreen && (prevIsRed || prevBody < body * 0.6) && latest.close > prev.open && (latest.open <= prev.close + atr * 0.10 || latest.low <= prev.low) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
     primaryPattern = `Bullish Engulfing (${tfName} Demand Thrust)`;
     patternType = 'REVERSAL';
     patternBias = 'BULLISH';
@@ -449,7 +475,7 @@ export function analyzeHTFCandles(
     patternDescription = `Strong demand expansion on the ${tfName} chart; buyers fully engulfed prior selling pressure.`;
   }
   // Check 2: Bearish Engulfing
-  else if (isRed && prevIsGreen && latest.close < prev.open && latest.open > prev.close && body > prevBody * 1.12) {
+  else if (isRed && (prevIsGreen || prevBody < body * 0.6) && latest.close < prev.open && (latest.open >= prev.close - atr * 0.10 || latest.high >= prev.high) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
     primaryPattern = `Bearish Engulfing (${tfName} Supply Rejection)`;
     patternType = 'REVERSAL';
     patternBias = 'BEARISH';
@@ -609,8 +635,12 @@ export function generateHorizonPrediction(
   // Real Parameter 1: GIFT Nifty & Global Macro Drift
   const giftChange = interMarket?.giftNifty?.change || 0;
   const giftPct = interMarket?.giftNifty?.changePercent || 0;
-  const isGiftStrongBull = giftPct >= 0.25 || giftChange >= 40;
-  const isGiftStrongBear = giftPct <= -0.25 || giftChange <= -40;
+  const giftPrice = interMarket?.giftNifty?.price || S;
+  const fairBasis = ticker.symbol.includes('BANK') ? 45 : (S > 15000 ? 18 : 0);
+  const impliedCashDiff = giftPrice > 10000 ? (giftPrice - fairBasis) - S : 0;
+
+  const isGiftStrongBull = impliedCashDiff >= 25 || (giftPct >= 0.25 && impliedCashDiff >= 10);
+  const isGiftStrongBear = impliedCashDiff <= -25 && giftPct <= -0.15;
 
   // Real Parameter 2: News Sentiment Catalysts
   const bullNews = newsFeed ? newsFeed.filter(n => n.sentiment === 'BULLISH').length : 0;

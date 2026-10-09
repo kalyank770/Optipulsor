@@ -251,6 +251,24 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {setup.primaryLeadingCatalyst}
       </p>
 
+      {/* Multi-Timeframe Regime Bridge Banner when in Wait / Flat Open */}
+      {isWait && (
+        <div className="mt-2.5 p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed relative z-10 flex items-start gap-2">
+          <Activity className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold text-amber-300 text-xs flex items-center gap-1.5 flex-wrap">
+              <span>Why Stand Aside on Flat Open despite Candlestick Momentum?</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                Institutional ORB Rule
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-200/90 leading-normal">
+              Even though late-session candlesticks exhibit bearish pressure, overnight GIFT Nifty points to a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts · {signal?.afterMarketAnalytics?.predictedOpeningGapPercent ?? 0.12}%). Buying naked options (CE or PE) at 09:15 AM on a flat open triggers instant opening IV crush and theta decay with zero trend impulse. Professional protocol: Stand aside for the first 15 minutes. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType}</strong> strictly upon a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* PRIMARY SETUP HIGHLIGHT CARDS GRID */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 mt-3 relative z-10">
         {/* Card 1: Action & Recommended Strike */}

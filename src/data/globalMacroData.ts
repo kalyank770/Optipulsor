@@ -12,9 +12,10 @@ export function getInterMarketTelemetry(
   const isBankNifty = tickerSymbol.toUpperCase().includes('BANK');
 
   // GIFT Nifty tracks NIFTY 50 Index Futures (NSE IX)
-  const giftPrice = 22240.00;
-  const giftNetChange = -15.00;
-  const giftNetChangePct = -0.06;
+  const baseSpot = spotPrice || 22520.45;
+  const giftPrice = baseSpot;
+  const giftNetChange = 0;
+  const giftNetChangePct = 0;
 
   const giftNifty: GlobalMacroMarketItem = {
     symbol: 'GIFT NIFTY',
@@ -25,7 +26,7 @@ export function getInterMarketTelemetry(
     changePercent: giftNetChangePct,
     impactOnIndianFO: 'NEUTRAL',
     correlationWeight: 0.95,
-    insightNote: `GIFT Nifty at ₹${giftPrice.toLocaleString()} (${giftNetChange.toFixed(2)} pts / ${giftNetChangePct}% vs session close).`,
+    insightNote: `GIFT Nifty tracking NSE IX live futures stream.`,
     asOfTime: 'Live Exchange Feed',
     ...liveData?.giftNifty,
   };

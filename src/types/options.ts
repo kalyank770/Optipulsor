@@ -1,3 +1,5 @@
+import { AfterMarketOpeningAnalytics } from './afterMarket';
+
 export type OptionType = 'CE' | 'PE';
 
 export type Moneyness = 'ITM' | 'ATM' | 'OTM';
@@ -257,6 +259,16 @@ export interface MultiTimeframeChartPatterns {
   derivedExitLevel1: number;
   derivedExitLevel2: number;
   invalidationLevel: number;
+  bullishExitLevel1?: number;
+  bearishExitLevel1?: number;
+  bullishExitLevel2?: number;
+  bearishExitLevel2?: number;
+  bullishInvalidationLevel?: number;
+  bearishInvalidationLevel?: number;
+  orbHigh?: number;
+  orbLow?: number;
+  orbStatus?: 'BULLISH_ORB_BREAKOUT' | 'BEARISH_ORB_BREAKDOWN' | 'INSIDE_ORB_RANGE' | 'FORMING';
+  volumeConfirmationMultiplier?: number;
 }
 
 export interface NewsMultiplierData {
@@ -549,13 +561,14 @@ export interface TradeSignal {
   allExpiriesSignals?: ExpirySignalSummary[];
   interMarketTelemetry?: InterMarketTelemetry;
   volumeAnalytics?: VolumeAnalyticsData;
-  afterMarketAnalytics?: import('../utils/afterMarketEngine').AfterMarketOpeningAnalytics;
+  afterMarketAnalytics?: AfterMarketOpeningAnalytics;
   sidewaysMarketAnalysis?: SidewaysMarketAnalysis;
   htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
   advanceTradeSetup?: AdvanceTradeSetup;
 }
 
 export * from './htfPredictions';
+export * from './afterMarket';
 
 export interface SidewaysMarketAnalysis {
   isSideways: boolean;

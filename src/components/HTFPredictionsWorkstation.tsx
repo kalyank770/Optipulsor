@@ -48,6 +48,7 @@ function MiniCandleChart({ candles, resistance, support, ema20 }: {
   support: number;
   ema20: number;
 }) {
+  if (!candles || candles.length === 0) return null;
   const minPrice = Math.min(...candles.map(c => c.low), support);
   const maxPrice = Math.max(...candles.map(c => c.high), resistance);
   const priceRange = Math.max(0.1, maxPrice - minPrice);

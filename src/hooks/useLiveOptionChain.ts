@@ -362,11 +362,25 @@ export function useLiveOptionChain() {
   const [updateIntervalMs, setUpdateIntervalMs] = useState<number>(3000);
   const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
   const [newsFeed, setNewsFeed] = useState<NewsItem[]>(INITIAL_NEWS_FEED);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
   const [dataSourceNote, setDataSourceNote] = useState<string>('Live Exchange Spot Quote + Official SEBI Expiries');
   const [usePreMarket, setUsePreMarket] = useState<boolean>(false);
+
+  // Stable references to prevent interval teardown and starvation
+  const selectedTickerRef = useRef<TickerConfig>(selectedTicker);
+  selectedTickerRef.current = selectedTicker;
+  const expiryIndexRef = useRef<number>(expiryIndex);
+  expiryIndexRef.current = expiryIndex;
+  const expiryTimestampsRef = useRef<number[]>(expiryTimestamps);
+  expiryTimestampsRef.current = expiryTimestamps;
+  const isLiveActiveRef = useRef<boolean>(isLiveActive);
+  isLiveActiveRef.current = isLiveActive;
+  const usePreMarketRef = useRef<boolean>(usePreMarket);
+  usePreMarketRef.current = usePreMarket;
+  const isPollingInFlightRef = useRef<boolean>(false);
   const [isNewsLoading, setIsNewsLoading] = useState<boolean>(false);
   const [isHeavyweightsLoading, setIsHeavyweightsLoading] = useState<boolean>(false);
   const [liveGlobalMacro, setLiveGlobalMacro] = useState<InterMarketTelemetry | undefined>(() =>
@@ -438,8 +452,9 @@ export function useLiveOptionChain() {
       pendingFlipRef.current = { action: proposedSignal.action, count: 1 };
     }
 
-    if (isReversal && pendingFlipRef.current.count < 2) {
-      // Step down safely to WAIT_NEUTRAL during confirmation window to eliminate whipsaw chops
+    // High-conviction signals (confidence >= 65% or STRONG) execute immediately without losing money on trade entry delays!
+    if (isReversal && pendingFlipRef.current.count < 2 && proposedSignal.confidence < 65 && proposedSignal.strength !== 'STRONG') {
+      // Step down safely to WAIT_NEUTRAL only during uncertain low-conviction chops
       return {
         ...proposedSignal,
         action: 'WAIT_NEUTRAL',
@@ -548,17 +563,27 @@ export function useLiveOptionChain() {
 
   // Fetch real live option chain or live quote from backend
   const fetchOptionChainFromBackend = useCallback(async (
-    tickerToFetch = selectedTicker,
-    targetExpiryIndex = expiryIndex,
-    customDateTimestamp?: number
+    tickerToFetch?: TickerConfig,
+    targetExpiryIndex?: number,
+    customDateTimestamp?: number,
+    isManual = false
   ) => {
-    setIsSyncing(true);
+    const activeTicker = tickerToFetch || selectedTickerRef.current;
+    const activeExpIndex = targetExpiryIndex !== undefined ? targetExpiryIndex : expiryIndexRef.current;
+    const activeTimestamps = expiryTimestampsRef.current;
+    const activeIsLive = isLiveActiveRef.current;
+    const activeUsePre = usePreMarketRef.current;
+
+    if (isPollingInFlightRef.current && !isManual) return;
+    isPollingInFlightRef.current = true;
+    if (isManual) setIsSyncing(true);
+
     try {
-      let url = `/api/option-chain/${encodeURIComponent(tickerToFetch.symbol)}`;
+      let url = `/api/option-chain/${encodeURIComponent(activeTicker.symbol)}`;
       if (customDateTimestamp) {
         url += `?date=${customDateTimestamp}`;
-      } else if (expiryTimestamps[targetExpiryIndex]) {
-        url += `?date=${expiryTimestamps[targetExpiryIndex]}`;
+      } else if (activeTimestamps[activeExpIndex]) {
+        url += `?date=${activeTimestamps[activeExpIndex]}`;
       }
 
       const res = await fetch(url);
@@ -566,10 +591,10 @@ export function useLiveOptionChain() {
         const data = await res.json();
         
         // Extract authentic regular spot price from real live exchange
-        const regularPrice = Number((data.spotPrice || data.regularPrice || tickerToFetch.regularPrice || tickerToFetch.spotPrice).toFixed(2));
+        const regularPrice = Number((data.spotPrice || data.regularPrice || activeTicker.regularPrice || activeTicker.spotPrice).toFixed(2));
         let prePrice = data.preMarketPrice || data.extendedHours?.price;
         
-        const hoursStatus = getMarketHoursStatus(tickerToFetch);
+        const hoursStatus = getMarketHoursStatus(activeTicker);
         const isHoliday = Boolean(hoursStatus.isHoliday || data.isHoliday);
         const isMarketOpen = !isHoliday && data.marketState !== 'CLOSED' && hoursStatus.isOpen;
         const currentSession = isHoliday ? 'CLOSED' : (data.marketState === 'CLOSED' ? 'CLOSED' : (data.marketState || hoursStatus.session));
@@ -589,36 +614,30 @@ export function useLiveOptionChain() {
         }));
         
         // Active pre-market mode ONLY when user explicitly enables usePreMarket OR during 09:00 AM IST pre-open window
-        const activePreMarket = !isHoliday && (usePreMarket || currentSession === 'PRE_MARKET');
-        if (usePreMarket && isMarketOpen) {
+        const activePreMarket = !isHoliday && (activeUsePre || currentSession === 'PRE_MARKET');
+        if (activeUsePre && isMarketOpen) {
           setUsePreMarket(false);
         }
 
         if (activePreMarket && (!prePrice || prePrice === 0)) {
-          const defaultGap = tickerToFetch.symbol.includes('BANK') ? 142.50 : 40.0;
+          const defaultGap = activeTicker.symbol.includes('BANK') ? 142.50 : 40.0;
           prePrice = Number(((data.prevClose || regularPrice) + defaultGap).toFixed(2));
         }
 
-        // Selected active spot: regular exchange spot price when pre-market is off; pre-market price when pre-market is on
+        // Selected active spot: strictly authentic exchange spot price without artificial jitter
         let activeSpot = activePreMarket && prePrice ? prePrice : regularPrice;
 
-        // Add micro-tick order discovery variance ONLY during live active trading sessions
-        if (activePreMarket && isLiveActive && isMarketOpen && !isHoliday) {
-          const microDelta = Number(((Math.random() - 0.48) * (tickerToFetch.strikeStep * 0.08)).toFixed(2));
-          activeSpot = Number((activeSpot + microDelta).toFixed(2));
-        }
-
-        const step = tickerToFetch.strikeStep;
+        const step = activeTicker.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (tickerToFetch.prevClose || activeSpot)).toFixed(2));
-        const activeChangePct = data.changePercent !== undefined ? Number(data.changePercent.toFixed(2)) : (tickerToFetch.prevClose ? Number(((activeChange / tickerToFetch.prevClose) * 100).toFixed(2)) : 0);
+        const activeChange = data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (activeTicker.prevClose || activeSpot)).toFixed(2));
+        const activeChangePct = data.changePercent !== undefined ? Number(data.changePercent.toFixed(2)) : (activeTicker.prevClose ? Number(((activeChange / activeTicker.prevClose) * 100).toFixed(2)) : 0);
         const basePrevClose = activePreMarket 
           ? regularPrice 
           : (data.prevClose || Number((activeSpot - activeChange).toFixed(2)));
 
         const updatedTicker: TickerConfig = {
-          ...tickerToFetch,
+          ...activeTicker,
           spotPrice: activeSpot,
           regularPrice,
           prevClose: basePrevClose,
@@ -626,10 +645,10 @@ export function useLiveOptionChain() {
           changePercent: activeChangePct,
           dayHigh: Math.max(data.dayHigh || activeSpot, activeSpot),
           dayLow: Math.min(data.dayLow || activeSpot, activeSpot),
-          vwap: data.vwap !== undefined ? data.vwap : tickerToFetch.vwap,
+          vwap: data.vwap !== undefined ? data.vwap : activeTicker.vwap,
           atmStrike: newAtm,
-          vix: data.vix !== undefined ? data.vix : tickerToFetch.vix,
-          vixChange: data.vixChange !== undefined ? data.vixChange : tickerToFetch.vixChange,
+          vix: data.vix !== undefined ? data.vix : activeTicker.vix,
+          vixChange: data.vixChange !== undefined ? data.vixChange : activeTicker.vixChange,
           asOnTime: activePreMarket 
             ? `Pre-Market (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
             : data.asOnTime,
@@ -651,7 +670,7 @@ export function useLiveOptionChain() {
             source: 'NSE India Pre-Open Discovery Feed',
           },
           isUsingPreMarket: activePreMarket,
-          expiryDates: filterActiveExpiries(data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : tickerToFetch.expiryDates),
+          expiryDates: filterActiveExpiries(data.expiryDates && data.expiryDates.length > 0 ? data.expiryDates : activeTicker.expiryDates),
           isLiveSynced: true,
         };
 
@@ -668,21 +687,20 @@ export function useLiveOptionChain() {
           setMetrics(computeMarketMetrics(updatedTicker, data.rows));
         } else {
           // Fallback: calculate calibrated Black-Scholes anchored on exact live spot price if live option chain depth is offline
-          const newChain = buildInitialChain(updatedTicker, targetExpiryIndex);
+          const newChain = buildInitialChain(updatedTicker, activeExpIndex);
           setChain(newChain);
           setMetrics(computeMarketMetrics(updatedTicker, newChain));
         }
 
         setLastUpdated(new Date());
-        setIsSyncing(false);
-        return;
       }
     } catch (e) {
       console.warn('Backend live option chain fetch failed:', e);
+    } finally {
+      isPollingInFlightRef.current = false;
+      if (isManual) setIsSyncing(false);
     }
-
-    setIsSyncing(false);
-  }, [selectedTicker, expiryIndex, expiryTimestamps, newsFeed]);
+  }, []);
 
   // Fetch genuine real-time financial wire news (Last Night to Current Live Session)
   const fetchRealNews = useCallback(async (sym = selectedTicker.symbol, force = false) => {
@@ -783,7 +801,7 @@ export function useLiveOptionChain() {
     fetchMarketCandles(selectedTicker.symbol);
   }, []);
 
-  // Periodic refresh loop for real exchange market candles (every 15s)
+  // Real exchange market candles refresh loop (every 15s)
   useEffect(() => {
     fetchMarketCandles(selectedTicker.symbol);
     const candleTimer = setInterval(() => {
@@ -806,7 +824,7 @@ export function useLiveOptionChain() {
     fetchGlobalMacro(selectedTicker.symbol);
     const macroTimer = setInterval(() => {
       fetchGlobalMacro(selectedTicker.symbol);
-    }, 8000);
+    }, 4000);
     return () => clearInterval(macroTimer);
   }, [selectedTicker.symbol, fetchGlobalMacro]);
 
@@ -947,21 +965,22 @@ export function useLiveOptionChain() {
     setStrikeAnalytics(deriveStrikeTrendAnalytics(fresh, selectedTicker, activeChain));
   }, [selectedTicker, chain, expiryIndex]);
 
-  // Real-time live exchange poll: Continuously ticks live during Regular Session or Pre-Market mode
+  // Resilient Real-Time Live Polling Engine:
+  // When isLiveActive is true, ticks continuously at updateIntervalMs without starvation, pause or freezing!
   useEffect(() => {
     if (!isLiveActive) return;
 
-    // During regular open hours or active pre-market mode: poll fast (updateIntervalMs).
-    // Outside market hours without pre-market mode: relax polling to 60s
-    const isFastPollingNeeded = marketStatus.isOpen || usePreMarket || marketStatus.session === 'PRE_MARKET';
-    const pollingInterval = isFastPollingNeeded ? updateIntervalMs : 60000;
-
     const timer = setInterval(() => {
-      fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-    }, pollingInterval);
+      fetchOptionChainFromBackend(
+        selectedTickerRef.current,
+        expiryIndexRef.current,
+        undefined,
+        false
+      );
+    }, updateIntervalMs);
 
     return () => clearInterval(timer);
-  }, [isLiveActive, marketStatus.isOpen, updateIntervalMs, selectedTicker.symbol, expiryIndex, usePreMarket]);
+  }, [isLiveActive, updateIntervalMs, fetchOptionChainFromBackend]);
 
   // Recalculate metrics & signals when ticker, chain, news, global macro or expiry changes
   useEffect(() => {
@@ -984,7 +1003,7 @@ export function useLiveOptionChain() {
       playTone(debouncedSignal.action === 'BUY_CE' ? 1046.5 : 587.33, 0.15);
     }
     setSignal(debouncedSignal);
-  }, [selectedTicker, chain, newsFeed, expiryIndex, liveConstituentAnalysis, liveGlobalMacro, applySignalWithDebounce]);
+  }, [selectedTicker, chain, newsFeed, expiryIndex, liveConstituentAnalysis, liveGlobalMacro, applySignalWithDebounce, candlesLastSynced]);
 
   // Toggle between Regular Market and Pre-Market / Extended Hours pricing
   const toggleUsePreMarket = (enable?: boolean) => {
@@ -1040,11 +1059,11 @@ export function useLiveOptionChain() {
 
   // Manual Force Refresh
   const handleForceRefresh = () => {
-    fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-    fetchRealNews(selectedTicker.symbol, true);
-    fetchHeavyweights(selectedTicker.symbol);
-    fetchGlobalMacro(selectedTicker.symbol, true);
-    fetchMarketCandles(selectedTicker.symbol);
+    fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
+    fetchRealNews(selectedTickerRef.current.symbol, true);
+    fetchHeavyweights(selectedTickerRef.current.symbol);
+    fetchGlobalMacro(selectedTickerRef.current.symbol, true);
+    fetchMarketCandles(selectedTickerRef.current.symbol);
     playTone(750, 0.05);
   };
 
@@ -1088,8 +1107,8 @@ export function useLiveOptionChain() {
     dataSourceNote,
     marketStatus,
     syncLiveExchange: () => {
-      fetchOptionChainFromBackend(selectedTicker, expiryIndex);
-      fetchMarketCandles(selectedTicker.symbol);
+      fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
+      fetchMarketCandles(selectedTickerRef.current.symbol);
     },
     logCurrentSignalToHistory,
     refreshStrikeHistory,

@@ -356,7 +356,7 @@ export function computeRealtimeIndicators(
   chain: OptionChainRow[]
 ): RealtimePredictionIndicators {
   const S = ticker.spotPrice;
-  const candles = generateRollingCandles(ticker, 5, 28);
+  const candles = generateRollingCandles(ticker, 5, 45);
   const closes = candles.map(c => c.close);
 
   // 1. INTRADAY VWAP & VOLATILITY BANDS
@@ -509,8 +509,21 @@ export function computeRealtimeIndicators(
   let totalNearbyVol = 0;
 
   for (const r of nearbyRows) {
-    const ceWeight = r.ce.change >= 0 ? 0.65 : 0.35;
-    const peWeight = r.pe.change >= 0 ? 0.65 : 0.35;
+    // Dynamic execution weighting based on authentic LTP change and real exchange OI buildup
+    let ceWeight = r.ce.change >= 0 ? 0.60 : 0.40;
+    let peWeight = r.pe.change >= 0 ? 0.60 : 0.40;
+
+    // Real Exchange OI Buildup amplification:
+    if (r.ce.change > 0 && r.ce.oiChange > 0) ceWeight = 0.72; // Long Buildup
+    else if (r.ce.change > 0 && r.ce.oiChange < 0) ceWeight = 0.76; // Short Covering Squeeze
+    else if (r.ce.change < 0 && r.ce.oiChange < 0) ceWeight = 0.26; // Long Unwinding
+    else if (r.ce.change < 0 && r.ce.oiChange > 0) ceWeight = 0.32; // Short Buildup (Call Writing)
+
+    if (r.pe.change > 0 && r.pe.oiChange > 0) peWeight = 0.72; // Put Long Buildup
+    else if (r.pe.change > 0 && r.pe.oiChange < 0) peWeight = 0.76; // Put Short Covering Squeeze
+    else if (r.pe.change < 0 && r.pe.oiChange < 0) peWeight = 0.26; // Put Long Unwinding
+    else if (r.pe.change < 0 && r.pe.oiChange > 0) peWeight = 0.32; // Put Short Buildup (Put Writing / Support Floor)
+
     const ceBuyerFlow = Math.round(r.ce.volume * ceWeight);
     const peBuyerFlow = Math.round(r.pe.volume * peWeight);
     callBuyVol += ceBuyerFlow;

@@ -161,14 +161,23 @@ export function generateTradeSignal(
   // 1c. Real Live GIFT Nifty & Global Macro Sentiment Integration
   const realGiftNiftyDelta = liveGlobalMacro?.giftNifty?.change ?? 0;
   const realGiftNiftyPct = liveGlobalMacro?.giftNifty?.changePercent ?? 0;
+  const gnPrice = liveGlobalMacro?.giftNifty?.price ?? spotPrice;
+  const rawGap = (liveGlobalMacro?.giftNifty as any)?.impliedCashGap;
+  const rawBasis = (liveGlobalMacro?.giftNifty as any)?.basisPoints;
+  const fairBasis = typeof rawBasis === 'number' && rawBasis > 0 
+    ? rawBasis 
+    : (ticker.symbol.includes('BANK') ? 45 : (spotPrice > 15000 ? 18 : 0));
+  const impliedCashDiff = typeof rawGap === 'number' && rawGap !== 0
+    ? rawGap
+    : (gnPrice > 10000 ? (gnPrice - fairBasis) - spotPrice : 0);
 
   let liveGiftDriftScore = 0;
   if (liveGlobalMacro?.giftNifty) {
-    if (realGiftNiftyPct >= 0.25 || realGiftNiftyDelta >= 50) liveGiftDriftScore = 2.4;
-    else if (realGiftNiftyPct >= 0.08 || realGiftNiftyDelta >= 15) liveGiftDriftScore = 1.3;
-    else if (realGiftNiftyPct <= -0.25 || realGiftNiftyDelta <= -50) liveGiftDriftScore = -2.4;
-    else if (realGiftNiftyPct <= -0.08 || realGiftNiftyDelta <= -15) liveGiftDriftScore = -1.3;
-    else liveGiftDriftScore = Number(((realGiftNiftyPct / 0.08) * 1.0).toFixed(2));
+    if (impliedCashDiff >= 25 || (realGiftNiftyPct >= 0.25 && impliedCashDiff >= 10)) liveGiftDriftScore = 2.4;
+    else if (impliedCashDiff >= 10 || realGiftNiftyPct >= 0.08) liveGiftDriftScore = 1.3;
+    else if (impliedCashDiff <= -25 && realGiftNiftyPct <= -0.15) liveGiftDriftScore = -2.4;
+    else if (impliedCashDiff <= -12 && realGiftNiftyPct <= -0.06) liveGiftDriftScore = -1.3;
+    else liveGiftDriftScore = Number(((impliedCashDiff / 25) * 1.0).toFixed(2));
   }
 
   // Combine live GIFT Nifty futures delta with news bias:
@@ -276,6 +285,11 @@ export function generateTradeSignal(
   // 7. Candlestick & Multi-Timeframe Chart Patterns Confluence (2m, 5m, 15m)
   const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
   score += (candlePatterns.confluenceScore * 0.4);
+  if (candlePatterns.orbStatus === 'BULLISH_ORB_BREAKOUT') {
+    score += 1.2;
+  } else if (candlePatterns.orbStatus === 'BEARISH_ORB_BREAKDOWN') {
+    score -= 1.2;
+  }
 
   // 7b. Nifty Derivative Constituent Heavyweights & Sectoral Delta Engine (Indian Markets)
   const constituentAnalysis = liveConstituentAnalysis || ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined);
@@ -888,7 +902,7 @@ export function generateTradeSignal(
   if (isCE) {
     // BUY CALL:
     // Target 1: Tactical swing move based on 2m/5m pattern, immediate Call OI hurdle, VWAP upper band, scaled by News Multiplier
-    const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const chartTarget1 = candlePatterns.bullishExitLevel1 || (spotPrice + (candlePatterns.tacticalSwingPoints || step * 0.40));
     const vwapTargetDist = rt.vwap.upperBand > spotPrice ? (rt.vwap.upperBand - spotPrice) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (immediateCallHurdle - spotPrice) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, chartTarget1 - spotPrice));
@@ -901,7 +915,7 @@ export function generateTradeSignal(
     target1Basis = `2m/5m Swing (${m5Score > 0 ? '+' : ''}${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary hurdle, and gamma expansion
-    const chartTarget2 = candlePatterns.derivedExitLevel2;
+    const chartTarget2 = candlePatterns.bullishExitLevel2 || (spotPrice + (candlePatterns.structuralSwingPoints || step * 0.75));
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, chartTarget2 - spotPrice));
     const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (majorCallWall - spotPrice) * 0.42));
     const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
@@ -910,15 +924,18 @@ export function generateTradeSignal(
     spotTarget2 = Number((spotPrice + spotMove2).toFixed(2));
     target2Basis = `15m Structure (${m15Score > 0 ? '+' : ''}${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
-    // Spot Stop Loss: below 2m/5m swing low and 9 EMA / VWAP floor
+    // Spot Stop Loss: below 2m/5m swing low, candlestick invalidation cushion and 9 EMA / VWAP floor
     const vwapSupportDist = spotPrice > rt.vwap.value ? (spotPrice - rt.vwap.value) : minSL;
-    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(spotPrice - candlePatterns.invalidationLevel, vwapSupportDist * 1.1)));
+    const candleSLDist = candlePatterns.bullishInvalidationLevel && candlePatterns.bullishInvalidationLevel < spotPrice
+      ? (spotPrice - candlePatterns.bullishInvalidationLevel)
+      : (candlePatterns.invalidationPoints || minSL);
+    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candleSLDist, vwapSupportDist * 1.1)));
     spotStopLoss = Number((spotPrice - rawSLDist).toFixed(2));
 
   } else {
     // BUY PUT:
     // Target 1: Tactical swing move based on 2m/5m pattern, immediate Put OI support, VWAP lower band, scaled by News Multiplier
-    const chartTarget1 = candlePatterns.derivedExitLevel1;
+    const chartTarget1 = candlePatterns.bearishExitLevel1 || (spotPrice - (candlePatterns.tacticalSwingPoints || step * 0.40));
     const vwapFloorDist = rt.vwap.lowerBand < spotPrice ? (spotPrice - rt.vwap.lowerBand) : minMove1;
     const hurdleDist = Math.max(minMove1, Math.min(maxMove1, (spotPrice - immediatePutSupport) * 0.85));
     const patternMove = Math.max(minMove1, Math.min(maxMove1, spotPrice - chartTarget1));
@@ -930,7 +947,7 @@ export function generateTradeSignal(
     target1Basis = `2m/5m Swing (${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary floor, and gamma acceleration
-    const chartTarget2 = candlePatterns.derivedExitLevel2;
+    const chartTarget2 = candlePatterns.bearishExitLevel2 || (spotPrice - (candlePatterns.structuralSwingPoints || step * 0.75));
     const patternMove2 = Math.max(spotMove1 + step * 0.35, Math.min(maxMove2, spotPrice - chartTarget2));
     const hurdleDist2 = Math.max(spotMove1 + step * 0.30, Math.min(maxMove2, (spotPrice - majorPutWall) * 0.42));
     const gammaRunnerMultiplier = rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.15 : 0.95;
@@ -939,9 +956,12 @@ export function generateTradeSignal(
     spotTarget2 = Number((spotPrice - spotMove2).toFixed(2));
     target2Basis = `15m Structure (${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
 
-    // Spot Stop Loss: above 2m/5m swing high and 9 EMA / VWAP ceiling
+    // Spot Stop Loss: above 2m/5m swing high, candlestick invalidation cushion and 9 EMA / VWAP ceiling
     const vwapCeilDist = spotPrice < rt.vwap.value ? (rt.vwap.value - spotPrice) : minSL;
-    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candlePatterns.invalidationLevel - spotPrice, vwapCeilDist * 1.1)));
+    const candleSLDist = candlePatterns.bearishInvalidationLevel && candlePatterns.bearishInvalidationLevel > spotPrice
+      ? (candlePatterns.bearishInvalidationLevel - spotPrice)
+      : (candlePatterns.invalidationPoints || minSL);
+    const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candleSLDist, vwapCeilDist * 1.1)));
     spotStopLoss = Number((spotPrice + rawSLDist).toFixed(2));
   }
 
@@ -1200,7 +1220,7 @@ export function generateTradeSignal(
   rationalePoints.push({
     title: 'Candlestick & Chart Patterns (2m | 5m | 15m)',
     verdict: candlePatterns.confluenceBias,
-    description: `Confluence: ${candlePatterns.confluencePattern}. 2m Pattern: ${candlePatterns.m2.pattern} | 5m Pattern: ${candlePatterns.m5.pattern} (ATR: ${ticker.currency}${candlePatterns.m5.atr}) | 15m Structure: ${candlePatterns.m15.pattern}. Score: ${candlePatterns.confluenceScore > 0 ? '+' : ''}${candlePatterns.confluenceScore}/10. Targets derived from 2m/5m measured moves & 15m range expansion.`,
+    description: `Confluence: ${candlePatterns.confluencePattern}. 2m Pattern: ${candlePatterns.m2.pattern} | 5m Pattern: ${candlePatterns.m5.pattern} (ATR: ${ticker.currency}${candlePatterns.m5.atr}) | 15m Structure: ${candlePatterns.m15.pattern}.${candlePatterns.orbStatus ? ` Opening Range (15m ORB): ${candlePatterns.orbStatus.replace(/_/g, ' ')} [${ticker.currency}${candlePatterns.orbLow?.toLocaleString()} - ${ticker.currency}${candlePatterns.orbHigh?.toLocaleString()}].` : ''} Score: ${candlePatterns.confluenceScore > 0 ? '+' : ''}${candlePatterns.confluenceScore}/10. Targets derived from 2m/5m measured moves & 15m range expansion.`,
   });
 
   // Rationale 5: Exit Targets Derivation Architecture
@@ -1421,7 +1441,14 @@ export function generateTradeSignal(
   );
 
   // Compute After-Market & Pre-Market Opening Analytics
-  const afterMarketAnalytics = computeAfterMarketOpeningAnalytics(ticker, marketStatus, rt.vwap.value, interMarketTelemetry, metrics);
+  const afterMarketAnalytics = computeAfterMarketOpeningAnalytics(
+    ticker, 
+    marketStatus, 
+    rt.vwap.value, 
+    interMarketTelemetry, 
+    metrics, 
+    candlePatterns
+  );
 
   // When market is in After-Market / Closed session:
   // Show the strike price that will hit tomorrow once the market opens based on today's full day chart + aftermarket analysis
@@ -1484,7 +1511,10 @@ export function generateTradeSignal(
     entryRange = [entryLow, entryHigh];
 
     if (action === 'WAIT_NEUTRAL') {
-      summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts): Expecting flat / range-bound opening. Suggesting WAIT / NEUTRAL for the first 15 minutes (09:15 - 09:30 AM). Professional discipline requires waiting for the 15m opening range breakout before committing real capital. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
+      const candleNote = candlePatterns?.confluenceBias === 'BEARISH'
+        ? ` Note: Late-session 2m/5m/15m candlesticks indicate bearish profit-taking momentum (${candlePatterns.confluencePattern || 'pullback off highs'}), but because the overnight opening gap is virtually flat (+${afterMarketAnalytics.predictedOpeningGapPoints} pts), jumping into naked Puts at 09:15 AM risks IV crush & theta decay without trend confirmation.`
+        : '';
+      summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts): Expecting flat / range-bound opening (${afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.predictedOpeningGapPoints} pts). Suggesting WAIT / NEUTRAL for the first 15 minutes (09:15 - 09:30 AM).${candleNote} Professional discipline requires waiting for the 15m opening range breakout before committing real capital. Reference breakdown contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
     } else {
       summaryNote = `Based on today's chart structure (${afterMarketAnalytics.fullDayChartAnalysis?.dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, Range: ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayLow?.toLocaleString()} - ${ticker.currency}${afterMarketAnalytics.fullDayChartAnalysis?.dayHigh?.toLocaleString()}, closed ${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints >= 0 ? '+' : ''}${afterMarketAnalytics.fullDayChartAnalysis?.closeVsVwapPoints} pts vs VWAP) and GIFT Nifty drift (${afterMarketAnalytics.giftNiftyChangePoints >= 0 ? '+' : ''}${afterMarketAnalytics.giftNiftyChangePoints} pts), opening will test ${targetStrike} ${recommendedType}. Recommending ${targetStrike} ${recommendedType} @ ${ticker.currency}${premium.toFixed(2)} | Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((finalTarget1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((finalActualRisk / premium) * 100).toFixed(1)}%).`;
     }

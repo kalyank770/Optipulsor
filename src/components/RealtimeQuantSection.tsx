@@ -273,7 +273,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               <span className="text-[9px] text-slate-500 block">GIFT NIFTY</span>
               <span className="font-bold text-white block mt-0.5">{telemetry?.giftNifty?.price ? telemetry.giftNifty.price.toLocaleString() : currentSpot.toLocaleString()}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.giftNifty?.change || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)}
+                {(telemetry?.giftNifty?.change || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.change || 0).toFixed(1)} ({(telemetry?.giftNifty?.changePercent || 0) >= 0 ? '+' : ''}{(telemetry?.giftNifty?.changePercent || 0).toFixed(2)}%)
               </span>
             </div>
 

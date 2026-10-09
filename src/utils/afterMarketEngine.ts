@@ -1,75 +1,8 @@
-import { TickerConfig, MarketMetrics, InterMarketTelemetry } from '../types/options';
+import { TickerConfig, MarketMetrics, InterMarketTelemetry, MultiTimeframeChartPatterns } from '../types/options';
 import { MarketHoursStatus } from './marketHours';
+import { FullDayChartAnalysis, TomorrowHitStrike, AfterMarketOpeningAnalytics } from '../types/afterMarket';
 
-export interface FullDayChartAnalysis {
-  dayOpen: number;
-  dayHigh: number;
-  dayLow: number;
-  dayClose: number;
-  dayRangePoints: number;
-  closeVsVwapPoints: number;
-  closePositionPercent: number; // 0 to 100% of day's range
-  dayStructureVerdict: 'BULLISH_ACCUMULATION' | 'BEARISH_DISTRIBUTION' | 'NEUTRAL_CONSOLIDATION';
-  dayChartSummary: string;
-}
-
-export interface TomorrowHitStrike {
-  strike: number;
-  type: 'CE' | 'PE';
-  action: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M';
-  expectedHitTiming: string; // e.g. "Within 09:15 - 09:45 AM opening session"
-  hitReason: string;
-  projectedSpotAtHit: number;
-  estimatedOpeningPremium: number;
-  target1: number;
-  target2: number;
-  stopLoss: number;
-}
-
-export interface AfterMarketOpeningAnalytics {
-  isAfterMarketMode: boolean; // true when POST_MARKET, CLOSED, or PRE_MARKET
-  sessionStateLabel: 'POST_MARKET_SETTLEMENT' | 'OVERNIGHT_AFTER_MARKET' | 'PRE_MARKET_SESSION' | 'REGULAR_SESSION';
-  lastSpotClose: number;
-  lastVwapClose: number;
-  vwapDeltaPoints: number;
-  vwapDeltaLabel: string;
-  
-  giftNiftyPrice: number;
-  giftNiftyChangePoints: number;
-  giftNiftyChangePercent: number;
-
-  globalMacroCompositeScore: number;
-  globalCueSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  
-  fiiDiiNetFlow: {
-    fiiNetCashCr: number;
-    fiiNetFoIndexFuturesCr: number;
-    diiNetCashCr: number;
-    netFlowSentiment: 'INSTITUTIONAL_BUYING' | 'INSTITUTIONAL_SELLING' | 'BALANCED_FLOW';
-    summaryNote: string;
-  };
-
-  predictedOpeningSpot: number;
-  predictedOpeningGapPoints: number;
-  predictedOpeningGapPercent: number;
-  predictedOpeningType: 'GAP_UP_OPENING' | 'GAP_DOWN_OPENING' | 'FLAT_OPENING';
-
-  fullDayChartAnalysis: FullDayChartAnalysis;
-  tomorrowHitStrike: TomorrowHitStrike;
-
-  openingStrategyPlaybook: {
-    openingBias: 'BULLISH_GAP_MOMENTUM' | 'BEARISH_GAP_BREAKDOWN' | 'RANGE_ORB_BREAKOUT' | 'GAP_FADE_REVERSAL';
-    strategyTitle: string;
-    playbookDescription: string;
-    recommendedOpeningOption: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M';
-    openingStrike: number;
-    openingOptionType: 'CE' | 'PE';
-    openingContractTarget1: number;
-    openingContractTarget2: number;
-    openingContractStopLoss: number;
-    openingExecutionTrigger: string;
-  };
-}
+export type { FullDayChartAnalysis, TomorrowHitStrike, AfterMarketOpeningAnalytics };
 
 /**
  * After-Market Opening Analytics Engine
@@ -82,7 +15,8 @@ export function computeAfterMarketOpeningAnalytics(
   marketStatus: MarketHoursStatus,
   vwapClose: number,
   interMarket: InterMarketTelemetry,
-  metrics: MarketMetrics
+  metrics: MarketMetrics,
+  candlePatterns?: MultiTimeframeChartPatterns
 ): AfterMarketOpeningAnalytics {
   const isAfterMarketMode = !marketStatus.isOpen;
   const spotClose = ticker.spotPrice;
@@ -111,11 +45,19 @@ export function computeAfterMarketOpeningAnalytics(
     dayStructureVerdict = 'BULLISH_ACCUMULATION';
   }
 
-  const dayChartSummary = dayStructureVerdict === 'BEARISH_DISTRIBUTION'
-    ? `Today's chart closed weak near session lows (${closePositionPercent}% of range, ${closeVsVwapPoints} pts vs VWAP), confirming persistent institutional supply and breakdown posture.`
-    : dayStructureVerdict === 'BULLISH_ACCUMULATION'
-      ? `Today's chart closed strong near session highs (${closePositionPercent}% of range, +${closeVsVwapPoints} pts above VWAP), signaling aggressive institutional demand and bullish accumulation.`
-      : `Today's chart closed in consolidation (${dayLow.toFixed(1)} - ${dayHigh.toFixed(1)}), balancing near mid-range (${closePositionPercent}% of range).`;
+  // Enrich dayChartSummary to bridge daily candle gain vs late-session candlestick pullback
+  let dayChartSummary = '';
+  if (dayStructureVerdict === 'BEARISH_DISTRIBUTION') {
+    dayChartSummary = `Today's chart closed weak near session lows (${closePositionPercent}% of range, ${closeVsVwapPoints} pts vs VWAP), confirming persistent institutional supply and breakdown posture.`;
+  } else if (dayStructureVerdict === 'BULLISH_ACCUMULATION') {
+    if (candlePatterns?.confluenceBias === 'BEARISH') {
+      dayChartSummary = `Today's chart closed strong on a daily basis (+${(ticker.change || 0).toFixed(1)} pts / +${(ticker.changePercent || 0).toFixed(2)}%, ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts above VWAP), but the final 45 minutes printed sharp bearish profit-taking (${candlePatterns.confluencePattern || 'pullback off session highs'}).`;
+    } else {
+      dayChartSummary = `Today's chart closed strong near session highs (${closePositionPercent}% of range, +${closeVsVwapPoints} pts above VWAP), signaling aggressive institutional demand and bullish accumulation.`;
+    }
+  } else {
+    dayChartSummary = `Today's chart closed in consolidation (${dayLow.toFixed(1)} - ${dayHigh.toFixed(1)}), balancing near mid-range (${closePositionPercent}% of range).`;
+  }
 
   const fullDayChartAnalysis: FullDayChartAnalysis = {
     dayOpen,
@@ -136,11 +78,11 @@ export function computeAfterMarketOpeningAnalytics(
   const beta = isBankNifty ? 1.25 : isNifty ? 1.0 : 0.85;
 
   // GIFT Nifty level is bound to Nifty 50 scale
-  const rawGiftNiftyPrice = interMarket?.giftNifty?.price || 22240.00;
-  const rawGiftNiftyChange = interMarket?.giftNifty?.change !== undefined ? interMarket.giftNifty.change : -15.00;
+  const rawGiftNiftyPrice = interMarket?.giftNifty?.price || ticker.spotPrice;
+  const rawGiftNiftyChange = interMarket?.giftNifty?.change !== undefined ? interMarket.giftNifty.change : 0;
   const rawGiftNiftyPct = interMarket?.giftNifty?.changePercent !== undefined 
     ? interMarket.giftNifty.changePercent 
-    : Number(((rawGiftNiftyChange / Math.max(1, rawGiftNiftyPrice - rawGiftNiftyChange)) * 100).toFixed(2));
+    : 0;
 
   const giftNiftyPrice = rawGiftNiftyPrice;
   const giftNiftyChangePoints = rawGiftNiftyChange;
@@ -178,13 +120,16 @@ export function computeAfterMarketOpeningAnalytics(
   if (vwapPct >= 0.08) openMomentumScore += 1.8;
   else if (vwapPct <= -0.08) openMomentumScore -= 1.8;
 
-  if (tickerExpectedGapPercent >= 0.20) openMomentumScore += 3.5;
-  else if (tickerExpectedGapPercent >= 0.05) openMomentumScore += 1.8;
-  else if (tickerExpectedGapPercent <= -0.20) openMomentumScore -= 3.5;
-  else if (tickerExpectedGapPercent <= -0.05) openMomentumScore -= 1.8;
-
-  if (globalScore >= 18) openMomentumScore += 1.6;
-  else if (globalScore <= -18) openMomentumScore -= 1.6;
+  // Integrate real candlestick confluence & late-session price action
+  if (candlePatterns) {
+    openMomentumScore += (candlePatterns.confluenceScore * 0.45);
+    if (candlePatterns.confluenceBias === 'BEARISH' && dayStructureVerdict === 'BULLISH_ACCUMULATION') {
+      // Counterbalance: Daily bar was green, but late session printed sharp profit-booking breakdown
+      openMomentumScore -= 2.2;
+    } else if (candlePatterns.confluenceBias === 'BULLISH' && dayStructureVerdict === 'BEARISH_DISTRIBUTION') {
+      openMomentumScore += 2.2;
+    }
+  }
 
   let predictedOpeningSpot = spotClose;
   let predictedOpeningGapPoints = 0;
@@ -196,27 +141,46 @@ export function computeAfterMarketOpeningAnalytics(
     const macroAdjustment = Number(((globalScore / 100) * (spotClose * 0.0015)).toFixed(2));
     
     // Exact mathematical gap drift calibrated for asset class:
-    let gapDriftForTicker = 0;
-    if (isNifty) {
-      gapDriftForTicker = rawGiftNiftyChange;
-    } else if (isBankNifty) {
-      // BankNifty gap moves in beta proportion to Nifty percentage move
-      gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * 1.25)) / 100).toFixed(2));
-    } else {
-      // Stocks or USD Equities: scale by percentage move
-      gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * beta)) / 100).toFixed(2));
-    }
+    // GIFT Nifty tracks NSE IX index futures. Implied cash opening equals futures minus fair value basis.
+    const fairBasis = isBankNifty ? 45 : (isNifty ? 18 : 0);
 
-    predictedOpeningSpot = Number((spotClose + gapDriftForTicker + macroAdjustment).toFixed(2));
-    predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
+    if (isNifty && rawGiftNiftyPrice > 10000) {
+      predictedOpeningSpot = Number((rawGiftNiftyPrice - fairBasis + macroAdjustment).toFixed(2));
+      predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
+    } else if (isBankNifty && rawGiftNiftyPrice > 10000) {
+      const niftyRefSpot = 22520.45;
+      const niftyImpliedGapPct = ((rawGiftNiftyPrice - 18 - niftyRefSpot) / niftyRefSpot) * 100;
+      const bankGapPct = Number((niftyImpliedGapPct * 1.25).toFixed(3));
+      predictedOpeningSpot = Number((spotClose * (1 + bankGapPct / 100) + macroAdjustment).toFixed(2));
+      predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
+    } else {
+      const gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * beta)) / 100).toFixed(2));
+      predictedOpeningSpot = Number((spotClose + gapDriftForTicker + macroAdjustment).toFixed(2));
+      predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
+    }
   }
 
   const referenceBasePrice = ticker.prevClose || spotClose;
   const predictedOpeningGapPercent = Number(((predictedOpeningGapPoints / Math.max(1, referenceBasePrice)) * 100).toFixed(2));
 
+  // Implied opening gap determines momentum contribution
+  if (predictedOpeningGapPercent >= 0.18) openMomentumScore += 3.2;
+  else if (predictedOpeningGapPercent >= 0.05) openMomentumScore += 1.6;
+  else if (predictedOpeningGapPercent <= -0.18) openMomentumScore -= 3.2;
+  else if (predictedOpeningGapPercent <= -0.05) openMomentumScore -= 1.6;
+
+  if (globalScore >= 18) openMomentumScore += 1.6;
+  else if (globalScore <= -18) openMomentumScore -= 1.6;
+
   let predictedOpeningType: AfterMarketOpeningAnalytics['predictedOpeningType'] = 'FLAT_OPENING';
-  if (predictedOpeningGapPercent >= 0.15) predictedOpeningType = 'GAP_UP_OPENING';
-  else if (predictedOpeningGapPercent <= -0.15) predictedOpeningType = 'GAP_DOWN_OPENING';
+  const minGapPointsForType = isBankNifty ? 60 : (ticker.currency === '$' ? 1.0 : 25);
+  if (predictedOpeningGapPercent >= 0.15 && predictedOpeningGapPoints >= minGapPointsForType) {
+    predictedOpeningType = 'GAP_UP_OPENING';
+  } else if (predictedOpeningGapPercent <= -0.15 && predictedOpeningGapPoints <= -minGapPointsForType) {
+    predictedOpeningType = 'GAP_DOWN_OPENING';
+  } else {
+    predictedOpeningType = 'FLAT_OPENING';
+  }
 
   // 5. DETERMINE THE PRECISE STRIKE THAT WILL HIT TOMORROW ONCE THE MARKET OPENS
   const step = ticker.strikeStep;
@@ -238,10 +202,23 @@ export function computeAfterMarketOpeningAnalytics(
     // Neutral / Flat Opening: Capital Protection First!
     // Never suggest aggressive option buying at 09:15 AM open when gap is flat (IV crush & whipsaw trap)
     tomorrowAction = 'WAIT_FIRST_15M';
-    tomorrowType = (openMomentumScore < 0 || closeVsVwapPoints < 0) ? 'PE' : 'CE';
+    
+    // When opening is flat, check if candlestick momentum or overnight futures have directional skew:
+    const isBearishSkew = (
+      candlePatterns?.confluenceBias === 'BEARISH' || 
+      (candlePatterns?.confluenceScore ?? 0) < -1.5 || 
+      rawGiftNiftyChange < 0 || 
+      openMomentumScore < 0
+    );
+    tomorrowType = isBearishSkew ? 'PE' : 'CE';
     tomorrowStrike = Math.round(spotClose / step) * step;
     projectedSpotAtHit = predictedOpeningSpot;
-    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). Even though prior session closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}), a flat opening offers zero gap impulse at 09:15 AM. Buying naked options (CE or PE) at market open on a flat gap carries severe risk of rapid Theta decay and instant IV crush. CAPITAL PRESERVATION PROTOCOL: STAND ASIDE in WAIT for the first 15 minutes (09:15 - 09:30 AM). Allow the market to print its 15-Minute Opening Range (ORB); monitor reference contract ${tomorrowStrike} ${tomorrowType} for entry ONLY if spot decisively breaks down below the 15-Minute Range Low / Support (${ticker.currency}${supFloor.toLocaleString()}) after 09:30 AM. If spot reverses above ${ticker.currency}${resWall.toLocaleString()}, wait for Call setup.`;
+
+    const candleContext = candlePatterns?.confluenceBias === 'BEARISH'
+      ? `Even though the daily candle was positive (+${(ticker.change || 0).toFixed(1)} pts), late session 2m/5m/15m candlesticks indicate BEARISH MOMENTUM (${candlePatterns.confluencePattern || 'selling pressure off session highs'}).`
+      : `Daily closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}).`;
+
+    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} However, a flat opening offers zero gap impulse at 09:15 AM. Buying naked options (CE or PE) at market open on a flat gap carries severe risk of rapid Theta decay and instant opening IV crush. CAPITAL PRESERVATION PROTOCOL: STAND ASIDE in WAIT for the first 15 minutes (09:15 - 09:30 AM). Allow the market to print its 15-Minute Opening Range (ORB); monitor reference contract ${tomorrowStrike} ${tomorrowType} for entry ONLY if spot decisively breaks down below the 15-Minute Range Low / Support (${ticker.currency}${supFloor.toLocaleString()}) after 09:30 AM. If spot reverses and breaks out above ${ticker.currency}${resWall.toLocaleString()}, switch to Call setup.`;
   } else if (openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING') {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';

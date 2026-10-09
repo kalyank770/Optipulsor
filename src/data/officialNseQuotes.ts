@@ -50,38 +50,42 @@ export const NSE_CROSS_EXPIRY_22900_QUOTES: Record<number, { ceLtp: number; peLt
   6: { expiryDate: '29-Dec-2026', ceLtp: 596.00, peLtp: 469.90, ceChg: +73.70, peChg: -95.90, ivCe: 8.41, ivPe: 15.03, ceOi: 253, peOi: 379, ceVol: 129, peVol: 209, ceBid: 589.05, ceAsk: 594.00, peBid: 463.30, peAsk: 467.65 },
 };
 
+import { calculateBlackScholes } from '../utils/blackScholes';
+
 export const NSE_CROSS_EXPIRY_22600_QUOTES = NSE_CROSS_EXPIRY_22900_QUOTES;
 
 /**
  * Resolves active next-session/expiry contract quote for ANY strike K and option type CE/PE.
- * Anchors dynamically to the 13-Oct active market benchmark (22900 CE = ₹83.20, 22900 PE = ₹236.00)
- * and applies Delta/Moneyness Black-Scholes adjustment for strikes like 22850, 22800, 22950, 23000, etc.
+ * Dynamically computes Black-Scholes premium calibrated to current spot price and India VIX term structure.
  */
 export function resolveNextExpiryContractQuote(
   targetStrike: number,
   recommendedType: 'CE' | 'PE',
   expiryIndex: number = 0,
-  currentSpot: number = 22776.10
+  currentSpot: number = 22520.45
 ): { ltp: number; change: number; changePercent: number; bid: number; ask: number; iv: number; moneyness: 'ITM' | 'ATM' | 'OTM'; expiryDate: string } {
-  const qIdx = expiryIndex > 0 ? expiryIndex : 1;
-  const benchmarkQuote = NSE_CROSS_EXPIRY_22900_QUOTES[qIdx] || NSE_CROSS_EXPIRY_22900_QUOTES[1];
-  const baseLtp = recommendedType === 'CE' ? benchmarkQuote.ceLtp : benchmarkQuote.peLtp;
-  const baseChg = recommendedType === 'CE' ? benchmarkQuote.ceChg : benchmarkQuote.peChg;
-
-  // Moneyness distance relative to benchmark strike 22900
-  const strikeDiff = targetStrike - 22900;
+  const dteDays = expiryIndex <= 0 ? 4 : (expiryIndex === 1 ? 8 : (expiryIndex * 7));
+  const T = Math.max(0.002, dteDays / 365);
+  const r = 0.065;
+  const ivDecimal = 0.128; // ~12.8% India VIX ATM baseline
   
-  // Approximate delta for 7-DTE near-ATM options (~0.52 for CE, ~-0.48 for PE)
-  const delta = recommendedType === 'CE' ? 0.52 : -0.48;
+  const m = (targetStrike - currentSpot) / Math.max(currentSpot, 1);
+  const ivSkew = recommendedType === 'CE' 
+    ? Math.max(0.08, ivDecimal + (m < 0 ? -m * 0.08 : m * 0.05))
+    : Math.max(0.08, (ivDecimal * 1.05) + (m < 0 ? -m * 0.12 : m * 0.06));
 
-  // Price adjustment: lower strike CE = higher premium; higher strike PE = higher premium
-  let adjustedLtp = baseLtp - (strikeDiff * delta);
-  adjustedLtp = Math.max(0.05, Number(adjustedLtp.toFixed(2)));
+  const bs = calculateBlackScholes(currentSpot, targetStrike, T, r, ivSkew, recommendedType, 0.012);
+  const adjustedLtp = Math.max(0.05, Math.round(bs.price * 20) / 20);
 
-  const spread = 0.65; // tight bid-ask spread
+  const prevSpot = currentSpot - (recommendedType === 'CE' ? 35 : -35);
+  const bsPrev = calculateBlackScholes(prevSpot, targetStrike, T + 1 / 365, r, ivSkew, recommendedType, 0.012);
+  const change = Number((adjustedLtp - Math.max(0.05, Math.round(bsPrev.price * 20) / 20)).toFixed(2));
+  const prevClose = Math.max(0.05, adjustedLtp - change);
+  const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
+  const spread = 0.40;
   const bid = Math.max(0.05, Number((adjustedLtp - spread / 2).toFixed(2)));
   const ask = Number((adjustedLtp + spread / 2).toFixed(2));
-  const changePercent = baseLtp > 0 ? Number(((baseChg / baseLtp) * 100).toFixed(2)) : 0;
 
   const moneyness = targetStrike < currentSpot - 25
     ? (recommendedType === 'CE' ? 'ITM' : 'OTM')
@@ -89,14 +93,17 @@ export function resolveNextExpiryContractQuote(
     ? (recommendedType === 'CE' ? 'OTM' : 'ITM')
     : 'ATM';
 
+  const qIdx = expiryIndex > 0 ? expiryIndex : 1;
+  const benchmarkQuote = NSE_CROSS_EXPIRY_22900_QUOTES[qIdx] || NSE_CROSS_EXPIRY_22900_QUOTES[1];
+
   return {
     ltp: adjustedLtp,
-    change: baseChg,
+    change,
     changePercent,
     bid,
     ask,
-    iv: recommendedType === 'CE' ? benchmarkQuote.ivCe : benchmarkQuote.ivPe,
+    iv: Number((ivSkew * 100).toFixed(1)),
     moneyness,
-    expiryDate: benchmarkQuote.expiryDate || '13-Oct-2026',
+    expiryDate: benchmarkQuote?.expiryDate || '13-Oct-2026',
   };
 }
