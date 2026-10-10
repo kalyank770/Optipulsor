@@ -161,25 +161,42 @@ export function generateHTFCandles(
     if (storeCandles && storeCandles.length > 0) {
       const raw = storeCandles.map(c => ({ ...c }));
       if (raw.length > 0) {
+        // Deduplicate consecutive zero-range flat auction placeholder ticks
+        const sanitized: Candle[] = [];
+        for (let i = 0; i < raw.length; i++) {
+          const c = raw[i];
+          const isFlat = c.open === c.close && c.high === c.low && (c.volume === 0 || c.volume == null);
+          if (isFlat && sanitized.length > 0) {
+            const prevC = sanitized[sanitized.length - 1];
+            const prevIsFlat = prevC.open === prevC.close && prevC.high === prevC.low;
+            if (prevIsFlat) {
+              continue;
+            }
+          }
+          sanitized.push(c);
+        }
+
         // Clean trailing zero-range auction ticks for intraday timeframes (1h)
-        if (timeframe === '1h' && raw.length >= 2) {
-          const last = raw[raw.length - 1];
-          if (last.open === last.close && last.high === last.low && (last.volume === 0 || last.volume == null)) {
-            const prev = raw[raw.length - 2];
-            prev.close = last.close;
-            prev.high = Math.max(prev.high, last.close);
-            prev.low = Math.min(prev.low, last.close);
-            raw.pop();
+        if (timeframe === '1h' && sanitized.length >= 2) {
+          const last = sanitized[sanitized.length - 1];
+          if (last.volume === 0 || last.volume == null) {
+            if (Math.abs(last.high - last.low) <= ticker.strikeStep * 0.35) {
+              const prev = sanitized[sanitized.length - 2];
+              prev.close = last.close;
+              prev.high = Math.max(prev.high, last.high, last.close);
+              prev.low = Math.min(prev.low, last.low, last.close);
+              sanitized.pop();
+            }
           }
         }
         // Anchor the latest candle close to live spot S
-        raw[raw.length - 1] = {
-          ...raw[raw.length - 1],
+        sanitized[sanitized.length - 1] = {
+          ...sanitized[sanitized.length - 1],
           close: S,
-          high: Math.max(raw[raw.length - 1].high, S),
-          low: Math.min(raw[raw.length - 1].low, S),
+          high: Math.max(sanitized[sanitized.length - 1].high, S),
+          low: Math.min(sanitized[sanitized.length - 1].low, S),
         };
-        return raw;
+        return sanitized;
       }
     }
   }
@@ -453,7 +470,15 @@ export function analyzeHTFCandles(
   const volFactor = Math.min(1.5, Math.max(0.6, latest.volume / Math.max(1, avgVol)));
   const bodyRatio = body / Math.max(1, latest.high - latest.low);
 
-  let rawMomentum = ((rsi - 50) / 4.5) + (latest.close >= ema20 ? emaDistNorm * 2.2 : -emaDistNorm * 2.2) + (isGreen ? 1.5 : -1.5) * bodyRatio * volFactor;
+  const singleBarROC = (latest.close - prev.close) / Math.max(1, atr);
+  const emaFactor = (latest.close >= ema20 ? emaDistNorm * 1.5 : -emaDistNorm * 1.5);
+  const impulseScore = (isGreen ? 1 : -1) * (bodyRatio * 2.2 + Math.abs(singleBarROC) * 1.4) * volFactor;
+  let rawMomentum = ((rsi - 50) / 4.8) + (emaFactor * 0.5) + impulseScore;
+  if (isGreen && singleBarROC > 0.8) {
+    rawMomentum = Math.max(2.5, rawMomentum);
+  } else if (isRed && singleBarROC < -0.8) {
+    rawMomentum = Math.min(-2.5, rawMomentum);
+  }
   let momentumScore = Number(Math.max(-9.8, Math.min(9.8, rawMomentum)).toFixed(1));
 
   // Dynamic pattern confidence (58% to 94%)
@@ -467,7 +492,7 @@ export function analyzeHTFCandles(
   const tfName = timeframe === '1h' ? '1-Hour' : timeframe === '1d' ? 'Daily' : 'Weekly';
 
   // Check 1: Bullish Engulfing
-  if (isGreen && (prevIsRed || prevBody < body * 0.6) && latest.close > prev.open && (latest.open <= prev.close + atr * 0.10 || latest.low <= prev.low) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
+  if (isGreen && prevIsRed && prevBody >= Math.max(1.0, atr * 0.20) && latest.close >= prev.open && (latest.open <= prev.close + atr * 0.12 || latest.low <= prev.low) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
     primaryPattern = `Bullish Engulfing (${tfName} Demand Thrust)`;
     patternType = 'REVERSAL';
     patternBias = 'BULLISH';
@@ -475,12 +500,28 @@ export function analyzeHTFCandles(
     patternDescription = `Strong demand expansion on the ${tfName} chart; buyers fully engulfed prior selling pressure.`;
   }
   // Check 2: Bearish Engulfing
-  else if (isRed && (prevIsGreen || prevBody < body * 0.6) && latest.close < prev.open && (latest.open >= prev.close - atr * 0.10 || latest.high >= prev.high) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
+  else if (isRed && prevIsGreen && prevBody >= Math.max(1.0, atr * 0.20) && latest.close <= prev.open && (latest.open >= prev.close - atr * 0.12 || latest.high >= prev.high) && body > Math.max(prevBody * 1.05, atr * 0.35)) {
     primaryPattern = `Bearish Engulfing (${tfName} Supply Rejection)`;
     patternType = 'REVERSAL';
     patternBias = 'BEARISH';
     baseConfidence = 84;
     patternDescription = `Heavy institutional distribution on the ${tfName} chart; sellers completely engulfed prior gains.`;
+  }
+  // Check 2b: Piercing Line (Demand Expansion Rebound)
+  else if (isGreen && prevIsRed && prevBody >= atr * 0.25 && latest.close >= (prev.open + prev.close) / 2 && latest.close > prev.close && body >= atr * 0.35) {
+    primaryPattern = `Piercing Line (${tfName} Strong Demand Rebound)`;
+    patternType = 'REVERSAL';
+    patternBias = 'BULLISH';
+    baseConfidence = 86;
+    patternDescription = `Strong buying surge on ${tfName}: price opened lower but buyers drove prices well above the midpoint of prior session's selling, signaling institutional accumulation.`;
+  }
+  // Check 2c: Dark Cloud Cover (Overhead Supply Resistance)
+  else if (isRed && prevIsGreen && prevBody >= atr * 0.25 && latest.close <= (prev.open + prev.close) / 2 && latest.close < prev.close && body >= atr * 0.35) {
+    primaryPattern = `Dark Cloud Cover (${tfName} Overhead Supply Resistance)`;
+    patternType = 'REVERSAL';
+    patternBias = 'BEARISH';
+    baseConfidence = 84;
+    patternDescription = `Overhead supply rejection on ${tfName}: sellers stepped in after an open, pushing price deep into prior session's advance.`;
   }
   // Check 3: Hammer / Long Lower Shadow Rejection
   else if (lowerWick >= body * 1.8 && upperWick <= body * 0.5 && latest.low <= supportLevel + atr * 0.5) {
@@ -554,13 +595,21 @@ export function analyzeHTFCandles(
     baseConfidence = 72 + (timeframe === '1w' ? 4 : timeframe === '1d' ? 2 : 0);
     patternDescription = `Price consistently creates higher swing highs and higher swing lows holding above the 20 EMA (₹${ema20.toLocaleString()}).`;
   }
-  // Check 11: Lower Highs & Lower Lows Trend
+  // Check 11: Lower Highs & Lower Lows Trend vs Counter-Trend Rebound
   else if (trend === 'BEARISH' || trend === 'STRONG_BEARISH') {
-    primaryPattern = `Descending Drift Structure (LH-LL on ${tfName})`;
-    patternType = 'CONTINUATION';
-    patternBias = 'BEARISH';
-    baseConfidence = 72 + (timeframe === '1w' ? 4 : timeframe === '1d' ? 2 : 0);
-    patternDescription = `Price continuously creates lower swing highs and lower swing lows trapped under the 20 EMA (₹${ema20.toLocaleString()}).`;
+    if (isGreen && body >= atr * 0.25) {
+      primaryPattern = `Demand Absorption Rebound (${tfName} Counter-Trend)`;
+      patternType = 'REVERSAL';
+      patternBias = 'BULLISH';
+      baseConfidence = 78;
+      patternDescription = `Buyers stepped in with a solid green session on ${tfName}, absorbing overhead supply off lower support.`;
+    } else {
+      primaryPattern = `Descending Drift Structure (LH-LL on ${tfName})`;
+      patternType = 'CONTINUATION';
+      patternBias = 'BEARISH';
+      baseConfidence = 72 + (timeframe === '1w' ? 4 : timeframe === '1d' ? 2 : 0);
+      patternDescription = `Price continuously creates lower swing highs and lower swing lows trapped under the 20 EMA (₹${ema20.toLocaleString()}).`;
+    }
   }
   // Check 12: Range-Bound Consolidation
   else {

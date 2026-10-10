@@ -53,6 +53,7 @@ export function generateRollingCandles(
   count = 15
 ): Candle[] {
   const S = ticker.spotPrice;
+  const step = ticker.strikeStep;
 
   // 1. If REAL exchange candles exist for this symbol & timeframe, use them directly!
   const realStore = getGlobalRealCandles(ticker.symbol);
@@ -60,30 +61,48 @@ export function generateRollingCandles(
   if (tfKey && realStore && realStore[tfKey] && realStore[tfKey]!.length > 0) {
     const raw = realStore[tfKey]!.map(c => ({ ...c }));
     if (raw.length > 0) {
-      // Fold trailing zero-range closing auction ticks into previous real candle
-      if (raw.length >= 2) {
-        const last = raw[raw.length - 1];
-        if (last.open === last.close && last.high === last.low && (last.volume === 0 || last.volume == null)) {
-          const prev = raw[raw.length - 2];
-          prev.close = last.close;
-          prev.high = Math.max(prev.high, last.close);
-          prev.low = Math.min(prev.low, last.close);
-          raw.pop();
+      // Deduplicate consecutive zero-range flat auction placeholder ticks (common during NSE post-market 15:15-15:30)
+      const sanitized: Candle[] = [];
+      for (let i = 0; i < raw.length; i++) {
+        const c = raw[i];
+        const isFlat = c.open === c.close && c.high === c.low && (c.volume === 0 || c.volume == null);
+        if (isFlat && sanitized.length > 0) {
+          const prevC = sanitized[sanitized.length - 1];
+          const prevIsFlat = prevC.open === prevC.close && prevC.high === prevC.low;
+          if (prevIsFlat) {
+            // Skip redundant flat auction tick
+            continue;
+          }
+        }
+        sanitized.push(c);
+      }
+
+      // Fold trailing post-market closing auction ticks into previous real candle
+      if (sanitized.length >= 2) {
+        const last = sanitized[sanitized.length - 1];
+        if (last.volume === 0 || last.volume == null) {
+          if (Math.abs(last.high - last.low) <= step * 0.35) {
+            const prevC = sanitized[sanitized.length - 2];
+            prevC.close = last.close;
+            prevC.high = Math.max(prevC.high, last.high, last.close);
+            prevC.low = Math.min(prevC.low, last.low, last.close);
+            sanitized.pop();
+          }
         }
       }
+
       // Anchor latest forming candle to live spot price
-      raw[raw.length - 1] = {
-        ...raw[raw.length - 1],
+      sanitized[sanitized.length - 1] = {
+        ...sanitized[sanitized.length - 1],
         close: S,
-        high: Math.max(raw[raw.length - 1].high, S),
-        low: Math.min(raw[raw.length - 1].low, S),
+        high: Math.max(sanitized[sanitized.length - 1].high, S),
+        low: Math.min(sanitized[sanitized.length - 1].low, S),
       };
-      return raw.slice(-count);
+      return sanitized.slice(-count);
     }
   }
 
   const changePct = ticker.changePercent;
-  const step = ticker.strikeStep;
   const now = Date.now();
   const tfMs = timeframeMinutes * 60 * 1000;
 
@@ -212,7 +231,7 @@ export function analyzeTimeframeCandles(
     trSum += tr;
   }
   const rawAtr = trSum / (cleanCandles.length - 1);
-  const atr = Number(Math.max(ticker.strikeStep * 0.08, rawAtr).toFixed(2));
+  const atr = Number(Math.max(ticker.strikeStep * 0.12, rawAtr).toFixed(2));
 
   // 3. Highs and Lows of recent window (last 6-8 candles)
   const windowSize = Math.min(8, cleanCandles.length);
@@ -326,16 +345,40 @@ export function analyzeTimeframeCandles(
     momentumScore = -8.8;
   }
   // Pattern D: Bullish Engulfing (Demand Expansion)
-  else if (isGreen && (prevIsRed || prevBody < body * 0.6) && latest.close > prev.open && (latest.open <= prev.close + atr * 0.10 || latest.low <= prev.low) && body > Math.max(prevBody * 1.02, atr * 0.35)) {
+  else if (isGreen && prevIsRed && prevBody >= Math.max(0.8, atr * 0.20) && latest.close >= prev.open && (latest.open <= prev.close + atr * 0.12 || latest.low <= prev.low) && body > Math.max(prevBody * 1.02, atr * 0.35)) {
     pattern = `${timeframe} Bullish Engulfing (Demand Expansion)`;
     patternBias = 'BULLISH';
     momentumScore = 8.5;
   }
   // Pattern E: Bearish Engulfing (Supply Expansion)
-  else if (isRed && (prevIsGreen || prevBody < body * 0.6) && latest.close < prev.open && (latest.open >= prev.close - atr * 0.10 || latest.high >= prev.high) && body > Math.max(prevBody * 1.02, atr * 0.35)) {
+  else if (isRed && prevIsGreen && prevBody >= Math.max(0.8, atr * 0.20) && latest.close <= prev.open && (latest.open >= prev.close - atr * 0.12 || latest.high >= prev.high) && body > Math.max(prevBody * 1.02, atr * 0.35)) {
     pattern = `${timeframe} Bearish Engulfing (Supply Expansion)`;
     patternBias = 'BEARISH';
     momentumScore = -8.5;
+  }
+  // Pattern E2: Piercing Line (Demand Expansion Rebound)
+  else if (isGreen && prevIsRed && prevBody >= atr * 0.25 && latest.close >= (prev.open + prev.close) / 2 && latest.close > prev.close && body >= atr * 0.30) {
+    pattern = `${timeframe} Piercing Line (Demand Expansion Rebound)`;
+    patternBias = 'BULLISH';
+    momentumScore = 7.8;
+  }
+  // Pattern E3: Dark Cloud Cover (Overhead Supply Resistance)
+  else if (isRed && prevIsGreen && prevBody >= atr * 0.25 && latest.close <= (prev.open + prev.close) / 2 && latest.close < prev.close && body >= atr * 0.30) {
+    pattern = `${timeframe} Dark Cloud Cover (Overhead Supply Resistance)`;
+    patternBias = 'BEARISH';
+    momentumScore = -7.8;
+  }
+  // Pattern E4: Bullish Harami (Demand Absorption Inside Bar)
+  else if (isGreen && prevIsRed && prevBody >= atr * 0.35 && latest.high <= prev.high && latest.low >= prev.low && latest.close > prev.close) {
+    pattern = `${timeframe} Bullish Harami (Absorption Inside Bar)`;
+    patternBias = 'BULLISH';
+    momentumScore = 6.8;
+  }
+  // Pattern E5: Bearish Harami (Distribution Inside Bar)
+  else if (isRed && prevIsGreen && prevBody >= atr * 0.35 && latest.high <= prev.high && latest.low >= prev.low && latest.close < prev.close) {
+    pattern = `${timeframe} Bearish Harami (Distribution Inside Bar)`;
+    patternBias = 'BEARISH';
+    momentumScore = -6.8;
   }
   // Pattern F: Bullish Pin Bar / Hammer (Support Rejection)
   else if (lowerWick >= Math.max(0.5, atr * 0.35) && lowerWick >= body * 1.4 && lowerWick >= upperWick * 1.6 && latest.low <= support + atr * 0.40) {
@@ -397,15 +440,19 @@ export function analyzeTimeframeCandles(
     patternBias = 'BEARISH';
     momentumScore = -7.5;
   }
-  // Pattern P: Counter-Trend Pullback / Healthy Retracement
-  else if (trend === 'BULLISH' && isRed) {
+  // Pattern P: Counter-Trend Pullback / Demand Expansion Impulse
+  else if (isGreen && body >= atr * 0.35 && latest.close > prev.close) {
+    pattern = `${timeframe} Demand Expansion Impulse`;
+    patternBias = 'BULLISH';
+    momentumScore = Number(Math.min(7.5, Math.max(3.2, 4.2 + candleVelocity * 0.8)).toFixed(1));
+  } else if (trend === 'BULLISH' && isRed) {
     pattern = `${timeframe} Healthy Pullback to Support / EMA`;
     patternBias = 'BULLISH';
     momentumScore = Number(Math.max(1.2, Math.min(4.2, 3.2 + candleVelocity * 0.8)).toFixed(1));
   } else if (trend === 'BEARISH' && isGreen) {
     pattern = `${timeframe} Bear Relief Bounce to EMA`;
-    patternBias = 'BEARISH';
-    momentumScore = Number(Math.min(-1.2, Math.max(-4.2, -3.2 + candleVelocity * 0.8)).toFixed(1));
+    patternBias = 'NEUTRAL';
+    momentumScore = Number(Math.max(-1.5, Math.min(2.0, candleVelocity * 0.8)).toFixed(1));
   }
   // Pattern Q: Default Trend Alignment with Velocity Scaling
   else if (trend === 'BULLISH') {

@@ -13,6 +13,7 @@ import { GroundedPayoffSection } from './components/GroundedPayoffSection';
 import { HTFPredictionsWorkstation } from './components/HTFPredictionsWorkstation';
 import { DaysReportTab } from './components/DaysReportTab';
 import { PaperTradingTab } from './components/PaperTradingTab';
+import { LiveFeedMetricsCard } from './components/LiveFeedMetricsCard';
 import { usePaperTrading } from './hooks/usePaperTrading';
 import { computeMultiTimeframePredictions } from './utils/htfPredictionEngine';
 import { OptionContract, OptionType } from './types/options';
@@ -67,9 +68,19 @@ export default function App() {
     dataSourceNote,
     marketStatus,
     syncLiveExchange,
+    liveConstituentAnalysis,
+    liveGlobalMacro,
     isGiftNiftySyncing,
     giftNiftyLastSynced,
     refreshGiftNifty,
+    isCandlesLiveFeed,
+    candlesLastSynced,
+    refreshMarketCandles,
+    heavyweightsLastSynced,
+    refreshHeavyweights,
+    newsLastSynced,
+    feedLatencies,
+    syncAllFeeds,
     logCurrentSignalToHistory,
     refreshStrikeHistory,
     resetStrikeHistory,
@@ -234,32 +245,31 @@ export default function App() {
     };
   }, [signal?.action, signal?.sidewaysMarketAnalysis?.isSideways]);
 
-  // Candlestick Momentum Tab Status Indicator Dot
+  // Candlestick Momentum Tab Status Indicator Dot (strictly inlined with Overall Momentum)
   const candlestickSentimentDot = useMemo(() => {
-    const bias = htfPredictions?.overallHTFBias || '';
-    if (bias.includes('BULLISH') || signal.action === 'BUY_CE') {
+    const overallBias = htfPredictions?.overallHTFBias || '';
+    const score = htfPredictions?.confluenceScore ?? 0;
+
+    if (overallBias.includes('BULLISH')) {
       return {
         color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
-        title: 'Bullish Momentum',
+        title: `Overall Momentum: ${overallBias.replace(/_/g, ' ')} (${score > 0 ? '+' : ''}${score} pts)`,
       };
     }
-    if (bias.includes('BEARISH') || signal.action === 'BUY_PE') {
+
+    if (overallBias.includes('BEARISH')) {
       return {
         color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
-        title: 'Bearish Momentum',
+        title: `Overall Momentum: ${overallBias.replace(/_/g, ' ')} (${score} pts)`,
       };
     }
-    if (bias.includes('SIDEWAYS') || bias.includes('RANGE') || signal.sidewaysMarketAnalysis?.isSideways) {
-      return {
-        color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
-        title: 'Sideways / Range',
-      };
-    }
+
+    const label = overallBias ? overallBias.replace(/_/g, ' ') : 'NEUTRAL CONSOLIDATION';
     return {
-      color: 'bg-slate-400',
-      title: 'Neutral / Equilibrium',
+      color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
+      title: `Overall Momentum: ${label} (${score > 0 ? '+' : ''}${score} pts)`,
     };
-  }, [htfPredictions?.overallHTFBias, signal.action, signal.sidewaysMarketAnalysis?.isSideways]);
+  }, [htfPredictions?.overallHTFBias, htfPredictions?.confluenceScore]);
 
   // News & Catalysts Tab Status Indicator Dot (matches Overall label in News & Catalysts)
   const newsSentimentDot = useMemo(() => {
@@ -409,6 +419,34 @@ export default function App() {
         )}
 
 
+
+        {/* Live Feed Sources Connectivity & Health Card */}
+        <LiveFeedMetricsCard
+          ticker={selectedTicker}
+          metrics={metrics}
+          marketStatus={marketStatus}
+          globalMacro={liveGlobalMacro}
+          constituentAnalysis={liveConstituentAnalysis}
+          newsFeed={newsFeed}
+          chainRowCount={chain.length}
+          lastUpdated={lastUpdated}
+          candlesLastSynced={candlesLastSynced}
+          giftNiftyLastSynced={giftNiftyLastSynced}
+          heavyweightsLastSynced={heavyweightsLastSynced}
+          newsLastSynced={newsLastSynced}
+          feedLatencies={feedLatencies}
+          isSyncing={isSyncing}
+          isGiftNiftySyncing={isGiftNiftySyncing}
+          isCandlesLiveFeed={isCandlesLiveFeed}
+          isLiveActive={isLiveActive}
+          onToggleAutoSync={() => setIsLiveActive(!isLiveActive)}
+          onSyncAllFeeds={syncAllFeeds}
+          onRefreshChain={handleForceRefresh}
+          onRefreshCandles={refreshMarketCandles}
+          onRefreshMacro={refreshGiftNifty}
+          onRefreshHeavyweights={refreshHeavyweights}
+          onRefreshNews={refreshNews}
+        />
 
         {/* Workstation Tab Navigation Bar */}
         <div className="bg-slate-900/95 border border-slate-800/90 rounded-xl p-1 sm:p-1.5 shadow-sm sticky top-[72px] sm:top-[126px] z-30 backdrop-blur-md">
