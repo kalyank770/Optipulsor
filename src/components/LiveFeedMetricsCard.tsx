@@ -263,14 +263,13 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
             </button>
           )}
 
-          {/* Details / Collapse Button */}
+          {/* Expand / Collapse Icon Button */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-mono font-medium transition-all cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all cursor-pointer shrink-0"
             title={isExpanded ? 'Collapse Feed Matrix' : 'Expand Full Connectivity Matrix & Real Payloads'}
           >
-            <span>{isExpanded ? 'Collapse' : 'Details'}</span>
-            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>
       </div>

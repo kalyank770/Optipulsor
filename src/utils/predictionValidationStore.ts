@@ -438,15 +438,17 @@ export function validatePredictionAgainstLiveOpen(
   const actualDirectionWorked = isFlatExpected 
     ? (Math.abs(actualGapPercent) < 0.25 || actualOpeningType === 'FLAT_OPENING')
     : ((params.predictedOpeningType === 'GAP_UP_OPENING' && actualGapPoints > 0) ||
-       (params.predictedOpeningType === 'GAP_DOWN_OPENING' && actualGapPoints < 0));
+       (params.predictedOpeningType === 'GAP_DOWN_OPENING' && actualGapPoints < 0) ||
+       (params.recommendedAction === 'BUY_CE' && actualGapPoints > 0) ||
+       (params.recommendedAction === 'BUY_PE' && actualGapPoints < 0));
 
-  // Check strike hit
+  // Check strike hit: verifies if either current spot or intraday session high/low tested the predicted strike
   const isCe = params.predictedOptionType === 'CE';
   const actualStrikeTested = isFlatExpected
     ? Math.abs(currentSpot - params.predictedHitStrike) <= ticker.strikeStep * 1.2
     : isCe 
-    ? (isMarketPreOpen ? true : currentSpot >= (params.predictedHitStrike - ticker.strikeStep * 0.2))
-    : (isMarketPreOpen ? true : currentSpot <= (params.predictedHitStrike + ticker.strikeStep * 0.2));
+    ? ((ticker.dayHigh && ticker.dayHigh >= (params.predictedHitStrike - ticker.strikeStep * 0.2)) || currentSpot >= (params.predictedHitStrike - ticker.strikeStep * 0.2))
+    : ((ticker.dayLow && ticker.dayLow <= (params.predictedHitStrike + ticker.strikeStep * 0.2)) || currentSpot <= (params.predictedHitStrike + ticker.strikeStep * 0.2));
 
   // Check GIFT Nifty correlation
   const giftDirMatch = (params.giftNiftyChangePoints > 0 && actualGapPoints > 0) ||
