@@ -10,7 +10,8 @@ import {
   AdvanceTradeSetup,
   AdvanceSetupType,
   LeadingPredictorFactor,
-  OptionType
+  OptionType,
+  Moneyness
 } from '../types/options';
 import { calculateBlackScholes } from './blackScholes';
 import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
@@ -629,12 +630,20 @@ export function computeAdvanceTradeSetup(
       : `Standing aside preserves capital from theta decay during balanced market chop.`,
   };
 
+  const isAtmStrike = Math.abs(recStrike - spotPrice) <= step * 0.45;
+  const calculatedMoneyness: Moneyness = isAtmStrike
+    ? 'ATM'
+    : recType === 'CE'
+      ? (recStrike < spotPrice ? 'ITM' : 'OTM')
+      : (recStrike > spotPrice ? 'ITM' : 'OTM');
+
   return {
     isAvailable: anticipatedAction !== 'WAIT_NEUTRAL',
     setupType,
     anticipatedAction,
     recommendedStrike: recStrike,
     recommendedType: recType,
+    moneyness: calculatedMoneyness,
     title,
     subTitle,
     advanceEntryZoneSpot,

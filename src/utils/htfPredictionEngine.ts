@@ -7,7 +7,8 @@ import {
   InterMarketTelemetry,
   NewsItem,
   VolumeAnalyticsData,
-  StrikeTrendAnalytics
+  StrikeTrendAnalytics,
+  Moneyness
 } from '../types/options';
 import { 
   HTFTimeframe, 
@@ -838,6 +839,13 @@ export function generateHorizonPrediction(
     ? `Buy ${recommendedStrike} PE on pullbacks towards ₹${(S + step * 0.15).toFixed(0)}. Target ₹${target1LTP} with SL strictly at ₹${stopLossLTP}.`
     : `Market in equilibrium deadband. Avoid directional OTM buying; wait for confirmed breakout outside ₹${projectedRangeLow} - ₹${projectedRangeHigh}.`;
 
+  const isAtmH = Math.abs(recommendedStrike - S) <= step * 0.45;
+  const hMoneyness: Moneyness = isAtmH
+    ? 'ATM'
+    : recommendedType === 'CE'
+      ? (recommendedStrike < S ? 'ITM' : 'OTM')
+      : (recommendedStrike > S ? 'ITM' : 'OTM');
+
   return {
     horizon,
     horizonLabel: label,
@@ -852,6 +860,7 @@ export function generateHorizonPrediction(
     expectedMovePercent,
     recommendedStrike,
     recommendedType,
+    moneyness: hMoneyness,
     recommendedContractLTP: contractLTP,
     target1LTP,
     target2LTP,
@@ -1014,6 +1023,13 @@ export function generateExpiryForecast(
     targetStrike = Math.round(forwardSpot / step) * step;
   }
 
+  const isAtmExpiry = Math.abs(targetStrike - S) <= step * 0.45;
+  const targetMoneyness: Moneyness = isAtmExpiry
+    ? 'ATM'
+    : recommendedType === 'CE'
+      ? (targetStrike < S ? 'ITM' : 'OTM')
+      : (targetStrike > S ? 'ITM' : 'OTM');
+
   // Look up live contract from option chain for specific expiryIndex
   const targetChain = (chain && chain.length > 0 && expiryIndex === 0) ? chain : buildInitialChain(ticker, expiryIndex);
   const row = targetChain?.find(r => r.strike === targetStrike);
@@ -1056,7 +1072,8 @@ export function generateExpiryForecast(
   const target2 = Math.max(0.05, Number((contractLTP + (target1 - contractLTP) * 1.70).toFixed(2)));
   
   // Disciplined risk capping (maximum 18-20% capital risk on entry premium)
-  const stopLoss = Math.max(0.05, Number(Math.max(contractLTP * 0.65, contractLTP * 0.80).toFixed(2)));
+  const maxLossCap = contractLTP * 0.80;
+  const stopLoss = Math.max(0.05, Number(Math.min(maxLossCap, Math.max(contractLTP * 0.65, bsTarget.price ? contractLTP * 0.80 : contractLTP * 0.80)).toFixed(2)));
 
   const risk = Math.max(1.0, contractLTP - stopLoss);
   const reward = Math.max(1.0, target1 - contractLTP);
@@ -1103,6 +1120,7 @@ export function generateExpiryForecast(
     expectedPCR,
     recommendedStrike: targetStrike,
     recommendedType,
+    moneyness: targetMoneyness,
     entryZone,
     contractLTP,
     target1,

@@ -12,6 +12,7 @@ import {
   HorizonPrediction, 
   ExpiryForecast 
 } from '../types/htfPredictions';
+import { MoneynessBadge, getMoneyness } from './MoneynessBadge';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -554,8 +555,12 @@ export function HTFPredictionsWorkstation({
                           <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider font-mono">
                             ★ Recommended Action
                           </span>
-                          <div className="text-base sm:text-lg font-black text-white font-mono flex items-center gap-2">
+                          <div className="text-base sm:text-lg font-black text-white font-mono flex items-center gap-2 flex-wrap">
                             <span>BUY {ticker.symbol} {e.recommendedStrike} {e.recommendedType}</span>
+                            <MoneynessBadge 
+                              moneyness={e.moneyness || getMoneyness(e.recommendedStrike, e.recommendedType, ticker.spotPrice, ticker.strikeStep)} 
+                              size="xs" 
+                            />
                             <span className={`text-xs px-2 py-0.5 rounded font-bold ${
                               isCE ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-rose-950 text-rose-400 border border-rose-800'
                             }`}>
@@ -691,7 +696,13 @@ export function HTFPredictionsWorkstation({
                     <div className="p-3 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2 text-xs">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] uppercase text-slate-400 font-bold">Suggested Option</span>
-                        <strong className="text-emerald-400 font-mono text-sm">BUY {h.recommendedStrike} {h.recommendedType}</strong>
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          <strong className="text-emerald-400 font-mono text-sm">BUY {h.recommendedStrike} {h.recommendedType}</strong>
+                          <MoneynessBadge 
+                            moneyness={h.moneyness || getMoneyness(h.recommendedStrike, h.recommendedType, ticker.spotPrice, ticker.strikeStep)} 
+                            size="xs" 
+                          />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-3 gap-1.5 font-mono text-center pt-1 border-t border-slate-800">

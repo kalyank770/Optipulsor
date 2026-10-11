@@ -8,6 +8,7 @@ import {
   TradeSignal
 } from '../types/options';
 import { MarketHoursStatus } from '../utils/marketHours';
+import { MoneynessBadge, getMoneyness } from './MoneynessBadge';
 import { 
   Zap, 
   ShieldCheck, 
@@ -92,8 +93,10 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const optReward = optTarget1 - currentLTP;
   const optRR = `1 : ${(optReward / optRisk).toFixed(1)}`;
 
+  const effectiveMoneyness = setup.moneyness || signal?.moneyness || getMoneyness(setup.recommendedStrike, setup.recommendedType, ticker.spotPrice, ticker.strikeStep);
+
   const handleCopy = () => {
-    const text = `OptiPulse Signal: ${isBull ? 'CALL (CE)' : isBear ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${setup.recommendedStrike} ${setup.recommendedType} @ ${ticker.currency}${currentLTP.toFixed(2)}\nConfidence: ${setup.probabilityScore}%\nTarget 1: ${ticker.currency}${optTarget1.toFixed(2)}\nTarget 2: ${ticker.currency}${optTarget2.toFixed(2)}\nStop Loss: ${ticker.currency}${optStopLoss.toFixed(2)}\nR:R: ${optRR}`;
+    const text = `OptiPulse Signal: ${isBull ? 'CALL (CE)' : isBear ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${setup.recommendedStrike} ${setup.recommendedType} (${effectiveMoneyness}) @ ${ticker.currency}${currentLTP.toFixed(2)}\nConfidence: ${setup.probabilityScore}%\nTarget 1: ${ticker.currency}${optTarget1.toFixed(2)}\nTarget 2: ${ticker.currency}${optTarget2.toFixed(2)}\nStop Loss: ${ticker.currency}${optStopLoss.toFixed(2)}\nR:R: ${optRR}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -182,8 +185,18 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-                  {isBull && <span className="text-emerald-400">BUY CALL — {setup.recommendedStrike} CE</span>}
-                  {isBear && <span className="text-rose-400">BUY PUT — {setup.recommendedStrike} PE</span>}
+                  {isBull && (
+                    <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
+                      <span>BUY CALL — {setup.recommendedStrike} CE</span>
+                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                    </span>
+                  )}
+                  {isBear && (
+                    <span className="text-rose-400 flex items-center gap-2 flex-wrap">
+                      <span>BUY PUT — {setup.recommendedStrike} PE</span>
+                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                    </span>
+                  )}
                   {isWait && <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>}
                 </h2>
 
@@ -263,7 +276,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-amber-200/90 leading-normal">
-              Even though late-session candlesticks exhibit bearish pressure, overnight GIFT Nifty points to a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts · {signal?.afterMarketAnalytics?.predictedOpeningGapPercent ?? 0.12}%). Buying naked options (CE or PE) at 09:15 AM on a flat open triggers instant opening IV crush and theta decay with zero trend impulse. Professional protocol: Stand aside for the first 15 minutes. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType}</strong> strictly upon a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
+              Even though late-session candlesticks exhibit bearish pressure, overnight GIFT Nifty points to a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts · {signal?.afterMarketAnalytics?.predictedOpeningGapPercent ?? 0.12}%). Buying naked options (CE or PE) at 09:15 AM on a flat open triggers instant opening IV crush and theta decay with zero trend impulse. Professional protocol: Stand aside for the first 15 minutes. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> strictly upon a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
             </p>
           </div>
         </div>
@@ -288,12 +301,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             </span>
           </div>
           <div className="mt-1">
-            <div className={`text-base sm:text-xl font-bold font-mono flex items-center gap-1.5 ${
+            <div className={`text-base sm:text-xl font-bold font-mono flex items-center gap-1.5 flex-wrap ${
               isBull ? 'text-emerald-300' : isBear ? 'text-rose-300' : 'text-slate-300'
             }`}>
               {isBull && <ArrowUpRight className="w-4 h-4 text-emerald-400 shrink-0" />}
               {isBear && <ArrowDownRight className="w-4 h-4 text-rose-400 shrink-0" />}
               <span>{setup.recommendedStrike} {setup.recommendedType}</span>
+              <MoneynessBadge moneyness={effectiveMoneyness} size="xs" />
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
               Live LTP: <strong className="text-white">{ticker.currency}{currentLTP.toFixed(2)}</strong>

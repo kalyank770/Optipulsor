@@ -99,6 +99,8 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
             const isMaxPain = strike === maxPainStrike;
             const isRecCE = recommendedType === 'CE' && recommendedStrike === strike;
             const isRecPE = recommendedType === 'PE' && recommendedStrike === strike;
+            const isRecommended = isRecCE || isRecPE;
+            const recMoneyness = isRecCE ? row.ce.moneyness : row.pe.moneyness;
 
             const ceITM = strike < ticker.spotPrice;
             const peITM = strike > ticker.spotPrice;
@@ -137,19 +139,22 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
 
                 {/* Center Strike: 1 column */}
                 <div className="col-span-1 flex flex-col items-center justify-center px-1 text-center">
-                  <span className={`font-bold text-xs ${isATM ? 'text-amber-300' : 'text-white'}`}>
+                  <span className={`font-bold text-xs ${isRecommended ? 'text-emerald-300' : isATM ? 'text-amber-300' : 'text-white'}`}>
                     {strike}
                   </span>
-                  {isATM && (
+                  {isRecommended ? (
+                    <span className="text-[7.5px] font-bold px-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      REC·{recMoneyness}
+                    </span>
+                  ) : isATM ? (
                     <span className="text-[8px] font-bold px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
                       ATM
                     </span>
-                  )}
-                  {isMaxPain && !isATM && (
+                  ) : isMaxPain ? (
                     <span className="text-[8px] font-bold px-1 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40">
                       PAIN
                     </span>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* PE Card: Right 3 columns */}
@@ -231,6 +236,8 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
               const isMaxPain = strike === maxPainStrike;
               const isRecCE = recommendedType === 'CE' && recommendedStrike === strike;
               const isRecPE = recommendedType === 'PE' && recommendedStrike === strike;
+              const isRecommended = isRecCE || isRecPE;
+              const recMoneyness = isRecCE ? row.ce.moneyness : row.pe.moneyness;
 
               // ITM conditions:
               const ceITM = strike < ticker.spotPrice;
@@ -333,11 +340,16 @@ export const OptionChainTable: React.FC<OptionChainTableProps> = ({
 
                   {/* CENTER: STRIKE PRICE */}
                   <td className={`py-2 px-4 text-center font-bold text-sm bg-slate-950 relative ${
-                    isATM ? 'text-amber-300 bg-amber-950/30' : 'text-white'
+                    isRecommended ? 'text-emerald-300 bg-emerald-950/20' : isATM ? 'text-amber-300 bg-amber-950/30' : 'text-white'
                   }`}>
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
                       <span>{strike.toLocaleString()}</span>
-                      {isATM && (
+                      {isRecommended && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/25 text-emerald-300 border border-emerald-500/50 font-mono font-bold" title={`Recommended Strike: ${strike} ${recommendedType} (${recMoneyness})`}>
+                          REC · {recMoneyness}
+                        </span>
+                      )}
+                      {isATM && !isRecommended && (
                         <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
                           ATM
                         </span>

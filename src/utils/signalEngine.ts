@@ -23,6 +23,7 @@ import { computeMultiTimeframePredictions } from './htfPredictionEngine';
 import { loadStrikeHistory, deriveStrikeTrendAnalytics } from './strikeHistoryEngine';
 import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { computeAdvanceTradeSetup } from './advanceTradeEngine';
+import { loadSelfHealingCalibration } from './selfHealingEngine';
 
 /**
  * Computes market metrics from an option chain
@@ -151,7 +152,8 @@ export function generateTradeSignal(
   }
 
   // Global News, Gift Nifty & Macro Sentiment impact
-  const relevantNews = newsItems.filter(n => n.relatedTickers.includes(ticker.symbol) || n.category === 'Macro' || n.category === 'Geopolitics');
+  const safeNews = Array.isArray(newsItems) ? newsItems : [];
+  const relevantNews = safeNews.filter(n => n.relatedTickers.includes(ticker.symbol) || n.category === 'Macro' || n.category === 'Geopolitics');
   const giftNiftyNews = relevantNews.filter(n => n.title.toLowerCase().includes('gift nifty') || n.title.toLowerCase().includes('sgx') || n.title.toLowerCase().includes('global') || n.title.toLowerCase().includes('wall street'));
   const bullishNewsCount = relevantNews.filter(n => n.sentiment === 'BULLISH').length;
   const bearishNewsCount = relevantNews.filter(n => n.sentiment === 'BEARISH').length;
@@ -715,9 +717,11 @@ export function generateTradeSignal(
 
   // Select target strike:
   // Standard recommended strike for directional retail option buying is ATM
-  // If High IV Rank (>70) or high VIX (>22), switch to ITM strike to shield against IV Crush
+  // Integrated Self-Healing Calibration: If High IV Rank (>70), high VIX (>22), or Self-Healing ITM Bias (>0.58), switch to ITM strike to shield against IV Crush
+  const selfHealing = loadSelfHealingCalibration(ticker.symbol, [], ticker);
+  const isItmHealingBias = selfHealing.active && (selfHealing.parameters.deltaTargetMoneynessBias > 0.58);
   let targetStrike = atmStrike;
-  if ((ivRank >= 70 || vix >= 22) && (action === 'BUY_CE' || action === 'BUY_PE')) {
+  if ((ivRank >= 70 || vix >= 22 || isItmHealingBias) && (action === 'BUY_CE' || action === 'BUY_PE')) {
     targetStrike = recommendedType === 'CE' ? atmStrike - ticker.strikeStep : atmStrike + ticker.strikeStep;
   }
 
@@ -1004,6 +1008,12 @@ export function generateTradeSignal(
   const greekGain1 = Math.max(tick * 2, deltaExpansion1 + gammaAcceleration1 - intradayTheta1 + vegaExpansion1);
   const estGain1 = bsDeltaGain1 * 0.50 + greekGain1 * 0.50;
   let target1 = roundToTick(premium + estGain1);
+
+  // Self-Healing Adaptive Target Adjustment: If PCR is extreme, scale target 1 to lock tactical profits early
+  if (selfHealing.active && (pcrTotalOI >= 1.30 || pcrTotalOI <= 0.65)) {
+    const pcrScale = selfHealing.parameters.pcrExtremeTargetScale || 0.88;
+    target1 = roundToTick(premium + Math.max(tick * 2, estGain1 * pcrScale));
+  }
   const target1Delta = roundToTick(Math.max(tick, target1 - premium));
 
   // 2. Target 2 Option Price: Direct, authentic payoff at spotTarget2
@@ -1028,6 +1038,12 @@ export function generateTradeSignal(
   const greekLoss = Math.max(tick, delta * deltaSpotSL - 0.5 * gamma * Math.pow(deltaSpotSL, 2) + intradayThetaSL);
   const estLoss = bsLoss * 0.50 + greekLoss * 0.50;
   let stopLoss = Math.max(tick, roundToTick(premium - estLoss));
+  
+  // Self-Healing Adaptive Trailing Stop Loss Cushion
+  if (selfHealing.active && selfHealing.parameters.adaptiveTrailingSlBufferPts > 0) {
+    const slBuffer = Math.min(tick * 4, selfHealing.parameters.adaptiveTrailingSlBufferPts * 0.15);
+    stopLoss = Math.max(tick, roundToTick(stopLoss - slBuffer));
+  }
   const actualRisk = roundToTick(Math.max(tick, premium - stopLoss));
 
   // GUARD RAIL 10: Strict Risk-to-Reward Expected Value Filter
@@ -1586,7 +1602,7 @@ export function generateTradeSignal(
     chain,
     marketStatus,
     interMarketTelemetry,
-    newsItems,
+    safeNews,
     rt.volumeAnalytics,
     strikeAnalytics
   );

@@ -148,9 +148,7 @@ export function computeAfterMarketOpeningAnalytics(
       predictedOpeningSpot = Number((rawGiftNiftyPrice - fairBasis + macroAdjustment).toFixed(2));
       predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
     } else if (isBankNifty && rawGiftNiftyPrice > 10000) {
-      const niftyRefSpot = 22520.45;
-      const niftyImpliedGapPct = ((rawGiftNiftyPrice - 18 - niftyRefSpot) / niftyRefSpot) * 100;
-      const bankGapPct = Number((niftyImpliedGapPct * 1.25).toFixed(3));
+      const bankGapPct = Number((rawGiftNiftyPct * 1.25).toFixed(3));
       predictedOpeningSpot = Number((spotClose * (1 + bankGapPct / 100) + macroAdjustment).toFixed(2));
       predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
     } else {

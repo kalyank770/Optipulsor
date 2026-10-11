@@ -352,7 +352,7 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
               <span>All 7 streams connect directly to live exchange endpoints. Zero synthetic mock datasets, zero fallbacks.</span>
             </div>
             <span className="text-slate-500 text-[10px]">
-              OptiPulse V7.0 Core Pipeline
+              OptiPulse V8.0 Core Pipeline
             </span>
           </div>
         </div>

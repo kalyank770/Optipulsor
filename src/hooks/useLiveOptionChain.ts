@@ -842,16 +842,17 @@ export function useLiveOptionChain() {
     return () => clearInterval(candleTimer);
   }, [selectedTicker.symbol, fetchMarketCandles]);
 
-  // Periodically refresh news during market hours (every 60s)
+  // Periodically refresh news (every 60s during market hours, 120s overnight)
   useEffect(() => {
-    if (!isLiveActive || !marketStatus.isOpen) return;
+    if (!isLiveActive) return;
+    const interval = marketStatus.isOpen ? 60000 : 120000;
     const newsTimer = setInterval(() => {
       fetchRealNews(selectedTicker.symbol);
-    }, 60000);
+    }, interval);
     return () => clearInterval(newsTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
 
-  // Aggressive 24/7 refresh loop for GIFT Nifty & Inter-Market Telemetry (every 8s continuously)
+  // Aggressive 24/7 refresh loop for GIFT Nifty & Inter-Market Telemetry (every 4s continuously)
   useEffect(() => {
     fetchGlobalMacro(selectedTicker.symbol);
     const macroTimer = setInterval(() => {
@@ -860,12 +861,13 @@ export function useLiveOptionChain() {
     return () => clearInterval(macroTimer);
   }, [selectedTicker.symbol, fetchGlobalMacro]);
 
-  // Periodically refresh heavyweights during market hours (every 6s)
+  // Periodically refresh heavyweights (every 6s during market hours, 30s overnight)
   useEffect(() => {
-    if (!isLiveActive || !marketStatus.isOpen || selectedTicker.currency !== '₹') return;
+    if (!isLiveActive || selectedTicker.currency !== '₹') return;
+    const interval = marketStatus.isOpen ? Math.max(5000, updateIntervalMs * 2) : 30000;
     const hwTimer = setInterval(() => {
       fetchHeavyweights(selectedTicker.symbol);
-    }, Math.max(5000, updateIntervalMs * 2));
+    }, interval);
     return () => clearInterval(hwTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, selectedTicker.currency, updateIntervalMs, fetchHeavyweights]);
 

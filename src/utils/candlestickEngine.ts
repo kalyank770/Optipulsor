@@ -190,8 +190,8 @@ export function analyzeTimeframeCandles(
   timeframe: '2m' | '5m' | '15m',
   ticker: TickerConfig
 ): TimeframeCandleAnalysis {
-  // 1. Sanitize candles: fold any trailing zero-range auction ticks
-  const cleanCandles = [...candles];
+  // 1. Sanitize candles: clone cleanly to avoid in-place mutation of input candles
+  const cleanCandles = candles.map(c => ({ ...c }));
   if (cleanCandles.length >= 2) {
     const last = cleanCandles[cleanCandles.length - 1];
     if (last.open === last.close && last.high === last.low && (last.volume === 0 || last.volume == null)) {

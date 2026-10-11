@@ -114,19 +114,35 @@ export function computeRSI(closes: number[], period = 14): RSIData {
  * Computes standard MACD (12, 26, 9)
  */
 export function computeMACD(closes: number[]): MACDData {
-  const calcEMA = (data: number[], p: number) => {
+  if (closes.length < 2) {
+    return {
+      macdLine: 0,
+      signalLine: 0,
+      histogram: 0,
+      trend: 'BULLISH_EXPANSION',
+      label: 'MACD Equilibrium',
+      description: 'Insufficient candles for MACD momentum calculation.',
+      histogramColor: 'text-slate-400',
+    };
+  }
+
+  // Calculate full EMA series across all candles
+  const calcEMASeries = (data: number[], p: number) => {
     const k = 2 / (p + 1);
-    let ema = data[0];
+    const series: number[] = [data[0]];
     for (let i = 1; i < data.length; i++) {
-      ema = data[i] * k + ema * (1 - k);
+      series.push(data[i] * k + series[i - 1] * (1 - k));
     }
-    return ema;
+    return series;
   };
 
-  const ema12 = calcEMA(closes, 12);
-  const ema26 = calcEMA(closes, 26);
-  const macdLine = Number((ema12 - ema26).toFixed(2));
-  const signalLine = Number((macdLine * 0.85).toFixed(2));
+  const ema12Series = calcEMASeries(closes, 12);
+  const ema26Series = calcEMASeries(closes, 26);
+  const macdSeries = ema12Series.map((v, i) => v - ema26Series[i]);
+  const signalSeries = calcEMASeries(macdSeries, 9);
+
+  const macdLine = Number(macdSeries[macdSeries.length - 1].toFixed(2));
+  const signalLine = Number(signalSeries[signalSeries.length - 1].toFixed(2));
   const histogram = Number((macdLine - signalLine).toFixed(2));
 
   let trend: MACDData['trend'] = 'BULLISH_EXPANSION';

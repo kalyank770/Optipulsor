@@ -1,4 +1,4 @@
-import { Candle, OptionType, TickerConfig } from './options';
+import { Candle, OptionType, TickerConfig, Moneyness } from './options';
 
 export type HTFTimeframe = '1h' | '1d' | '1w';
 export type ForecastHorizon = 'next_1h' | 'next_1d' | 'next_1w';
@@ -48,6 +48,7 @@ export interface HorizonPrediction {
   // F&O Trade Recommendation for this Horizon
   recommendedStrike: number;
   recommendedType: OptionType;
+  moneyness?: Moneyness;
   recommendedContractLTP: number;
   target1LTP: number;
   target2LTP: number;
@@ -84,6 +85,7 @@ export interface ExpiryForecast {
   // Strike Recommendation
   recommendedStrike: number;
   recommendedType: OptionType;
+  moneyness?: Moneyness;
   entryZone: [number, number];
   contractLTP: number;
   target1: number;

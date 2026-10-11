@@ -490,6 +490,7 @@ export interface AdvanceTradeSetup {
   anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL';
   recommendedStrike: number;
   recommendedType: OptionType;
+  moneyness?: Moneyness;
   title: string;
   subTitle: string;
   advanceEntryZoneSpot: [number, number];

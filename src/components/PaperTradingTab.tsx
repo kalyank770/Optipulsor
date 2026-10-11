@@ -9,6 +9,7 @@ import {
   TradeSignal
 } from '../types/options';
 import { MultiTimeframePredictionSuite } from '../types/htfPredictions';
+import { MoneynessBadge, getMoneyness } from './MoneynessBadge';
 import { NewOrderParams } from '../hooks/usePaperTrading';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { 
@@ -350,8 +351,12 @@ export const PaperTradingTab: React.FC<PaperTradingTabProps> = ({
                 }`}>
                   {signal.action === 'BUY_CE' ? 'BULLISH CALL' : signal.action === 'BUY_PE' ? 'BEARISH PUT' : 'NEUTRAL / WAIT'}
                 </span>
-                <span className="text-xs font-mono font-bold text-white">
-                  {currentTicker.symbol} {signal.recommendedStrike} {signal.recommendedType}
+                <span className="text-xs font-mono font-bold text-white flex items-center gap-1.5 flex-wrap">
+                  <span>{currentTicker.symbol} {signal.recommendedStrike} {signal.recommendedType}</span>
+                  <MoneynessBadge 
+                    moneyness={signal.moneyness || getMoneyness(signal.recommendedStrike, signal.recommendedType, currentTicker.spotPrice, currentTicker.strikeStep)} 
+                    size="xs" 
+                  />
                 </span>
               </div>
               <span className="text-xs font-mono text-slate-400">
@@ -445,7 +450,14 @@ export const PaperTradingTab: React.FC<PaperTradingTabProps> = ({
                           <span className={`font-bold ${isBull ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {horizon.horizonLabel} {horizon.predictedBias}
                           </span>
-                          <span className="text-slate-300">({currentTicker.symbol} {recStrike} {recType})</span>
+                          <span className="text-slate-300 flex items-center gap-1">
+                            <span>({currentTicker.symbol} {recStrike} {recType}</span>
+                            <MoneynessBadge 
+                              moneyness={horizon.moneyness || getMoneyness(recStrike, recType, currentTicker.spotPrice, currentTicker.strikeStep)} 
+                              size="xs" 
+                            />
+                            <span>)</span>
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
                           Target Spot: {currency}{horizon.projectedSpotTarget.toLocaleString()} | Entry ~{currency}{estLtp}

@@ -1334,6 +1334,7 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
       { id: 'brentCrude', symbol: 'BZ=F' },
       { id: 'us10y', symbol: '^TNX' },
       { id: 'nifty', symbol: '^NSEI' },
+      { id: 'nikkei', symbol: '^N225' },
     ];
 
     // Refresh macro quotes only if older than 25 seconds to eliminate latency bottlenecks
@@ -1373,12 +1374,14 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
     const brentQuote = quotesMap.get('BZ=F');
     const us10yQuote = quotesMap.get('^TNX');
     const niftyQuote = quotesMap.get('^NSEI');
+    const nikkeiQuote = quotesMap.get('^N225');
 
     const spChangePct = spQuote?.regularMarketChangePercent || 0;
     const nqChangePct = nqQuote?.regularMarketChangePercent || 0;
     const brentChangePct = brentQuote?.regularMarketChangePercent || 0;
     const dxyChangePct = dxyQuote?.regularMarketChangePercent || 0;
     const inrChangePct = inrQuote?.regularMarketChangePercent || 0;
+    const nikkeiChangePct = nikkeiQuote?.regularMarketChangePercent || 0;
 
     // Live GIFT Nifty Feed: Priority 1 Official Moneycontrol Live Stream, Priority 2 NSE IX TradingView Scanner
     let giftNiftyPrice = lastKnownLiveGiftNifty.price;
@@ -1501,7 +1504,7 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
       { id: 'giftNifty', changePct: giftNiftyChangePercent, weight: 0.95, inverse: false },
       { id: 'sp500', changePct: spChangePct, weight: 0.85, inverse: false },
       { id: 'nasdaq', changePct: nqChangePct, weight: 0.85, inverse: false },
-      { id: 'nikkei', changePct: 1.08, weight: 0.70, inverse: false },
+      { id: 'nikkei', changePct: nikkeiChangePct, weight: 0.70, inverse: false },
       { id: 'brentCrude', changePct: brentChangePct, weight: isBankNifty ? 0.90 : 0.85, inverse: true },
       { id: 'usdInr', changePct: inrChangePct, weight: 0.80, inverse: true },
       { id: 'dxy', changePct: dxyChangePct, weight: 0.75, inverse: true },
@@ -1644,16 +1647,16 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
         symbol: 'NIKKEI 225',
         name: 'Japan Nikkei 225 Index',
         category: 'ASIAN_INDEX',
-        price: 38380.00,
-        change: 410.00,
-        changePercent: 1.08,
-        impactOnIndianFO: 'BULLISH',
+        price: nikkeiQuote?.regularMarketPrice || 38380.00,
+        change: nikkeiQuote?.regularMarketChange || 0,
+        changePercent: nikkeiChangePct,
+        impactOnIndianFO: nikkeiChangePct >= 0.2 ? 'BULLISH' : nikkeiChangePct <= -0.2 ? 'BEARISH' : 'NEUTRAL',
         correlationWeight: 0.70,
-        insightNote: 'Asian morning trading setup demonstrates broad risk-on sentiment across Asian equity markets.',
+        insightNote: `Nikkei 225 at ${nikkeiQuote?.regularMarketPrice || 38380} (${nikkeiChangePct >= 0 ? '+' : ''}${nikkeiChangePct}%). Asian peer sentiment.`,
         asOfTime: 'TSE Live',
       },
       asianPeers: [
-        { name: 'Nikkei 225', symbol: '^N225', price: 38500, change: 120, changePercent: 0.31, region: 'Asia-Pacific' },
+        { name: 'Nikkei 225', symbol: '^N225', price: nikkeiQuote?.regularMarketPrice || 38380, change: nikkeiQuote?.regularMarketChange || 0, changePercent: nikkeiChangePct, region: 'Asia-Pacific' },
       ],
       globalCompositeScore: compositeScore,
       globalSentiment,
