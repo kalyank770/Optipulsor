@@ -342,6 +342,7 @@ export interface SectoralContribution {
 }
 
 export interface NiftyConstituentAnalysis {
+  symbol?: string;
   advances: number;
   declines: number;
   unchanged: number;
@@ -540,6 +541,7 @@ export interface SignalStabilityLock {
 }
 
 export interface TradeSignal {
+  tickerSymbol?: string;
   action: SignalAction;
   strength: SignalStrength;
   confidence: number; // 0 - 100%

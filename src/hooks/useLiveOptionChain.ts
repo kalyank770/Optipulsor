@@ -453,8 +453,9 @@ export function useLiveOptionChain() {
   const signalRef = useRef<TradeSignal>(signal);
   signalRef.current = signal;
 
-  // Minimum 1-to-2 Minute Institutional Stability Lock & Persistence (Mandatory Point 4)
+  // Minimum 1-to-2 Minute Institutional Stability Lock & Persistence
   const signalLockRef = useRef<{
+    symbol: string;
     action: SignalAction;
     strike: number;
     optionType: OptionType;
@@ -462,6 +463,7 @@ export function useLiveOptionChain() {
     expiresAt: number;
     durationSeconds: number;
   }>({
+    symbol: POPULAR_TICKERS[0].symbol,
     action: signal.action,
     strike: signal.recommendedStrike,
     optionType: signal.recommendedType,
@@ -474,12 +476,14 @@ export function useLiveOptionChain() {
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
     const now = Date.now();
     const lock = signalLockRef.current;
-    const isLocked = now < lock.expiresAt && lock.action !== 'WAIT_NEUTRAL';
+    const isSameSymbol = lock.symbol === proposedSignal.tickerSymbol;
+    const isLocked = isSameSymbol && now < lock.expiresAt && lock.action !== 'WAIT_NEUTRAL';
     const secondsRemaining = Math.max(0, Math.ceil((lock.expiresAt - now) / 1000));
 
     // Case 1: Hard Stop Loss breach -> Break lock immediately to protect capital!
     if (proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
       signalLockRef.current = {
+        symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
         action: proposedSignal.action,
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
@@ -545,6 +549,7 @@ export function useLiveOptionChain() {
     // Case 4: Lock has expired or new directional trade trigger:
     if (proposedSignal.action !== 'WAIT_NEUTRAL') {
       signalLockRef.current = {
+        symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
         action: proposedSignal.action,
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
@@ -568,6 +573,7 @@ export function useLiveOptionChain() {
 
     // Case 5: Equilibrium / Stand Aside
     signalLockRef.current = {
+      symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
       action: 'WAIT_NEUTRAL',
       strike: proposedSignal.recommendedStrike,
       optionType: proposedSignal.recommendedType,
@@ -1001,8 +1007,24 @@ export function useLiveOptionChain() {
     return () => clearInterval(hwTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, selectedTicker.currency, updateIntervalMs, fetchHeavyweights]);
 
-  // Handle ticker change
+  // Handle ticker change with strict state isolation and zero cross-ticker stale bleed
   const handleSelectTicker = (newTicker: TickerConfig) => {
+    // 1. Immediately invalidate previous ticker lock & signal ref
+    signalLockRef.current = {
+      symbol: newTicker.symbol,
+      action: 'WAIT_NEUTRAL',
+      strike: newTicker.atmStrike,
+      optionType: 'CE',
+      lockedAt: Date.now(),
+      expiresAt: 0,
+      durationSeconds: 0,
+    };
+    signalRef.current = undefined as any;
+
+    // 2. Clear temporary option chain cache to prevent stale strike rows
+    tempExpiryChainCache.clear();
+
+    // 3. Set new ticker state & reset expiry index
     setSelectedTicker(newTicker);
     setExpiryIndex(0);
     setFilters(prev => ({
@@ -1010,13 +1032,21 @@ export function useLiveOptionChain() {
       expiryDate: newTicker.expiryDates[0],
     }));
 
+    // 4. Synchronously initialize constituent analysis and global macro for the new ticker
+    const freshConstituents = newTicker.currency === '₹' ? analyzeNiftyConstituents(newTicker.symbol) : undefined;
+    const freshMacro = getInterMarketTelemetry(newTicker.symbol, undefined, newTicker.spotPrice);
+    setLiveConstituentAnalysis(freshConstituents);
+    setLiveGlobalMacro(freshMacro);
+
+    // 5. Initialize clean strike history and analytics for new ticker
     const initialChainForTicker = buildInitialChain(newTicker, 0);
     const tickerHistory = loadStrikeHistory(newTicker, initialChainForTicker);
     const updatedHistory = updateHistoryWithLiveChain(tickerHistory, newTicker, initialChainForTicker);
     setStrikeHistory(updatedHistory);
     setStrikeAnalytics(deriveStrikeTrendAnalytics(updatedHistory, newTicker, initialChainForTicker));
 
-    fetchOptionChainFromBackend(newTicker, 0);
+    // 6. Fetch backend live feeds with bypassDebounce flag
+    fetchOptionChainFromBackend(newTicker, 0, undefined, true);
     fetchRealNews(newTicker.symbol);
     fetchHeavyweights(newTicker.symbol);
     fetchGlobalMacro(newTicker.symbol);
@@ -1236,10 +1266,11 @@ export function useLiveOptionChain() {
     setSelectedTicker(updated);
 
     // If US ticker has real option chain, adjust Greeks or synthesize for new spot
+    tempExpiryChainCache.clear();
     const newChain = buildInitialChain(updated, expiryIndex);
     const newMetrics = computeMarketMetrics(updated, newChain);
     const rawSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeed, signalRef.current || undefined, expiryIndex, liveConstituentAnalysis, liveGlobalMacro);
-    const debouncedSignal = applySignalWithDebounce(rawSignal);
+    const debouncedSignal = applySignalWithDebounce(rawSignal, true);
     debouncedSignal.allExpiriesSignals = computeAllExpiriesSignals(updated, newsFeed, expiryIndex, debouncedSignal);
     setChain(newChain);
     setMetrics(newMetrics);
@@ -1250,6 +1281,7 @@ export function useLiveOptionChain() {
   // Manual Force Refresh
   const handleForceRefresh = () => {
     setIsSyncing(true);
+    tempExpiryChainCache.clear();
     fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
     fetchRealNews(selectedTickerRef.current.symbol, true);
     fetchHeavyweights(selectedTickerRef.current.symbol);

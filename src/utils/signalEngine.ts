@@ -205,6 +205,11 @@ export function generateTradeSignal(
   liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
   liveGlobalMacro?: import('../types/options').InterMarketTelemetry
 ): TradeSignal {
+  // Sanitize previousSignal to ensure it belongs strictly to the active ticker (prevents cross-ticker hysteresis bleed)
+  const activePreviousSignal = previousSignal && previousSignal.tickerSymbol === ticker.symbol 
+    ? previousSignal 
+    : undefined;
+
   const { spotPrice, atmStrike, pcrTotalOI, majorSupportStrike, majorResistanceStrike, maxPainStrike, ivRank } = metrics;
   const vix = Math.max(9, ticker.vix || 13);
   const rt = metrics.realtimeIndicators || computeRealtimeIndicators(ticker, chain);
@@ -314,8 +319,9 @@ export function generateTradeSignal(
   score += combinedPriceScore;
 
   // 2. Gift Nifty / Global Macro Sentiment Weight (Clamped)
-  // Double-weight Gift Nifty for pre-market sessions as it dictates opening direction
-  score += ticker.isUsingPreMarket ? effectiveGiftNiftyBias * 1.8 : effectiveGiftNiftyBias;
+  // Double-weight Gift Nifty for pre-market sessions as it dictates opening direction.
+  // During regular session, dampen Gift Nifty weight so intraday spot & derivatives dominate.
+  score += ticker.isUsingPreMarket ? effectiveGiftNiftyBias * 1.8 : effectiveGiftNiftyBias * 0.25;
 
   // 2b. Add News Sentiment & Strike History Cumulative Edge
   score += newsSentimentBias;
@@ -365,7 +371,9 @@ export function generateTradeSignal(
   }
 
   // 7b. Nifty Derivative Constituent Heavyweights & Sectoral Delta Engine (Indian Markets)
-  const constituentAnalysis = liveConstituentAnalysis || ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined);
+  const constituentAnalysis = (liveConstituentAnalysis && liveConstituentAnalysis.symbol === ticker.symbol)
+    ? liveConstituentAnalysis
+    : ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined);
   if (constituentAnalysis) {
     score += (constituentAnalysis.breadthScore * 0.45);
     score += (constituentAnalysis.weightedConstituentDelta * 2.5);
@@ -476,18 +484,18 @@ export function generateTradeSignal(
   const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen : spotChangePct > 0;
   const isBelowDayOpen = ticker.dayOpen ? spotPrice < ticker.dayOpen : spotChangePct < 0;
 
-  // Genuine Bullish Regime: Spot holding firmly above VWAP with bullish EMA or positive session change
-  const isMarketRaising = isAboveVWAP && (isAboveDayOpen || spotChangePct >= 0.05) && (rt.ema.alignment === 'BULLISH_STACK' || rt.vwap.bias === 'BULLISH');
+  // Genuine Bullish Regime: Spot holding firmly above VWAP with bullish EMA/VWAP bias AND non-bearish candlestick confluence
+  const isMarketRaising = isAboveVWAP && (isAboveDayOpen || spotChangePct >= 0.05) && (rt.ema.alignment === 'BULLISH_STACK' || rt.vwap.bias === 'BULLISH') && candlePatterns.confluenceBias !== 'BEARISH';
 
-  // Genuine Bearish Regime: Spot trading below VWAP with bearish EMA or negative session change
-  const isContinuousFall = isBelowVWAP && (isBelowDayOpen || spotChangePct <= -0.05) && (rt.ema.alignment === 'BEARISH_STACK' || rt.vwap.bias === 'BEARISH');
+  // Genuine Bearish Regime: Spot trading below VWAP or under negative session change/bearish candlesticks
+  const isContinuousFall = (isBelowVWAP || spotChangePct <= -0.15) && (isBelowDayOpen || spotChangePct <= -0.05 || candlePatterns.confluenceBias === 'BEARISH') && (rt.ema.alignment === 'BEARISH_STACK' || rt.vwap.bias === 'BEARISH' || candlePatterns.confluenceBias === 'BEARISH');
 
-  // Intraday Recovery Bounce check: Only consider a recovery bullish IF it actually reclaims VWAP!
+  // Intraday Recovery Bounce check: Only consider a recovery bullish IF it actually reclaims VWAP with bullish candlesticks!
   const isConfirmedBullishReversal = recoveryRatio >= 0.50 && spotPrice >= rt.vwap.value && candlePatterns.confluenceBias === 'BULLISH';
   const isIntradayRecoveryRally = isConfirmedBullishReversal;
 
   // GUARD RAIL 1: Trend Alignment with Institutional VWAP
-  if (isMarketRaising && score < 0) {
+  if (isMarketRaising && score < 0 && candlePatterns.confluenceBias !== 'BEARISH' && pcrTotalOI >= 0.90) {
     if (isConfirmedBullishReversal) {
       score = Math.max(score, 2.0); // Trigger BUY_CE only on confirmed VWAP reclaim
     } else {
@@ -495,7 +503,7 @@ export function generateTradeSignal(
       capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Put option (PE) buying against VWAP support has unfavorable odds.`;
     }
   } else if (isContinuousFall && score > -1.0) {
-    // Preserve strong bearish conviction below VWAP for BUY_PE
+    // Preserve strong bearish conviction below VWAP or under bearish candlesticks for BUY_PE
     score = Math.min(score, -2.4);
   }
 
@@ -616,29 +624,29 @@ export function generateTradeSignal(
   // Eliminates instantaneous flip-flop switching by enforcing momentum persistence,
   // deadband buffer zones, and confirmation thresholds between opposite directions.
   // =========================================================================
-  const prevAction: SignalAction = previousSignal?.action || 'WAIT_NEUTRAL';
+  const prevAction: SignalAction = activePreviousSignal?.action || 'WAIT_NEUTRAL';
   let action: SignalAction = 'WAIT_NEUTRAL';
   let strength: SignalStrength = 'MODERATE';
   let confidence = 50;
 
   // Evaluate multi-factor confluence match counts
   let bullMatches = 0;
-  if (recoveryRatio >= 0.48 || spotChangePct >= 0.05) bullMatches++;
+  if (recoveryRatio >= 0.52 || spotChangePct >= 0.10) bullMatches++;
   if (candlePatterns.confluenceBias === 'BULLISH') bullMatches++;
-  if (rt.vwap.bias === 'BULLISH') bullMatches++;
+  if (rt.vwap.bias === 'BULLISH' && isAboveVWAP) bullMatches++;
   if (rt.ema.alignment === 'BULLISH_STACK') bullMatches++;
-  if (rt.rsi.value >= 48 || rt.macd.trend.includes('BULLISH') || rt.rsi.divergence === 'BULLISH_DIVERGENCE') bullMatches++;
-  if (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' || rt.orderFlow.pcrDivergence <= 0) bullMatches++;
-  if (effectiveGiftNiftyBias >= 0) bullMatches++;
+  if (rt.rsi.value >= 54 || rt.macd.trend === 'BULLISH_EXPANSION' || rt.rsi.divergence === 'BULLISH_DIVERGENCE') bullMatches++;
+  if (pcrTotalOI >= 1.05 || rt.orderFlow.sentiment === 'BUYER_DOMINANCE' || nearbyPeOIChg > nearbyCeOIChg * 1.1) bullMatches++;
+  if (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 5) bullMatches++;
 
   let bearMatches = 0;
-  if (recoveryRatio <= 0.36 || spotChangePct <= -0.05) bearMatches++;
+  if (recoveryRatio <= 0.38 || spotChangePct <= -0.10) bearMatches++;
   if (candlePatterns.confluenceBias === 'BEARISH') bearMatches++;
-  if (rt.vwap.bias === 'BEARISH') bearMatches++;
+  if (rt.vwap.bias === 'BEARISH' && isBelowVWAP) bearMatches++;
   if (rt.ema.alignment === 'BEARISH_STACK') bearMatches++;
-  if (rt.rsi.value <= 52 || rt.macd.trend.includes('BEARISH') || rt.rsi.divergence === 'BEARISH_DIVERGENCE') bearMatches++;
-  if (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' || rt.orderFlow.pcrDivergence >= 0) bearMatches++;
-  if (effectiveGiftNiftyBias <= 0) bearMatches++;
+  if (rt.rsi.value <= 46 || rt.macd.trend === 'BEARISH_EXPANSION' || rt.rsi.divergence === 'BEARISH_DIVERGENCE') bearMatches++;
+  if (pcrTotalOI <= 0.92 || rt.orderFlow.sentiment === 'SELLER_DOMINANCE' || nearbyCeOIChg > nearbyPeOIChg * 1.1) bearMatches++;
+  if (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -5) bearMatches++;
 
   if (isMarketRaising) {
     // MARKET IS GENUINELY RAISING:
@@ -749,6 +757,51 @@ export function generateTradeSignal(
   // Final Safety Valve: If the market is raising or bouncing off lows, NEVER allow BUY_PE under any circumstance
   if ((isMarketRaising || isIntradayRecoveryRally || (isClosingSoon && recoveryRatio >= 0.25)) && action === 'BUY_PE') {
     action = 'WAIT_NEUTRAL';
+  }
+
+  // =========================================================================
+  // ABSOLUTE SANITY GUARANTEE: PREVENT CE/PE RECOMMENDATION vs DERIVATIVES & CANDLESTICK MISMATCH
+  // =========================================================================
+  const isDerivativesBearish = pcrTotalOI <= 0.90 || (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' && rt.orderFlow.orderFlowDelta < -10) || (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -12) || nearbyCeOIChg > nearbyPeOIChg * 1.25;
+  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.m5.pattern.toLowerCase().includes('bear') || candlePatterns.m5.pattern.toLowerCase().includes('shadow') || candlePatterns.m5.pattern.toLowerCase().includes('engulfing');
+
+  if ((isDerivativesBearish || isCandleBearish) && action === 'BUY_CE') {
+    if (isDerivativesBearish && isCandleBearish) {
+      if (bearMatches >= 3 && score <= 0) {
+        action = 'BUY_PE';
+        strength = bearMatches >= 5 ? 'STRONG' : 'MODERATE';
+        capitalProtectionReason = '';
+      } else {
+        action = 'WAIT_NEUTRAL';
+        strength = 'CAUTION';
+        capitalProtectionReason = `Capital Protection: Derivatives (PCR: ${pcrTotalOI.toFixed(2)}) and 5m candlestick patterns are BEARISH. Buying Call Options (CE) is strictly blocked. Standing aside in WAIT to protect capital.`;
+      }
+    } else {
+      action = 'WAIT_NEUTRAL';
+      strength = 'CAUTION';
+      capitalProtectionReason = `Capital Protection: Bearish divergence detected between market price/VWAP and derivatives (PCR: ${pcrTotalOI.toFixed(2)}, Candle Bias: ${candlePatterns.confluenceBias}). CE buying is blocked.`;
+    }
+  }
+
+  const isDerivativesBullish = pcrTotalOI >= 1.15 || (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' && rt.orderFlow.orderFlowDelta > 10) || (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 12) || nearbyPeOIChg > nearbyCeOIChg * 1.25;
+  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.m5.pattern.toLowerCase().includes('bull');
+
+  if ((isDerivativesBullish || isCandleBullish) && action === 'BUY_PE') {
+    if (isDerivativesBullish && isCandleBullish) {
+      if (bullMatches >= 3 && score >= 0) {
+        action = 'BUY_CE';
+        strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
+        capitalProtectionReason = '';
+      } else {
+        action = 'WAIT_NEUTRAL';
+        strength = 'CAUTION';
+        capitalProtectionReason = `Capital Protection: Derivatives (PCR: ${pcrTotalOI.toFixed(2)}) and 5m candlestick patterns are BULLISH. Buying Put Options (PE) is strictly blocked. Standing aside in WAIT to protect capital.`;
+      }
+    } else {
+      action = 'WAIT_NEUTRAL';
+      strength = 'CAUTION';
+      capitalProtectionReason = `Capital Protection: Bullish divergence detected between market price/VWAP and derivatives (PCR: ${pcrTotalOI.toFixed(2)}, Candle Bias: ${candlePatterns.confluenceBias}). PE buying is blocked.`;
+    }
   }
 
   // Calculate dynamic non-static prediction confidence percentage
@@ -1790,6 +1843,7 @@ export function generateTradeSignal(
   }
 
   return {
+    tickerSymbol: ticker.symbol,
     action,
     strength,
     confidence,
