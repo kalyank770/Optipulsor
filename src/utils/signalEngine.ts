@@ -26,6 +26,77 @@ import { computeAdvanceTradeSetup } from './advanceTradeEngine';
 import { loadSelfHealingCalibration } from './selfHealingEngine';
 
 /**
+ * Calculates a dynamic, continuous, non-static prediction confidence percentage (0-100%)
+ * based on multi-factor confluence, indicator alignments, volatility velocity, and constituent breadth.
+ */
+export function calculateDynamicConfidence(
+  action: SignalAction,
+  strength: SignalStrength,
+  score: number,
+  bullMatches: number,
+  bearMatches: number,
+  totalFactors: number = 7,
+  rt?: import('../types/options').RealtimePredictionIndicators,
+  ticker?: TickerConfig,
+  constituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
+  telemetry?: import('../types/options').InterMarketTelemetry
+): number {
+  if (action === 'WAIT_NEUTRAL') {
+    // WAIT_NEUTRAL confidence measures capital protection clarity
+    const maxConflict = Math.min(bullMatches, bearMatches);
+    const scoreDampening = Math.abs(score);
+    const volComp = rt?.volumeAnalytics?.totalVolumeMultiplier ? (rt.volumeAnalytics.totalVolumeMultiplier < 0.7 ? 8 : 0) : 0;
+    const baseWaitConf = 52 + maxConflict * 4.5 + volComp - Math.min(8, scoreDampening * 1.5);
+    return Math.min(78, Math.max(45, Math.round(baseWaitConf)));
+  }
+
+  const matches = action === 'BUY_CE' ? bullMatches : bearMatches;
+  const matchRatio = matches / Math.max(1, totalFactors);
+
+  // Base confidence from multi-factor match ratio (e.g. 3/7 -> 68%, 5/7 -> 80%, 7/7 -> 88%)
+  let conf = 56 + matchRatio * 30;
+
+  // Confluence Score Magnitude (+0 to +8%)
+  const scoreAbs = Math.abs(score);
+  conf += Math.min(8, (scoreAbs / 3.8) * 8);
+
+  // VWAP & EMA Alignment Boost (+3% to +6%)
+  if (rt) {
+    if ((action === 'BUY_CE' && rt.vwap.bias === 'BULLISH') || (action === 'BUY_PE' && rt.vwap.bias === 'BEARISH')) {
+      conf += 3.5;
+    }
+    if ((action === 'BUY_CE' && rt.ema.alignment === 'BULLISH_STACK') || (action === 'BUY_PE' && rt.ema.alignment === 'BEARISH_STACK')) {
+      conf += 3.0;
+    }
+    if (rt.volumeAnalytics && rt.volumeAnalytics.totalVolumeMultiplier >= 1.30) {
+      conf += 3.5;
+    }
+    if (rt.vixVelocity?.velocityState === 'SURGING') {
+      conf -= 2.5;
+    }
+  }
+
+  // Constituent Breadth Alignment Boost (+3%)
+  if (constituentAnalysis) {
+    if ((action === 'BUY_CE' && constituentAnalysis.advances > constituentAnalysis.declines) ||
+        (action === 'BUY_PE' && constituentAnalysis.declines > constituentAnalysis.advances)) {
+      conf += 3.0;
+    }
+  }
+
+  // Global Inter-Market Telemetry Boost (+2%)
+  if (telemetry) {
+    if ((action === 'BUY_CE' && telemetry.globalCompositeScore > 15) ||
+        (action === 'BUY_PE' && telemetry.globalCompositeScore < -15)) {
+      conf += 2.0;
+    }
+  }
+
+  // Clamped bounds: High precision (52% to 96%)
+  return Math.min(96, Math.max(52, Math.round(conf)));
+}
+
+/**
  * Computes market metrics from an option chain
  */
 export function computeMarketMetrics(
@@ -679,6 +750,20 @@ export function generateTradeSignal(
   if ((isMarketRaising || isIntradayRecoveryRally || (isClosingSoon && recoveryRatio >= 0.25)) && action === 'BUY_PE') {
     action = 'WAIT_NEUTRAL';
   }
+
+  // Calculate dynamic non-static prediction confidence percentage
+  confidence = calculateDynamicConfidence(
+    action,
+    strength,
+    score,
+    bullMatches,
+    bearMatches,
+    7,
+    rt,
+    ticker,
+    constituentAnalysis,
+    interMarketTelemetry
+  );
 
   // Determine recommended contract type:
   // If BUY_CE -> 'CE'

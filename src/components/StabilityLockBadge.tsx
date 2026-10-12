@@ -32,7 +32,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
   showTooltipOnClick = true,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'point4' | 'allRules'>('point4');
+  const [activeTab, setActiveTab] = useState<'directive' | 'allRules'>('directive');
 
   const isDirectional = action === 'BUY_CE' || action === 'BUY_PE';
   const secondsRemaining = stabilityLock?.secondsRemaining ?? (isDirectional ? 120 : 60);
@@ -82,7 +82,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
               ? 'bg-indigo-950/90 border-indigo-500/60 text-indigo-200 hover:bg-indigo-900 hover:border-indigo-400 shadow-sm shadow-indigo-500/20'
               : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-500 shadow-sm'
           }`}
-          title="Point 4: 1–2 Min Prediction Stability Lock (Click for rule details)"
+          title="1–2 Min Prediction Stability Lock (Click for rule details)"
         >
           <span className="relative flex h-2 w-2 shrink-0">
             <span
@@ -102,7 +102,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
           <span className="whitespace-nowrap">
             {isDirectional ? (
               <>
-                <span className="font-bold text-white">Pt-4 Lock:</span>
+                <span className="font-bold text-white">Stability Lock:</span>
                 <span className="text-indigo-300 ml-1 font-mono">
                   {secondsRemaining}s
                 </span>
@@ -110,7 +110,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
               </>
             ) : (
               <>
-                <span className="font-bold text-slate-200">Point 4:</span>
+                <span className="font-bold text-slate-200">Stability Lock:</span>
                 <span className="text-slate-300 ml-1 font-mono">1-2m Lock</span>
               </>
             )}
@@ -143,7 +143,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                      POINT 4 DIRECTIVE
+                      PREDICTION STABILITY DIRECTIVE
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono">
                       PRODUCTION_ALGORITHM_CONSTITUTION.md
@@ -169,15 +169,15 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
             <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
               <button
                 type="button"
-                onClick={() => setActiveTab('point4')}
+                onClick={() => setActiveTab('directive')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === 'point4'
+                  activeTab === 'directive'
                     ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
                 }`}
               >
                 <Lock className="w-3.5 h-3.5" />
-                <span>Point 4 Directive & Live Telemetry</span>
+                <span>Stability Lock Telemetry</span>
               </button>
               <button
                 type="button"
@@ -189,17 +189,17 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>All 7 Production Directives</span>
+                <span>All Production Directives</span>
               </button>
             </div>
 
-            {activeTab === 'point4' ? (
+            {activeTab === 'directive' ? (
               <>
-                {/* Verbatim Point-4 Instruction Block */}
+                {/* Instruction Block */}
                 <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/40 text-amber-200 space-y-2">
                   <div className="flex items-center gap-2 font-bold text-amber-400 text-xs sm:text-sm">
                     <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>Exact Point 4 Instruction (Verbatim Mandate):</span>
+                    <span>Prediction Stability Mandate:</span>
                   </div>
                   <blockquote className="p-2.5 rounded-lg bg-black/40 border-l-2 border-amber-400 font-mono text-xs sm:text-[12.5px] text-amber-100 leading-relaxed italic">
                     &ldquo;Trade recommendation should not quickly change as per just live market is moving up/down. for this I don&apos;t need this application. I want this application should come up with prediction which should valid for atleast a min or 2 and also more accurate such that I can rely on this and will not loose any money.&rdquo;
@@ -284,7 +284,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
               <div className="space-y-2 text-xs">
                 <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/30 text-indigo-200">
                   <span className="font-bold text-white block mb-1">
-                    Complete 7-Point Production Constitution Summary:
+                    Complete Production Constitution Summary:
                   </span>
                   <span className="text-[11.5px] text-slate-300">
                     Governing all algorithm computations, data ingestion, UI stability, and audits.

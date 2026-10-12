@@ -410,6 +410,7 @@ export function computeAdvanceTradeSetup(
   const totalBearScore = oiBearScore + hwBearScore + ofBearScore + swBearScore + macroBearScore + (isCoiling && (oiBearScore > 0 || hwBearScore > 0 || ofBearScore > 0 || macroBearScore > 0) ? 1.0 : 0);
 
   const leadingFactors = [oiFactor, hwFactor, ofFactor, sqFactor, swFactor, macroFactor];
+  const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
   let anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' = 'WAIT_NEUTRAL';
   let setupType: AdvanceSetupType = 'EQUILIBRIUM_WAIT';
@@ -422,11 +423,11 @@ export function computeAdvanceTradeSetup(
   if (currentSignalAction === 'WAIT_NEUTRAL') {
     anticipatedAction = 'WAIT_NEUTRAL';
     setupType = 'EQUILIBRIUM_WAIT';
-    probabilityScore = 52;
+    probabilityScore = Math.min(76, Math.max(48, Math.round(48 + (avgFactorConf - 50) * 0.4)));
     leadTimeAdvantageMinutes = 1.0;
   } else if (totalBullScore >= 2.0 && totalBullScore > totalBearScore + 0.6) {
     anticipatedAction = 'BUY_CE';
-    probabilityScore = Math.min(95, Math.round(74 + totalBullScore * 4.2));
+    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBullScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
     if (swBullScore >= 2.0) {
@@ -440,7 +441,7 @@ export function computeAdvanceTradeSetup(
     }
   } else if (totalBearScore >= 2.0 && totalBearScore > totalBullScore + 0.6) {
     anticipatedAction = 'BUY_PE';
-    probabilityScore = Math.min(95, Math.round(74 + totalBearScore * 4.2));
+    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
 
     if (swBearScore >= 2.0) {
@@ -453,21 +454,21 @@ export function computeAdvanceTradeSetup(
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
   } else {
-    // If lagging system is already in BUY_CE or BUY_PE, maintain advance alignment
+    // If lagging system is already in BUY_CE or BUY_PE, maintain advance alignment with dynamic calculation
     if (currentSignalAction === 'BUY_CE') {
       anticipatedAction = 'BUY_CE';
       setupType = 'PRE_BREAKOUT_COILING_CE';
-      probabilityScore = 80;
+      probabilityScore = Math.min(94, Math.max(68, Math.round(72 + totalBullScore * 3.5 + (avgFactorConf - 60) * 0.2)));
       leadTimeAdvantageMinutes = 2.0;
     } else if (currentSignalAction === 'BUY_PE') {
       anticipatedAction = 'BUY_PE';
       setupType = 'PRE_BREAKDOWN_COILING_PE';
-      probabilityScore = 80;
+      probabilityScore = Math.min(94, Math.max(68, Math.round(72 + totalBearScore * 3.5 + (avgFactorConf - 60) * 0.2)));
       leadTimeAdvantageMinutes = 2.0;
     } else {
       anticipatedAction = 'WAIT_NEUTRAL';
       setupType = 'EQUILIBRIUM_WAIT';
-      probabilityScore = 52;
+      probabilityScore = Math.min(74, Math.max(48, Math.round(50 + (avgFactorConf - 50) * 0.3)));
       leadTimeAdvantageMinutes = 1.0;
     }
   }

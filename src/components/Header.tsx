@@ -200,11 +200,11 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onForceRefresh}
             disabled={isSyncing}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-mono font-semibold rounded bg-slate-900 border border-slate-700 hover:border-emerald-500/60 hover:bg-slate-800 text-slate-200 hover:text-emerald-300 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-xs min-h-[36px]"
+            className="flex items-center justify-center p-2 rounded bg-slate-900 border border-slate-700 hover:border-emerald-500/60 hover:bg-slate-800 text-slate-200 hover:text-emerald-300 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-xs min-h-[36px] min-w-[36px]"
             title="Refresh all live feeds & update predictions"
+            aria-label="Refresh feeds"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{isSyncing ? 'Refreshing...' : 'Refresh'}</span>
+            <RefreshCw className={`w-4 h-4 text-emerald-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
 
           {/* Auto 1-second refresh status */}

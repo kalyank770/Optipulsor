@@ -98,7 +98,7 @@ export const GroundedPayoffSection: React.FC<GroundedPayoffSectionProps> = ({
               R:R Ratio {signal?.riskRewardRatio || '1:2.8'}
             </div>
             <div className="text-[11px] font-mono text-slate-300 mt-1">
-              Confidence: {signal?.confidence ?? 88}%
+              Confidence: {signal?.confidence ? `${signal.confidence}%` : '—'}
             </div>
           </div>
           <div className="text-[10px] text-slate-400 mt-2 border-t border-slate-800/80 pt-1.5 font-mono">
