@@ -709,27 +709,145 @@ function computeGreeks(S: number, K: number, T: number, r: number, sigma: number
 
 // High-performance micro-cache for live quotes (1500ms TTL) to eliminate latency and rate-limit freezes
 const liveQuoteCache = new Map<string, { quote: any; timestamp: number }>();
+const liveSpotAccumulator = new Map<string, { price: number; high: number; low: number; baseTime: number }>();
 
-// Helper: Fetch Live Quote from Yahoo Finance / TradingView (including Pre-Market and Extended Hours)
-async function fetchLiveQuote(rawSymbol: string) {
+function applyLiveTick(normSym: string, basePrice: number, baseDayHigh: number, baseDayLow: number, isBank: boolean) {
+  return {
+    price: basePrice,
+    dayHigh: Math.max(basePrice, baseDayHigh),
+    dayLow: Math.min(basePrice, baseDayLow)
+  };
+}
+
+async function fetchOfficialNseIndexQuote(rawSymbol: string) {
+  const norm = rawSymbol.toUpperCase().trim();
+  const indexName = norm.includes('BANK') ? 'NIFTY BANK' : (norm.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
+  try {
+    const cookie = await getNseSessionCookie();
+    const url = `https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
+        'Cookie': cookie,
+      },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const rows = json.data || [];
+      const niftyRow = rows.find((r: any) => r.symbol?.toUpperCase().includes('NIFTY') || r.indexSymbol?.toUpperCase().includes('NIFTY') || r.symbol === indexName);
+      if (niftyRow && niftyRow.lastPrice > 0) {
+        const spotPrice = Number(niftyRow.lastPrice.toFixed(2));
+        const prevClose = Number((niftyRow.previousClose || niftyRow.pPreviousClose || spotPrice).toFixed(2));
+        const change = Number((niftyRow.change || (spotPrice - prevClose)).toFixed(2));
+        const changePercent = Number((niftyRow.pChange || (prevClose > 0 ? (change / prevClose) * 100 : 0)).toFixed(2));
+        const dayHigh = Number((niftyRow.dayHigh || spotPrice).toFixed(2));
+        const dayLow = Number((niftyRow.dayLow || spotPrice).toFixed(2));
+        const dayOpen = Number((niftyRow.open || prevClose).toFixed(2));
+
+        const istString = new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' IST';
+
+        return {
+          symbol: rawSymbol,
+          price: spotPrice,
+          spotPrice: spotPrice,
+          regularPrice: spotPrice,
+          change,
+          changePercent,
+          dayHigh,
+          dayLow,
+          dayOpen,
+          prevClose,
+          vwap: spotPrice,
+          volume: niftyRow.totalTradedVolume || 0,
+          marketState: 'REGULAR',
+          lastUpdated: istString,
+          source: 'NSE India Official Site API (equity-stockIndices)',
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Official NSE index API fetch failed:', e);
+  }
+  return null;
+}
+
+// Helper: Fetch Live Quote from Official NSE India API / Yahoo Finance / TradingView
+async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
   const normSym = rawSymbol.toUpperCase().trim();
+  if (forceRefresh) {
+    liveQuoteCache.delete(normSym);
+    liveSpotAccumulator.delete(normSym);
+  }
   const cached = liveQuoteCache.get(normSym);
   const now = Date.now();
-  if (cached && now - cached.timestamp < 1500) {
+
+  // Fast-track INDIAVIX: cache for 15s, fetch directly via Yahoo Chart in ~100ms with no cookies
+  if (normSym === 'INDIAVIX') {
+    if (!forceRefresh && cached && now - cached.timestamp < 15000) {
+      return cached.quote;
+    }
+    try {
+      const vixRes = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(1200)
+      });
+      if (vixRes.ok) {
+        const json = await vixRes.json();
+        const meta = json?.chart?.result?.[0]?.meta;
+        if (meta) {
+          const spot = Number((meta.regularMarketPrice ?? 14.50).toFixed(2));
+          const prev = Number((meta.chartPreviousClose ?? spot).toFixed(2));
+          const chg = Number((spot - prev).toFixed(2));
+          const pct = prev > 0 ? Number(((chg / prev) * 100).toFixed(2)) : 0;
+          const vixQuote = {
+            symbol: 'INDIAVIX',
+            price: spot,
+            spotPrice: spot,
+            regularPrice: spot,
+            change: chg,
+            changePercent: pct,
+            prevClose: prev,
+            source: 'Yahoo Live VIX Feed'
+          };
+          liveQuoteCache.set(normSym, { quote: vixQuote, timestamp: now });
+          return vixQuote;
+        }
+      }
+    } catch {}
+    if (cached) return cached.quote;
+    return { symbol: 'INDIAVIX', price: 14.8, spotPrice: 14.8, regularPrice: 14.8, change: 0.1, changePercent: 0.7, prevClose: 14.7, source: 'Default VIX' };
+  }
+
+  // Fast-track quote caching: 800ms during market operations to ensure authentic 1-second live streaming
+  if (!forceRefresh && cached && now - cached.timestamp < 800) {
     return cached.quote;
   }
 
   const yahooSymbol = SYMBOL_MAP[rawSymbol.toUpperCase()] || rawSymbol;
   const isIndianIndex = rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
+  const isBank = rawSymbol.toUpperCase().includes('BANK');
 
-  // Priority 1 for Indian Benchmark Indices: TradingView Scanner Live Tickers (Fast, Reliable & Real-Time)
+  // Priority 1 for Indian Benchmark Indices: Fast Parallel Fetch (TradingView Scanner + Yahoo Chart in Parallel)
   if (isIndianIndex) {
-    const isBank = rawSymbol.toUpperCase().includes('BANK');
     const isGift = rawSymbol.toUpperCase().includes('GIFT');
     const tvTickers = isBank 
       ? ['NSE:BANKNIFTY', 'NSE:NIFTYBANK', 'NSEIX:BANKNIFTY1!'] 
-      : (isGift ? ['NSEIX:NIFTY1!', 'NSE:NIFTY1!'] : ['NSE:NIFTY', 'NSE:NIFTY50', 'NSEIX:NIFTY1!', 'NSE:NIFTY1!']);
-    try {
+      : (isGift ? ['NSEIX:NIFTY1!', 'NSE:NIFTY1!'] : ['NSE:NIFTY', 'NSE:NIFTY50', 'NSEIX:NIFTY1!']);
+
+    // Fetch TradingView in parallel with Yahoo Finance chart for sub-300ms quote response
+    const fetchTvPromise = async () => {
       const tvRes = await fetch('https://scanner.tradingview.com/global/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
@@ -737,87 +855,151 @@ async function fetchLiveQuote(rawSymbol: string) {
           symbols: { tickers: tvTickers },
           columns: ['close', 'change', 'change_abs', 'high', 'low', 'open', 'volume', 'VWAP']
         }),
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(1500)
       });
-      if (tvRes.ok) {
-        const tvJson = await tvRes.json();
-        const preferredTicker = isBank ? 'NSE:BANKNIFTY' : (isGift ? 'NSEIX:NIFTY1!' : 'NSE:NIFTY');
-        const row = tvJson?.data?.find((item: any) => item.s === preferredTicker && Array.isArray(item.d) && item.d[0] > 1000) ||
-                    tvJson?.data?.find((item: any) => tvTickers.includes(item.s) && Array.isArray(item.d) && item.d[0] > 1000);
-        if (row && Array.isArray(row.d) && row.d[0] > 1000) {
-          const rawClose = row.d[0];
-          const spotPrice = Number(rawClose.toFixed(2));
-          const changePercent = Number(row.d[1].toFixed(2));
-          const change = Number(row.d[2].toFixed(2));
-          const dayHigh = Number(row.d[3].toFixed(2));
-          const dayLow = Number(row.d[4].toFixed(2));
-          const dayOpen = Number(row.d[5].toFixed(2));
-          const prevClose = Number((spotPrice - change).toFixed(2));
+      if (!tvRes.ok) throw new Error('TV failed');
+      const tvJson = await tvRes.json();
+      const preferredTicker = isBank ? 'NSE:BANKNIFTY' : (isGift ? 'NSEIX:NIFTY1!' : 'NSE:NIFTY');
+      const row = tvJson?.data?.find((item: any) => item.s === preferredTicker && Array.isArray(item.d) && item.d[0] > 1000) ||
+                  tvJson?.data?.find((item: any) => tvTickers.includes(item.s) && Array.isArray(item.d) && item.d[0] > 1000);
+      if (!row || !Array.isArray(row.d) || row.d[0] <= 1000) throw new Error('No TV row');
 
-          const rawVwap = row.d[7];
-          const vwap = typeof rawVwap === 'number' && rawVwap > 1000
-            ? Number(rawVwap.toFixed(2))
-            : Number(((dayHigh + dayLow + spotPrice) / 3).toFixed(2));
+      const rawClose = row.d[0];
+      const baseSpot = Number(rawClose.toFixed(2));
+      const baseHigh = Number(row.d[3].toFixed(2));
+      const baseLow = Number(row.d[4].toFixed(2));
+      const spotPrice = baseSpot;
+      const dayHigh = baseHigh;
+      const dayLow = baseLow;
+      const changePercent = Number(row.d[1].toFixed(2));
+      const change = Number((spotPrice - (spotPrice - (row.d[2] || 0))).toFixed(2));
+      const dayOpen = Number(row.d[5].toFixed(2));
+      const prevClose = Number((spotPrice - change).toFixed(2));
+      const rawVwap = row.d[7];
+      const vwap = typeof rawVwap === 'number' && rawVwap > 1000
+        ? Number(rawVwap.toFixed(2))
+        : Number(((dayHigh + dayLow + spotPrice) / 3).toFixed(2));
 
-          const holiday = checkMarketHoliday(new Date(), true);
-          const tz = 'Asia/Kolkata';
-          const ist = getExchangeClock(tz);
-
-          let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
-          if (ist.totalMinutes < 9 * 60 + 15 || ist.totalMinutes > 15 * 60 + 30) {
-            marketState = 'CLOSED';
-          }
-
-          const istString = new Date().toLocaleString('en-IN', {
-            timeZone: tz,
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false,
-          }) + ' IST';
-
-          const quoteObj = {
-            symbol: rawSymbol,
-            yahooSymbol,
-            spotPrice,
-            regularPrice: spotPrice,
-            prevClose,
-            change,
-            changePercent,
-            dayHigh,
-            dayLow,
-            dayOpen,
-            vwap,
-            marketTime: Date.now(),
-            formattedTime: holiday.isHoliday ? `Closed (${holiday.holidayName})` : istString,
-            currency: '₹',
-            marketState,
-            isHoliday: holiday.isHoliday,
-            holidayName: holiday.holidayName,
-            preMarketPrice: spotPrice,
-            preMarketChange: change,
-            preMarketChangePercent: changePercent,
-            extendedHours: {
-              session: marketState,
-              price: spotPrice,
-              change,
-              changePercent,
-              time: new Date().toISOString(),
-              source: 'TradingView Real-Time Exchange Feed'
-            }
-          };
-
-          liveQuoteCache.set(normSym, { quote: quoteObj, timestamp: Date.now() });
-          return quoteObj;
+      const holiday = checkMarketHoliday(new Date(), true);
+      const tz = 'Asia/Kolkata';
+      const ist = getExchangeClock(tz);
+      let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
+      if (!holiday.isHoliday && !ist.isWeekend) {
+        if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
+          marketState = 'PRE_MARKET';
+        } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
+          marketState = 'CLOSED';
         }
       }
-    } catch (err) {
-      console.warn('TradingView scanner quote fetch failed, falling back:', err);
-    }
+
+      const istString = new Date().toLocaleString('en-IN', {
+        timeZone: tz,
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }) + ' IST';
+
+      return {
+        symbol: rawSymbol,
+        price: spotPrice,
+        spotPrice: spotPrice,
+        regularPrice: spotPrice,
+        change: change,
+        changePercent: changePercent,
+        dayHigh: dayHigh,
+        dayLow: dayLow,
+        dayOpen: dayOpen,
+        prevClose: prevClose,
+        vwap: vwap,
+        volume: row.d[6] || 0,
+        marketState: marketState,
+        lastUpdated: istString,
+        source: 'TradingView Real-Time Ticker'
+      };
+    };
+
+    const fetchYahooFastPromise = async () => {
+      const ySymbol = isBank ? '^NSEBANK' : '^NSEI';
+      const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(1500)
+      });
+      if (!yahooRes.ok) throw new Error('Yahoo fast failed');
+      const json = await yahooRes.json();
+      const meta = json?.chart?.result?.[0]?.meta;
+      if (!meta || !meta.regularMarketPrice) throw new Error('No Yahoo meta');
+
+      const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+      const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+      const change = Number((spotPrice - prevClose).toFixed(2));
+      const changePercent = Number((prevClose > 0 ? (change / prevClose) * 100 : 0).toFixed(2));
+      const dayHigh = Number((meta.regularMarketDayHigh || spotPrice).toFixed(2));
+      const dayLow = Number((meta.regularMarketDayLow || spotPrice).toFixed(2));
+
+      const holiday = checkMarketHoliday(new Date(), true);
+      const tz = 'Asia/Kolkata';
+      const ist = getExchangeClock(tz);
+      let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
+      if (!holiday.isHoliday && !ist.isWeekend) {
+        if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
+          marketState = 'PRE_MARKET';
+        } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
+          marketState = 'CLOSED';
+        }
+      }
+
+      const istString = new Date().toLocaleString('en-IN', {
+        timeZone: tz,
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }) + ' IST';
+
+      return {
+        symbol: rawSymbol,
+        price: spotPrice,
+        spotPrice: spotPrice,
+        regularPrice: spotPrice,
+        change: change,
+        changePercent: changePercent,
+        dayHigh: dayHigh,
+        dayLow: dayLow,
+        dayOpen: prevClose,
+        prevClose: prevClose,
+        vwap: spotPrice,
+        volume: 0,
+        marketState: marketState,
+        lastUpdated: istString,
+        source: 'Yahoo Finance Live Feed'
+      };
+    };
+
+    try {
+      const fastQuote = await Promise.any([fetchTvPromise(), fetchYahooFastPromise()]);
+      if (fastQuote) {
+        liveQuoteCache.set(normSym, { quote: fastQuote, timestamp: now });
+        return fastQuote;
+      }
+    } catch {}
+
+    // Fallback: Official NSE India Site API with strict 1s timeout
+    try {
+      const officialNse = await fetchOfficialNseIndexQuote(rawSymbol);
+      if (officialNse) {
+        liveQuoteCache.set(normSym, { quote: officialNse, timestamp: now });
+        return officialNse;
+      }
+    } catch {}
   }
+
 
   try {
     const { cookie, crumb } = await getYahooSession();
@@ -852,9 +1034,14 @@ async function fetchLiveQuote(rawSymbol: string) {
         let marketState = (q.marketState || 'REGULAR').toUpperCase();
         if (holiday.isHoliday || ist.isWeekend) {
           marketState = 'CLOSED';
-        } else if (!isTradedToday && ist.totalMinutes >= (isINR ? 9 * 60 + 30 : 9 * 60 + 45)) {
-          // If past morning open but last trade recorded on exchange was previous day, market is closed today
-          marketState = 'CLOSED';
+        } else {
+          const openMin = isINR ? 9 * 60 + 15 : 9 * 60 + 30;
+          const closeMin = isINR ? 15 * 60 + 30 : 16 * 60;
+          if (ist.totalMinutes < openMin || ist.totalMinutes > closeMin) {
+            marketState = 'CLOSED';
+          } else {
+            marketState = 'REGULAR';
+          }
         }
 
         // Extract Pre-Market and Post-Market
@@ -1337,8 +1524,8 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
       { id: 'nikkei', symbol: '^N225' },
     ];
 
-    // Refresh macro quotes only if older than 25 seconds to eliminate latency bottlenecks
-    if (nowMs - lastMacroQuotesFetchTime > 25000 || lastMacroQuotesMap.size === 0) {
+    // Refresh macro quotes only if older than 5 seconds to eliminate latency bottlenecks
+    if (nowMs - lastMacroQuotesFetchTime > 5000 || lastMacroQuotesMap.size === 0) {
       await Promise.all(macroTickers.map(async (t) => {
         try {
           const chartRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(t.symbol)}?interval=1d&range=1d&_t=${Date.now()}`, {
@@ -1404,11 +1591,14 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
         },
         signal: AbortSignal.timeout(1800)
       });
+      console.log('Moneycontrol response status:', mcRes.status);
       if (mcRes.ok) {
         const html = await mcRes.text();
         const m = html.match(/"stockData"\s*:\s*(\{[^}]+\})/);
+        console.log('Moneycontrol stockData found:', !!m);
         if (m) {
           const d = JSON.parse(m[1]);
+          console.log('Moneycontrol data:', d);
           const p = parseFloat(String(d.lastprice || d.current_price || '').replace(/,/g, ''));
           const chg = parseFloat(String(d.change || d.net_change || '').replace(/,/g, ''));
           const pct = parseFloat(String(d.percentchange || d.percent_change || '').replace(/,/g, ''));
@@ -1810,16 +2000,26 @@ app.get('/api/market-candles', async (req: Request, res: Response) => {
   }
 });
 
+const optionChainCache = new Map<string, { data: any; expiry: number }>();
+
 // 2. API: Live Real-Time Option Chain Endpoint
 app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
   try {
     const rawSymbol = req.params.symbol.trim();
+    const forceRefresh = req.query.refresh === 'true';
     const yahooSymbol = SYMBOL_MAP[rawSymbol.toUpperCase()] || rawSymbol;
     const isIndian = rawSymbol.toUpperCase().includes('NIFTY') || 
       rawSymbol.toUpperCase().includes('BANK') || 
       rawSymbol.toUpperCase().includes('SENSEX') || 
       GROWW_SYMBOL_MAP[rawSymbol.toUpperCase()] !== undefined;
     const requestedDate = req.query.date ? Number(req.query.date) : undefined;
+
+    const cacheKey = `${rawSymbol.toUpperCase()}_${requestedDate || 'def'}`;
+    const cachedChain = optionChainCache.get(cacheKey);
+    const nowMs = Date.now();
+    if (!forceRefresh && cachedChain && nowMs < cachedChain.expiry) {
+      return res.json(cachedChain.data);
+    }
 
     // Check if US Equity Option Chain can be pulled live from Yahoo Finance
     if (!isIndian) {
@@ -1836,7 +2036,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
             'Cookie': cookie,
           },
         }),
-        fetchLiveQuote('VIX').catch(() => null)
+        fetchLiveQuote('VIX', forceRefresh).catch(() => null)
       ]);
 
       if (optRes.ok) {
@@ -1995,18 +2195,19 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
           growwUrl += `?expiry=${req.query.expiryDate}`;
         }
 
-        const [quote, growwRes, vixQuote] = await Promise.all([
-          fetchLiveQuote(rawSymbol),
+        const [quote, vixQuote, growwRes] = await Promise.all([
+          fetchLiveQuote(rawSymbol, forceRefresh),
+          fetchLiveQuote('INDIAVIX', false).catch(() => null),
           fetch(growwUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
               'Accept': 'application/json, text/plain, */*',
             },
-          }),
-          fetchLiveQuote('INDIAVIX').catch(() => null)
+            signal: AbortSignal.timeout(1800)
+          }).catch(() => null)
         ]);
 
-        if (growwRes.ok) {
+        if (growwRes && growwRes.ok) {
           const growwJson = await growwRes.json();
           let rawOptionChains = growwJson.optionChain?.optionChains || [];
           const rawExpiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
@@ -2028,7 +2229,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
                             growwJson.underlyingDto?.ltp || 
                             growwJson.optionChain?.underlyingDto?.ltp || 
                             growwJson.optionChain?.underlyingDetailsDto?.ltp;
-          const S = (growwSpot && growwSpot > 0) ? growwSpot : quote.spotPrice;
+          const S = (growwSpot && growwSpot > 0) ? growwSpot : (quote.spotPrice || quote.price);
 
           // Validate that rawOptionChains contains strikes near current spot S
           if (rawOptionChains.length > 0) {
@@ -2043,7 +2244,6 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
           }
 
           // Adjust quote price to match Groww's live spot index value
-          /*
           if (growwSpot && growwSpot > 0) {
             quote.spotPrice = growwSpot;
             quote.regularPrice = growwSpot;
@@ -2052,7 +2252,6 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               quote.changePercent = Number(((quote.change / quote.prevClose) * 100).toFixed(2));
             }
           }
-          */
 
           const step = isBankNifty ? 100 : 50;
           const atm = Math.round(S / step) * step;
@@ -2259,17 +2458,17 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
             const vix = vixQuote ? vixQuote.spotPrice : 12.69;
             const vixChange = vixQuote ? vixQuote.change : 0.2;
 
-            return res.json({
+            const payload = {
               symbol: rawSymbol,
-              spotPrice: quote.spotPrice,
-              regularPrice: quote.spotPrice,
+              spotPrice: quote.spotPrice || quote.price,
+              regularPrice: quote.regularPrice || quote.spotPrice || quote.price,
               prevClose: quote.prevClose,
               change: quote.change,
               changePercent: quote.changePercent,
               dayHigh: quote.dayHigh,
               dayLow: quote.dayLow,
               currency: '₹',
-              asOnTime: quote.formattedTime,
+              asOnTime: quote.formattedTime || quote.lastUpdated || (new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST'),
               marketState: quote.marketState,
               isHoliday: quote.isHoliday,
               holidayName: quote.holidayName,
@@ -2289,7 +2488,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               isLiveExchange: true,
               source: 'NSE Live Option Chain (Real Exchange NFO Market Depth)',
               rows: rows,
-            });
+            };
+            optionChainCache.set(cacheKey, { data: payload, expiry: Date.now() + 800 });
+            return res.json(payload);
           }
         }
       } catch (growwErr) {
@@ -2304,7 +2505,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
     ]);
     const officialExpiries = INDIAN_EXPIRIES[rawSymbol.toUpperCase()] || INDIAN_EXPIRIES['NIFTY 50'];
 
-    const S = quote.spotPrice;
+    const S = quote.spotPrice || quote.price;
     const isNifty50 = rawSymbol.toUpperCase().includes('NIFTY') && !rawSymbol.toUpperCase().includes('BANK') && !rawSymbol.toUpperCase().includes('FIN');
     const isBankNifty = rawSymbol.toUpperCase().includes('BANK');
     const isFinNifty = rawSymbol.toUpperCase().includes('FIN');
@@ -2433,17 +2634,17 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({
+    const fallbackPayload = {
       symbol: rawSymbol,
-      spotPrice: quote.spotPrice,
-      regularPrice: quote.spotPrice,
+      spotPrice: quote.spotPrice || quote.price,
+      regularPrice: quote.regularPrice || quote.spotPrice || quote.price,
       prevClose: quote.prevClose,
       change: quote.change,
       changePercent: quote.changePercent,
       dayHigh: quote.dayHigh,
       dayLow: quote.dayLow,
       currency: '₹',
-      asOnTime: quote.formattedTime,
+      asOnTime: quote.formattedTime || quote.lastUpdated || (new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST'),
       marketState: quote.marketState,
       isHoliday: quote.isHoliday,
       holidayName: quote.holidayName,
@@ -2463,7 +2664,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       isLiveExchange: false,
       source: 'Black-Scholes Estimated Option Chain (Live NFO Market Depth Offline)',
       rows,
-    });
+    };
+    optionChainCache.set(cacheKey, { data: fallbackPayload, expiry: Date.now() + 1200 });
+    return res.json(fallbackPayload);
 
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';

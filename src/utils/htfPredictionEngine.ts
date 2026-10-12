@@ -18,6 +18,7 @@ import {
   MultiTimeframePredictionSuite 
 } from '../types/htfPredictions';
 import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
+import { getMoneyness } from '../components/MoneynessBadge';
 import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
@@ -1023,13 +1024,6 @@ export function generateExpiryForecast(
     targetStrike = Math.round(forwardSpot / step) * step;
   }
 
-  const isAtmExpiry = Math.abs(targetStrike - S) <= step * 0.45;
-  const targetMoneyness: Moneyness = isAtmExpiry
-    ? 'ATM'
-    : recommendedType === 'CE'
-      ? (targetStrike < S ? 'ITM' : 'OTM')
-      : (targetStrike > S ? 'ITM' : 'OTM');
-
   // Look up live contract from option chain for specific expiryIndex
   const targetChain = (chain && chain.length > 0 && expiryIndex === 0) ? chain : buildInitialChain(ticker, expiryIndex);
   const row = targetChain?.find(r => r.strike === targetStrike);
@@ -1082,6 +1076,8 @@ export function generateExpiryForecast(
 
   const winProbability = expiryType === 'NEXT_1_WEEK' ? (trendDirection !== 'RANGE_PINNING' ? 76 : 68) : 80;
   const gammaRisk: ExpiryForecast['gammaRisk'] = expiryType === 'NEXT_1_WEEK' ? (daysToExpiry <= 3 ? 'HIGH' : 'MODERATE') : 'LOW';
+
+  const targetMoneyness = getMoneyness(targetStrike, recommendedType, S, step);
 
   const strategyName = expiryType === 'NEXT_1_WEEK'
     ? (trendDirection === 'RANGE_PINNING' ? 'Iron Condor / Short Strangle Range Capture' : `Weekly Direct ${targetStrike} ${recommendedType} Momentum`)

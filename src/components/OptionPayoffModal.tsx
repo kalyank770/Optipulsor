@@ -387,7 +387,7 @@ export const OptionPayoffModal: React.FC<OptionPayoffModalProps> = ({
                 <div className="absolute top-2 left-2 right-2 flex justify-between pointer-events-none text-[10px] font-mono">
                   <div className="flex items-center gap-2">
                     <span className="text-amber-400 bg-slate-950/80 px-1.5 py-0.5 rounded border border-amber-500/30">
-                      Spot {ticker.currency}{ticker.spotPrice.toLocaleString()}
+                      Spot {ticker.currency}{(ticker?.spotPrice ?? 0).toLocaleString()}
                     </span>
                     <span className="text-yellow-400 bg-slate-950/80 px-1.5 py-0.5 rounded border border-yellow-500/30">
                       Strike {K}

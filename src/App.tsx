@@ -87,6 +87,7 @@ export default function App() {
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,
+    handleCalibrateSpot,
   } = useLiveOptionChain();
 
   // Paper Trading Hook
@@ -371,6 +372,7 @@ export default function App() {
         onTogglePreMarket={toggleUsePreMarket}
         activeTab={activeTab}
         onSelectTab={(tab) => setActiveTab(tab as WorkspaceTab)}
+        onCalibrateSpot={handleCalibrateSpot}
       />
 
       {/* Main Workspace Area */}

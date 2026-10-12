@@ -151,7 +151,7 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
       latency: `${feedLatencies.chain}ms`,
       interval: 'Real-time Tick',
       lastSynced: lastUpdated,
-      sampleMetric: `Spot: ₹${ticker.spotPrice.toLocaleString()} · VWAP: ₹${ticker.vwap?.toLocaleString() || '₹22,465'} (${ticker.changePercent >= 0 ? '+' : ''}${ticker.changePercent}%)`,
+      sampleMetric: `Spot: ₹${(ticker?.spotPrice ?? 0).toLocaleString()} · VWAP: ₹${ticker.vwap?.toLocaleString() || '₹22,465'} (${ticker.changePercent >= 0 ? '+' : ''}${ticker.changePercent}%)`,
       predictionRole: 'Powers Real-Time Entry Triggers & Stop-Loss Anchors',
       icon: TrendingUp,
       color: 'emerald',

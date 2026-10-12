@@ -111,32 +111,6 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
     };
   }
 
-  // 2. If ticker explicitly carries an active live session state from live feed or test configuration
-  if (ticker.marketState === 'OPEN') {
-    return {
-      isOpen: true,
-      session: 'REGULAR',
-      marketName: isIndian ? 'NSE (India)' : 'NYSE/NASDAQ (US)',
-      nextOpenMsg: isIndian ? 'Closes today at 03:30 PM IST' : 'Closes today at 04:00 PM ET',
-      exchangeTimeStr: isIndian ? `${timeStr} IST` : `${timeStr} ET`,
-      tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
-      minutesToClose: 120,
-      isClosingSoon: false,
-    };
-  }
-
-  if (ticker.marketState === 'CLOSED') {
-    return {
-      isOpen: false,
-      session: 'CLOSED',
-      marketName: isIndian ? 'NSE (India)' : 'NYSE/NASDAQ (US)',
-      nextOpenMsg: isIndian ? 'Regular trading opens at 09:15 AM IST' : 'Regular trading opens at 09:30 AM ET',
-      exchangeTimeStr: isIndian ? `${timeStr} IST` : `${timeStr} ET`,
-      tradingHoursLabel: isIndian ? '09:15 - 15:30 IST' : '09:30 - 16:00 ET',
-      source: 'Verified Exchange State: CLOSED',
-    };
-  }
-
   if (isIndian) {
     const tz = 'Asia/Kolkata';
     const { dayOfWeek, hours, minutes, timeStr } = getExchangeTime(tz);

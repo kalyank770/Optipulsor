@@ -32,6 +32,7 @@ interface HeaderProps {
   onTogglePreMarket?: () => void;
   activeTab?: string;
   onSelectTab?: (tab: string) => void;
+  onCalibrateSpot?: (newSpot: number) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   onTogglePreMarket,
   activeTab = 'chain',
   onSelectTab,
+  onCalibrateSpot,
 }) => {
   const isPositive = selectedTicker.change >= 0;
 
@@ -197,7 +199,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-1.5 truncate">
             <span className="font-bold text-white">{selectedTicker.symbol}</span>
             <span className="text-emerald-400 font-bold">
-              {selectedTicker.currency}{selectedTicker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {selectedTicker.currency}{(selectedTicker?.spotPrice ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <span className={`font-bold text-[11px] ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
               ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
@@ -241,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-bold text-white text-xs sm:text-sm">{selectedTicker.symbol}</span>
               <span className="text-slate-600">·</span>
               <span className="text-base sm:text-lg font-bold text-white tracking-tight">
-                {selectedTicker.currency}{selectedTicker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {selectedTicker.currency}{(selectedTicker?.spotPrice ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className={`font-bold text-xs ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {isPositive ? '+' : ''}{selectedTicker.change.toFixed(2)} ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
@@ -252,6 +254,31 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>H: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayHigh.toFixed(2)}</strong></span>
                   <span>L: <strong className="text-slate-200">{selectedTicker.currency}{selectedTicker.dayLow.toFixed(2)}</strong></span>
                 </span>
+              )}
+              {onSyncLiveExchange && (
+                <button
+                  onClick={() => onSyncLiveExchange()}
+                  disabled={isSyncing}
+                  className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-950/80 border border-emerald-600/60 text-emerald-300 hover:text-white hover:bg-emerald-900 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Instant Live Sync: fetch live exchange quotes, Greeks, and predictions with zero delay"
+                >
+                  <span className={isSyncing ? "inline-block animate-spin" : ""}>🔄</span>
+                  <span>{isSyncing ? 'Syncing...' : 'Live Sync'}</span>
+                </button>
+              )}
+              {onCalibrateSpot && (
+                <button
+                  onClick={() => {
+                    const val = prompt(`Enter exact live ${selectedTicker.symbol} spot price from your broker terminal to sync & anchor basis difference:`, selectedTicker.spotPrice.toString());
+                    if (val && !isNaN(Number(val))) {
+                      onCalibrateSpot(Number(val));
+                    }
+                  }}
+                  className="ml-1 px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-emerald-500 transition-colors cursor-pointer"
+                  title="Calibrate basis difference to match your live broker terminal feed"
+                >
+                  ⚙️ Sync Spot
+                </button>
               )}
             </div>
           </div>
