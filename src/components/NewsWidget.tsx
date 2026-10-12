@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NewsItem, TickerConfig } from '../types/options';
 import { Newspaper, Flame, ExternalLink, TrendingUp, TrendingDown, RefreshCw, Clock, Moon, Sun, Sparkles } from 'lucide-react';
+import { MarketSentimentTrendChart } from './MarketSentimentTrendChart';
 
 interface NewsWidgetProps {
   news: NewsItem[];
@@ -51,51 +52,60 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
   });
 
   return (
-    <div className={`border rounded-lg p-3 sm:p-5 ${isLight ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-slate-900/90 border-slate-800 text-white'}`}>
-      {/* Header */}
-      <div className={`flex flex-wrap items-center justify-between gap-3 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Newspaper className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
-            <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              Options Market News & Macro Catalysts
-            </h3>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              <Sparkles className="w-3 h-3 text-emerald-400" /> Last Night to Current Live Session
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase border tracking-wider ${
-              overallSentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
-              overallSentiment === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
-              'bg-slate-800 text-slate-300 border-slate-700'
-            }`}>
-              {overallSentiment === 'BULLISH' ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : overallSentiment === 'BEARISH' ? <TrendingDown className="w-3 h-3 text-rose-400" /> : <Clock className="w-3 h-3 text-slate-400" />}
-              <span>Overall: {overallSentiment}</span>
-            </span>
-          </div>
-          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-            Strictly past 24h: Overnight global cues (Gift Nifty, Wall Street, Crude, FIIs) + Live intraday breaking news affecting CE & PE strikes
-          </p>
-        </div>
+    <div className="space-y-4">
+      {/* Historical Trend Line Chart for Overall Market Sentiment */}
+      <MarketSentimentTrendChart
+        news={news}
+        selectedTicker={selectedTicker}
+        onSelectTickerBySymbol={onSelectTickerBySymbol}
+        theme={theme}
+      />
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          {onRefreshNews && (
-            <button
-              onClick={onRefreshNews}
-              disabled={isNewsLoading}
-              title="Refresh latest news wire from last night to current moment"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold border transition-colors cursor-pointer ${
-                isNewsLoading
-                  ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-not-allowed'
-                  : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border-emerald-500/40'
-              }`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isNewsLoading ? 'animate-spin text-emerald-400' : ''}`} />
-              <span>{isNewsLoading ? 'Fetching Wire...' : 'Refresh Wire'}</span>
-            </button>
-          )}
+      <div className={`border rounded-xl p-3 sm:p-5 ${isLight ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-slate-900/90 border-slate-800 text-white'}`}>
+        {/* Header */}
+        <div className={`flex flex-wrap items-center justify-between gap-3 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Newspaper className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+              <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                Live News & Macro Wire
+              </h3>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                <Sparkles className="w-3 h-3 text-emerald-400" /> Past 24h to Live
+              </span>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase border tracking-wider ${
+                overallSentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                overallSentiment === 'BEARISH' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                'bg-slate-800 text-slate-300 border-slate-700'
+              }`}>
+                {overallSentiment === 'BULLISH' ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : overallSentiment === 'BEARISH' ? <TrendingDown className="w-3 h-3 text-rose-400" /> : <Clock className="w-3 h-3 text-slate-400" />}
+                <span>Overall: {overallSentiment}</span>
+              </span>
+            </div>
+            <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+              Overnight cues (GIFT Nifty, Wall Street, Crude) + Live news affecting CE & PE strikes
+            </p>
+          </div>
+
+          {/* Action Controls */}
+          <div className="flex items-center gap-2">
+            {onRefreshNews && (
+              <button
+                onClick={onRefreshNews}
+                disabled={isNewsLoading}
+                title="Refresh latest news wire from last night to current moment"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold border transition-colors cursor-pointer ${
+                  isNewsLoading
+                    ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-not-allowed'
+                    : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border-emerald-500/40'
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isNewsLoading ? 'animate-spin text-emerald-400' : ''}`} />
+                <span>{isNewsLoading ? 'Refreshing...' : 'Refresh Wire'}</span>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
       {/* Filter Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 pb-1 text-xs">
@@ -295,5 +305,6 @@ export const NewsWidget: React.FC<NewsWidgetProps> = ({
         )}
       </div>
     </div>
-  );
+  </div>
+);
 };

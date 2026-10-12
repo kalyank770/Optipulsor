@@ -10,6 +10,7 @@ import { PredictionValidationCard } from './PredictionValidationCard';
 import { MarketHoursStatus } from '../utils/marketHours';
 import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { AdvanceTradeCard } from './AdvanceTradeCard';
+import { StabilityLockBadge } from './StabilityLockBadge';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -83,9 +84,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const [lots, setLots] = useState<number>(1);
   const [priceFlash, setPriceFlash] = useState<'UP' | 'DOWN' | null>(null);
 
-  const advSetup = signal.advanceTradeSetup;
-  const isAdvActive = Boolean(marketStatus?.isOpen && advSetup && advSetup.anticipatedAction !== 'WAIT_NEUTRAL');
-
   // Sub-sections accordion state (all collapsed by default except allExpiries)
   type SubSectionKey = 'multiTimeframe' | 'highProb' | 'quantParams' | 'groundedPayoff' | 'heavyweights' | 'allExpiries';
 
@@ -105,10 +103,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
     }));
   };
 
-  const activeAction = isAdvActive && advSetup ? advSetup.anticipatedAction : signal.action;
-  const isCE = activeAction === 'BUY_CE';
-  const isPE = activeAction === 'BUY_PE';
-  const isNeutral = activeAction === 'WAIT_NEUTRAL';
+  // Primary Institutional Signal Action is strictly authoritative:
+  const isCE = signal.action === 'BUY_CE';
+  const isPE = signal.action === 'BUY_PE';
+  const isNeutral = signal.action === 'WAIT_NEUTRAL';
 
   // Find live contract quote directly from the option chain
   const recommendedRow = chain?.find(r => r.strike === signal.recommendedStrike);
@@ -116,7 +114,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
   // Active trade contract resolution:
   // When market is closed (After-Market mode) and current contract has expired/settled at <= 0.05:
-  // Dynamically resolve exact contract quote for target strike (e.g. 22850 CE) on active tradeable next expiry (13-Oct-2026)
+  // Dynamically resolve exact contract quote for target strike on active tradeable next expiry
   const isAfterMarket = !marketStatus?.isOpen;
   const isCurrentContractExpired = liveContract && liveContract.ltp <= 0.05;
 
@@ -127,15 +125,15 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const shouldUseNextExpiry = isAfterMarket && (isCurrentContractExpired || !liveContract || (liveContract && liveContract.ltp <= 0.05));
 
   const currentLTP = shouldUseNextExpiry
-    ? (nextExpiryQuote ? nextExpiryQuote.ltp : (signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : 108.50))
+    ? (nextExpiryQuote ? nextExpiryQuote.ltp : (signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : (liveContract?.ltp ?? 50.0)))
     : (liveContract?.ltp ?? signal.recommendedContractLTP);
 
   const displayContractChange = shouldUseNextExpiry
-    ? (nextExpiryQuote ? nextExpiryQuote.change : 19.00)
+    ? (nextExpiryQuote ? nextExpiryQuote.change : (liveContract?.change ?? 0))
     : (liveContract?.change ?? 0);
 
   const displayContractChangePercent = shouldUseNextExpiry
-    ? (nextExpiryQuote ? nextExpiryQuote.changePercent : 22.80)
+    ? (nextExpiryQuote ? nextExpiryQuote.changePercent : (liveContract?.changePercent ?? 0))
     : (liveContract?.changePercent ?? 0);
 
   const displayBidPrice = shouldUseNextExpiry
@@ -243,8 +241,8 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
             <div>
-              <span className="font-bold text-amber-300">Closing Auction (CAS · 3:30–3:40 PM): </span>
-              <span className="text-slate-300 text-xs">Continuous F&amp;O closed. Final settlement price being discovered.</span>
+              <span className="font-bold text-amber-300">Closing Auction (3:30–3:40 PM): </span>
+              <span className="text-slate-300 text-xs">Continuous trading closed. Settling final price.</span>
             </div>
           </div>
           <span className="text-[11px] font-mono text-amber-300 px-2 py-0.5 rounded bg-amber-900/60 border border-amber-500/30 shrink-0">
@@ -521,14 +519,17 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 <ShieldAlert className="w-4 h-4" />
               </div>
               <div className="space-y-1 w-full">
-                <div className="font-bold text-slate-200 text-xs flex items-center justify-between">
-                  <span>⏸️ Range Equilibrium / Consolidation Phase · Stand Aside</span>
+                <div className="font-bold text-slate-200 text-xs flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span>⏸️ Consolidation Phase · Stand Aside</span>
+                    <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
+                  </div>
                   <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                     No Action
                   </span>
                 </div>
                 <p className="text-slate-400 text-xs leading-relaxed">
-                  <strong>Market Context:</strong> Spot is oscillating between Support ({ticker.currency}{metrics.majorSupportStrike.toLocaleString()}) and Resistance ({ticker.currency}{metrics.majorResistanceStrike.toLocaleString()}). Whipsaw risk is elevated — stay on the sidelines until a volume-confirmed directional breakout emerges.
+                  <strong>Market Context:</strong> Spot is oscillating between Support ({ticker.currency}{metrics.majorSupportStrike.toLocaleString()}) and Resistance ({ticker.currency}{metrics.majorResistanceStrike.toLocaleString()}). Wait for a confirmed breakout.
                 </p>
                 <div className="pt-1 text-[11px] text-slate-400 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 font-mono">
                   <span>Pillar: Multi-timeframe consolidation</span>
@@ -547,9 +548,12 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             </div>
             <div className="space-y-1 w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
-                  <span>⚡ Active Entry Signal</span>
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
+                    <span>⚡ Active Entry Signal</span>
+                  </span>
+                  <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
+                </div>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
                   R:R {signal.riskRewardRatio}
                 </span>
@@ -579,7 +583,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
-                Guidance for Previous Positions
+                Position Advice
               </h4>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
                 Action Plan
@@ -596,7 +600,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
               }`}>
                 <div className="font-bold flex items-center justify-between mb-1">
-                  <span>Previous CE (Call) Entries</span>
+                  <span>Existing Calls (CE)</span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900 flex items-center gap-1.5">
                     <span>{signal.action === 'BUY_CE' ? 'HOLD / TRAIL' : signal.action === 'BUY_PE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}</span>
                     <span className="text-purple-300 font-mono font-semibold">({ceChance}%)</span>
@@ -604,10 +608,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-300 font-sans leading-normal">
                   {signal.action === 'BUY_CE' 
-                    ? 'Bullish prediction active. Hold existing Call positions, move stop loss to cost, and trail towards targets.'
+                    ? 'Bullish active. Hold calls, move stop to entry, trail targets.'
                     : signal.action === 'BUY_PE'
-                    ? 'Bearish prediction active. Square off previous Call positions immediately to prevent capital erosion.'
-                    : 'Neutral consolidation. Book partial profits on previous Calls and maintain tight stop losses.'}
+                    ? 'Bearish active. Cut calls immediately to prevent loss.'
+                    : 'Neutral chop. Book partials on calls and keep tight stops.'}
                 </p>
               </div>
 
@@ -620,7 +624,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
               }`}>
                 <div className="font-bold flex items-center justify-between mb-1">
-                  <span>Previous PE (Put) Entries</span>
+                  <span>Existing Puts (PE)</span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900 flex items-center gap-1.5">
                     <span>{signal.action === 'BUY_PE' ? 'HOLD / TRAIL' : signal.action === 'BUY_CE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}</span>
                     <span className="text-purple-300 font-mono font-semibold">({peChance}%)</span>
@@ -628,10 +632,10 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-300 font-sans leading-normal">
                   {signal.action === 'BUY_PE' 
-                    ? 'Bearish prediction active. Hold existing Put positions and trail stop losses.'
+                    ? 'Bearish active. Hold puts and trail stop losses.'
                     : signal.action === 'BUY_CE'
-                    ? 'Bullish prediction active. Square off previous Put positions immediately to avoid adverse spot rise and theta decay.'
-                    : 'Neutral chop. Book partial profits on Puts and avoid holding fresh shorts.'}
+                    ? 'Bullish active. Cut puts immediately to avoid loss.'
+                    : 'Neutral chop. Book partials on puts and avoid fresh shorts.'}
                 </p>
               </div>
             </div>
@@ -674,7 +678,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-sky-400" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
-                High-Probability Swing & News Multiplier Engine
+                News Impact &amp; Swing Factors
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] font-mono">

@@ -87,7 +87,6 @@ export default function App() {
     handleSelectTicker,
     handleSelectExpiry,
     handleForceRefresh,
-    handleCalibrateSpot,
   } = useLiveOptionChain();
 
   // Paper Trading Hook
@@ -365,14 +364,14 @@ export default function App() {
         lastUpdated={lastUpdated}
         unreadNewsCount={newsFeed.length}
         isSyncing={isSyncing}
-        onSyncLiveExchange={syncLiveExchange}
         syncStatusMsg={dataSourceNote}
         marketStatus={marketStatus}
         usePreMarket={usePreMarket}
         onTogglePreMarket={toggleUsePreMarket}
         activeTab={activeTab}
         onSelectTab={(tab) => setActiveTab(tab as WorkspaceTab)}
-        onCalibrateSpot={handleCalibrateSpot}
+        stabilityLock={signal.stabilityLock}
+        signalAction={signal.action}
       />
 
       {/* Main Workspace Area */}
@@ -580,13 +579,13 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                      <span>Trade Dynamics Ladder Matrix</span>
+                      <span>Option Chain Ladder</span>
                       <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
                         {filteredRows.length} Strikes
                       </span>
                     </h3>
                     <p className="text-xs text-slate-400 font-mono mt-0.5">
-                      Live Greeks, Volume/OI, ITM highlights & instant simulation triggers
+                      Live strikes, Greeks, OI, and payoff simulation
                     </p>
                   </div>
                 </div>

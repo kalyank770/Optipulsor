@@ -399,47 +399,32 @@ export function generateTradeSignal(
     }
   }
 
-  // Regime Detection: Differentiate genuine bullish rises and intraday recoveries from continuous downward falls
-  const isPositiveSession = spotChangePct >= 0.05;
-  const isBullishCandles = candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.2;
-  const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen + ticker.strikeStep * 0.15 : false;
-  const isConfirmedBullishReversal = recoveryRatio >= 0.48 && spotPrice >= rt.vwap.value && isBullishCandles;
+  // Regime Detection: Institutional VWAP & Price Action Architecture
+  const isAboveVWAP = spotPrice >= rt.vwap.value;
+  const isBelowVWAP = spotPrice < rt.vwap.value;
+  const isAboveDayOpen = ticker.dayOpen ? spotPrice > ticker.dayOpen : spotChangePct > 0;
+  const isBelowDayOpen = ticker.dayOpen ? spotPrice < ticker.dayOpen : spotChangePct < 0;
 
-  // Active Intraday Recovery Rally: When price is surging/recovering off the session day low
-  // Even if spot is still in the red relative to previous close, an active recovery means the market is GOING UP!
-  const isIntradayRecoveryRally = (recoveryPoints >= ticker.strikeStep * 0.40 || recoveryRatio >= 0.30) && (
-    candlePatterns.confluenceBias === 'BULLISH' || 
-    (candlePatterns.m5Score ?? 0) > 0 || 
-    rt.vwap.bias === 'BULLISH' || 
-    rt.ema.alignment === 'BULLISH_STACK' || 
-    recoveryRatio >= 0.40
-  );
+  // Genuine Bullish Regime: Spot holding firmly above VWAP with bullish EMA or positive session change
+  const isMarketRaising = isAboveVWAP && (isAboveDayOpen || spotChangePct >= 0.05) && (rt.ema.alignment === 'BULLISH_STACK' || rt.vwap.bias === 'BULLISH');
 
-  // True Market Raising: In the green, or trading above open with bullish candles, or confirmed reversal, or active intraday recovery bounce
-  const isMarketRaising = isPositiveSession || (isAboveDayOpen && isBullishCandles) || isConfirmedBullishReversal || isIntradayRecoveryRally;
+  // Genuine Bearish Regime: Spot trading below VWAP with bearish EMA or negative session change
+  const isContinuousFall = isBelowVWAP && (isBelowDayOpen || spotChangePct <= -0.05) && (rt.ema.alignment === 'BEARISH_STACK' || rt.vwap.bias === 'BEARISH');
 
-  // True Continuous Downtrend: MUST be actively pinned near day low and making lower lows, NOT recovering!
-  // If price has recovered >22% of the range or >35% of a strike step, it is NOT a continuous fall.
-  const isContinuousFall = spotChangePct <= -0.05 && 
-    recoveryRatio <= 0.22 && 
-    recoveryPoints < ticker.strikeStep * 0.35 && 
-    (
-      candlePatterns.confluenceBias === 'BEARISH' || 
-      rt.vwap.bias === 'BEARISH' || 
-      rt.ema.alignment === 'BEARISH_STACK' ||
-      (ticker.dayOpen ? spotPrice < ticker.dayOpen : true)
-    );
+  // Intraday Recovery Bounce check: Only consider a recovery bullish IF it actually reclaims VWAP!
+  const isConfirmedBullishReversal = recoveryRatio >= 0.50 && spotPrice >= rt.vwap.value && candlePatterns.confluenceBias === 'BULLISH';
+  const isIntradayRecoveryRally = isConfirmedBullishReversal;
 
-  // GUARD RAIL 1: Intraday Recovery vs Trend Continuation
+  // GUARD RAIL 1: Trend Alignment with Institutional VWAP
   if (isMarketRaising && score < 0) {
-    if (isBullishCandles || (candlePatterns.m5Score ?? 0) >= 1.5) {
-      score = Math.max(score, 2.5); // Trigger BUY_CE for confirmed rally
+    if (isConfirmedBullishReversal) {
+      score = Math.max(score, 2.0); // Trigger BUY_CE only on confirmed VWAP reclaim
     } else {
-      score = Math.max(0.6, score + 3.0); // Neutralize false bearishness in a rising market
-      capitalProtectionReason = `Capital Protection: Market is in an active upward rise (${isPositiveSession ? 'in green' : `recovering +${ticker.currency}${recoveryPoints.toFixed(1)} pts off day low`}). Put option (PE) buying is prohibited during an upward move.`;
+      score = Math.max(0.4, score + 2.0); // Neutralize false bearishness above VWAP
+      capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Put option (PE) buying against VWAP support has unfavorable odds.`;
     }
   } else if (isContinuousFall && score > -1.0) {
-    // If the market is continuously falling, ensure the bearish conviction is preserved so BUY_PE is recommended!
+    // Preserve strong bearish conviction below VWAP for BUY_PE
     score = Math.min(score, -2.4);
   }
 
@@ -587,7 +572,7 @@ export function generateTradeSignal(
   if (isMarketRaising) {
     // MARKET IS GENUINELY RAISING:
     // Put (PE) buying is strictly forbidden. The system only permits BUY_CE (if momentum confirms) or WAIT_NEUTRAL.
-    if (score >= 1.4 && (bullMatches >= 3 || (bullMatches >= 2 && isBullishCandles))) {
+    if (score >= 1.4 && (bullMatches >= 3 || (bullMatches >= 2 && candlePatterns.confluenceBias === 'BULLISH'))) {
       action = 'BUY_CE';
       strength = bullMatches >= 5 ? 'STRONG' : 'MODERATE';
       confidence = strength === 'STRONG'
@@ -1007,27 +992,18 @@ export function generateTradeSignal(
   const intradayTheta1 = theta * 0.12;
   const greekGain1 = Math.max(tick * 2, deltaExpansion1 + gammaAcceleration1 - intradayTheta1 + vegaExpansion1);
   const estGain1 = bsDeltaGain1 * 0.50 + greekGain1 * 0.50;
-  let target1 = roundToTick(premium + estGain1);
-
-  // Self-Healing Adaptive Target Adjustment: If PCR is extreme, scale target 1 to lock tactical profits early
-  if (selfHealing.active && (pcrTotalOI >= 1.30 || pcrTotalOI <= 0.65)) {
-    const pcrScale = selfHealing.parameters.pcrExtremeTargetScale || 0.88;
-    target1 = roundToTick(premium + Math.max(tick * 2, estGain1 * pcrScale));
-  }
-  const target1Delta = roundToTick(Math.max(tick, target1 - premium));
 
   // 2. Target 2 Option Price: Direct, authentic payoff at spotTarget2
   const deltaSpot2 = Math.abs(spotTarget2 - spotPrice);
   const T_target2 = Math.max(0.0001, T - (2.5 / (252 * 6.25)));
   const bsTarget2 = calculateBlackScholes(spotTarget2, targetStrike, T_target2, r, ivDecimal, recommendedType);
-  const bsDeltaGain2 = Math.max(target1Delta + tick * 2, bsTarget2.price - bsCurrent.price);
+  const rawTarget1Delta = roundToTick(estGain1);
+  const bsDeltaGain2 = Math.max(rawTarget1Delta + tick * 2, bsTarget2.price - bsCurrent.price);
   const deltaExpansion2 = delta * deltaSpot2;
   const gammaAcceleration2 = 0.5 * gamma * Math.pow(deltaSpot2, 2);
   const intradayTheta2 = theta * 0.25;
-  const greekGain2 = Math.max(target1Delta + tick * 2, deltaExpansion2 + gammaAcceleration2 - intradayTheta2 + vegaExpansion2);
+  const greekGain2 = Math.max(rawTarget1Delta + tick * 2, deltaExpansion2 + gammaAcceleration2 - intradayTheta2 + vegaExpansion2);
   const estGain2 = bsDeltaGain2 * 0.50 + greekGain2 * 0.50;
-  let target2 = roundToTick(premium + Math.max(target1Delta + tick * 4, estGain2));
-  const target2Delta = roundToTick(Math.max(tick * 2, target2 - premium));
 
   // 3. Stop Loss Option Price: Technical invalidation at spotStopLoss
   const deltaSpotSL = Math.abs(spotStopLoss - spotPrice);
@@ -1037,34 +1013,74 @@ export function generateTradeSignal(
   const intradayThetaSL = theta * 0.06;
   const greekLoss = Math.max(tick, delta * deltaSpotSL - 0.5 * gamma * Math.pow(deltaSpotSL, 2) + intradayThetaSL);
   const estLoss = bsLoss * 0.50 + greekLoss * 0.50;
-  let stopLoss = Math.max(tick, roundToTick(premium - estLoss));
-  
-  // Self-Healing Adaptive Trailing Stop Loss Cushion
-  if (selfHealing.active && selfHealing.parameters.adaptiveTrailingSlBufferPts > 0) {
-    const slBuffer = Math.min(tick * 4, selfHealing.parameters.adaptiveTrailingSlBufferPts * 0.15);
-    stopLoss = Math.max(tick, roundToTick(stopLoss - slBuffer));
-  }
-  const actualRisk = roundToTick(Math.max(tick, premium - stopLoss));
-
-  // GUARD RAIL 10: Strict Risk-to-Reward Expected Value Filter
-  // If Risk exceeds Target 1 Reward (Risk:Reward worse than 1:1.05), downgrade to WAIT_NEUTRAL
-  // In high-momentum or high-volatility markets, we compare against a blended reward (40% Target 1 + 60% Target 2)
-  // since holding for Target 2 carries high statistical expectancy under strong institutional flow.
-  const blendedReward = target1Delta * 0.40 + target2Delta * 0.60;
-  const riskRewardThreshold = isStrongBullMomentum || isStrongBearMomentum ? blendedReward * 1.30 : target1Delta * 1.05;
-
-  if (action !== 'WAIT_NEUTRAL' && actualRisk > riskRewardThreshold) {
-    action = 'WAIT_NEUTRAL';
-    capitalProtectionReason = `Capital Protection: Unfavorable Risk-to-Reward Ratio (Risk: ${ticker.currency}${actualRisk.toFixed(2)} vs Blended Reward: ${ticker.currency}${blendedReward.toFixed(2)}). Buying at ${ticker.currency}${premium.toFixed(2)} has poor expected value; wait for dip toward lower entry boundary ${ticker.currency}${roundToTick(premium - tick * 4).toFixed(2)}.`;
-  }
 
   // Grounded Entry Range calculation (incorporates 2m micro-pullback buffer and bid-ask spread)
   const spreadBuffer = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
   const pullbackBuffer = Math.max(tick, roundToTick(candlePatterns.m2.atr * 0.20 * delta));
   const bidPrice = contract?.bidPrice && contract.bidPrice > 0 ? contract.bidPrice : roundToTick(premium - spreadBuffer);
   const askPrice = contract?.askPrice && contract.askPrice > 0 ? contract.askPrice : roundToTick(premium + spreadBuffer);
-  let entryLow = Math.max(tick, roundToTick(Math.min(bidPrice, premium - pullbackBuffer)));
-  let entryHigh = roundToTick(Math.max(askPrice, premium + tick * 2));
+
+  // INSTITUTIONAL ACTIVE TRADE ANCHORING ENGINE:
+  // When an active directional trade is ongoing, the entry price, Target 1, Target 2, and initial Stop Loss
+  // MUST remain firmly anchored to the position entry. They MUST NOT shift with floating current premium!
+  // Stop loss only trails upwards (Break-Even or Profit Lock), NEVER downwards.
+  const isExistingOngoingTrade = Boolean(
+    previousSignal &&
+    previousSignal.action !== 'WAIT_NEUTRAL' &&
+    action === previousSignal.action &&
+    previousSignal.recommendedStrike === targetStrike &&
+    previousSignal.recommendedType === recommendedType &&
+    previousSignal.tradeStage !== 'STOP_LOSS_HIT' &&
+    previousSignal.tradeStage !== 'TARGET_2_HIT'
+  );
+
+  let target1: number;
+  let target2: number;
+  let stopLoss: number;
+  let entryLow: number;
+  let entryHigh: number;
+  let initialEntryLtp: number;
+
+  if (isExistingOngoingTrade && previousSignal) {
+    // PRESERVE ANCHORED TRADE LEVELS
+    target1 = previousSignal.target1;
+    target2 = previousSignal.target2;
+    stopLoss = previousSignal.stopLoss;
+    entryLow = previousSignal.entryRange[0];
+    entryHigh = previousSignal.entryRange[1];
+    initialEntryLtp = previousSignal.recommendedContractLTP || premium;
+  } else {
+    // NEW TRADE SETUP: Calculate initial targets, stop loss, and entry zone
+    target1 = roundToTick(premium + estGain1);
+    if (selfHealing.active && (pcrTotalOI >= 1.30 || pcrTotalOI <= 0.65)) {
+      const pcrScale = selfHealing.parameters.pcrExtremeTargetScale || 0.88;
+      target1 = roundToTick(premium + Math.max(tick * 2, estGain1 * pcrScale));
+    }
+    const freshT1Delta = roundToTick(Math.max(tick, target1 - premium));
+    target2 = roundToTick(premium + Math.max(freshT1Delta + tick * 4, estGain2));
+    stopLoss = Math.max(tick, roundToTick(premium - estLoss));
+    if (selfHealing.active && selfHealing.parameters.adaptiveTrailingSlBufferPts > 0) {
+      const slBuffer = Math.min(tick * 4, selfHealing.parameters.adaptiveTrailingSlBufferPts * 0.15);
+      stopLoss = Math.max(tick, roundToTick(stopLoss - slBuffer));
+    }
+    entryLow = Math.max(tick, roundToTick(Math.min(bidPrice, premium - pullbackBuffer)));
+    entryHigh = roundToTick(Math.max(askPrice, premium + tick * 2));
+    initialEntryLtp = premium;
+  }
+
+  const target1Delta = roundToTick(Math.max(tick, target1 - initialEntryLtp));
+  const target2Delta = roundToTick(Math.max(tick * 2, target2 - initialEntryLtp));
+  const actualRisk = roundToTick(Math.max(tick, initialEntryLtp - stopLoss));
+
+  // GUARD RAIL 10: Strict Risk-to-Reward Expected Value Filter
+  // If Risk exceeds Target 1 Reward (Risk:Reward worse than 1:1.05), downgrade to WAIT_NEUTRAL
+  const blendedReward = target1Delta * 0.40 + target2Delta * 0.60;
+  const riskRewardThreshold = isStrongBullMomentum || isStrongBearMomentum ? blendedReward * 1.30 : target1Delta * 1.05;
+
+  if (action !== 'WAIT_NEUTRAL' && !isExistingOngoingTrade && actualRisk > riskRewardThreshold) {
+    action = 'WAIT_NEUTRAL';
+    capitalProtectionReason = `Capital Protection: Unfavorable Risk-to-Reward Ratio (Risk: ${ticker.currency}${actualRisk.toFixed(2)} vs Blended Reward: ${ticker.currency}${blendedReward.toFixed(2)}). Buying at ${ticker.currency}${premium.toFixed(2)} has poor expected value; wait for dip toward lower entry boundary ${ticker.currency}${roundToTick(premium - tick * 4).toFixed(2)}.`;
+  }
 
   // Probability calculations based on confluence & momentum
   const target1Probability = Math.min(94, Math.max(65, Math.round(62 + (confidence * 0.25) + (Math.abs(directionalTacticalMomentum) * 1.5))));
@@ -1364,7 +1380,37 @@ export function generateTradeSignal(
   const bsLowExtreme = calculateBlackScholes(lowSpotExtreme, targetStrike, T, r, ivDecimal, recommendedType);
   const sessionLowLTP = isTickerDataToday ? Math.min(premium, roundToTick(bsLowExtreme.price)) : premium;
 
-  // Determine Trade Lifecycle Stage
+  // --- DYNAMIC TRAILING STOP LOSS & CAPITAL PRESERVATION ENGINE ---
+  // Guarantees traders do NOT lose money on trades that have already expanded in profit:
+  // 1. Break-Even Lock: When premium reaches 30% of the distance between Entry and Target 1,
+  //    or reaches +5% gain, Stop Loss automatically trails up to Break-Even (Cost / entryHigh).
+  // 2. Profit Lock: When Target 1 is achieved, Stop Loss trails to lock in 50% of Target 1 gain!
+  // 3. Trailing Stop Loss NEVER trails downwards, strictly safeguarding capital.
+  let trailingStopLoss = isExistingOngoingTrade && previousSignal?.trailingStopLoss
+    ? previousSignal.trailingStopLoss
+    : stopLoss;
+  let capitalProtectionStatus: 'ACTIVE_RISK' | 'BREAK_EVEN_LOCKED' | 'PROFIT_LOCKED' | 'NEUTRAL_SAFE' = 'ACTIVE_RISK';
+  let trailingStopNote = `Initial Stop Loss guarding below technical invalidation (${ticker.currency}${spotStopLoss.toLocaleString()})`;
+
+  if (action === 'WAIT_NEUTRAL') {
+    capitalProtectionStatus = 'NEUTRAL_SAFE';
+    trailingStopNote = 'Standing aside · Capital 100% in cash / protected';
+  } else if (premium >= target2 * 0.96) {
+    trailingStopLoss = Math.max(trailingStopLoss, roundToTick(target1));
+    capitalProtectionStatus = 'PROFIT_LOCKED';
+    trailingStopNote = `🔒 Profit Protected: Trailed to Target 1 (${ticker.currency}${target1.toFixed(2)}) · Maximum runner gains locked`;
+  } else if (premium >= target1 * 0.96) {
+    const halfT1Gain = entryHigh + (target1 - entryHigh) * 0.50;
+    trailingStopLoss = Math.max(trailingStopLoss, roundToTick(Math.max(stopLoss, halfT1Gain)));
+    capitalProtectionStatus = 'PROFIT_LOCKED';
+    trailingStopNote = `🔒 Profit Protected: Trailed to ${ticker.currency}${trailingStopLoss.toFixed(2)} (+50% T1 gains locked)`;
+  } else if (premium >= entryHigh + (target1 - entryHigh) * 0.30 || (premium - entryHigh) / Math.max(entryHigh, 1) >= 0.05) {
+    trailingStopLoss = Math.max(trailingStopLoss, roundToTick(entryHigh));
+    capitalProtectionStatus = 'BREAK_EVEN_LOCKED';
+    trailingStopNote = `🛡️ Break-Even Locked: Trailed to Cost (${ticker.currency}${entryHigh.toFixed(2)}) · Zero risk of capital loss`;
+  }
+
+  // Determine Trade Lifecycle Stage against anchored levels and trailing stop loss
   let tradeStage: TradeLifecycleStage = 'FRESH_ENTRY';
   let isTargetAlreadyAchieved = false;
   let targetAchievedNote = '';
@@ -1373,6 +1419,10 @@ export function generateTradeSignal(
 
   if (action === 'WAIT_NEUTRAL') {
     tradeStage = 'NEUTRAL_WAIT';
+  } else if (premium <= trailingStopLoss) {
+    tradeStage = 'STOP_LOSS_HIT';
+    capitalProtectionStatus = 'ACTIVE_RISK';
+    targetAchievedNote = `Technical invalidation floor (${ticker.currency}${trailingStopLoss.toFixed(2)}) was hit. Exit trade immediately to prevent further loss.`;
   } else if (premium >= target2 || sessionHighLTP >= target2) {
     if (premium >= target2 * 0.96) {
       tradeStage = 'TARGET_2_HIT';
@@ -1391,39 +1441,8 @@ export function generateTradeSignal(
     }
   } else if (premium > entryHigh) {
     tradeStage = 'EXPANDING_IN_PROFIT';
-  } else if (premium <= stopLoss) {
-    tradeStage = 'STOP_LOSS_HIT';
   } else {
     tradeStage = 'FRESH_ENTRY';
-  }
-
-  // --- DYNAMIC TRAILING STOP LOSS & CAPITAL PRESERVATION ENGINE ---
-  // Guarantees traders do NOT lose money on trades that have already expanded in profit:
-  // 1. Break-Even Lock: When premium reaches 30% of the distance between Entry and Target 1,
-  //    or reaches +6% gain, Stop Loss automatically trails up to Break-Even (Cost / entryHigh).
-  //    This eliminates the risk of capital loss on winning setups!
-  // 2. Profit Lock: When Target 1 is achieved, Stop Loss trails to lock in 50% of Target 1 gain!
-  // 3. Active Risk: Initial structural stop loss below 2m/5m support.
-  let trailingStopLoss = stopLoss;
-  let capitalProtectionStatus: 'ACTIVE_RISK' | 'BREAK_EVEN_LOCKED' | 'PROFIT_LOCKED' | 'NEUTRAL_SAFE' = 'ACTIVE_RISK';
-  let trailingStopNote = `Initial Stop Loss guarding below 2m/5m technical invalidation (${ticker.currency}${spotStopLoss.toLocaleString()})`;
-
-  if (action === 'WAIT_NEUTRAL') {
-    capitalProtectionStatus = 'NEUTRAL_SAFE';
-    trailingStopNote = 'Standing aside · Capital 100% in cash / protected';
-  } else if (tradeStage === 'TARGET_2_HIT' || premium >= target2 * 0.96) {
-    trailingStopLoss = roundToTick(target1);
-    capitalProtectionStatus = 'PROFIT_LOCKED';
-    trailingStopNote = `🔒 Profit Protected: Trailed to Target 1 (${ticker.currency}${target1.toFixed(2)}) · Maximum runner gains locked`;
-  } else if (tradeStage === 'TARGET_1_HIT' || premium >= target1 * 0.96) {
-    const halfT1Gain = entryHigh + (target1 - entryHigh) * 0.50;
-    trailingStopLoss = roundToTick(Math.max(stopLoss, halfT1Gain));
-    capitalProtectionStatus = 'PROFIT_LOCKED';
-    trailingStopNote = `🔒 Profit Protected: Trailed to ${ticker.currency}${trailingStopLoss.toFixed(2)} (+50% T1 gains locked)`;
-  } else if (tradeStage === 'EXPANDING_IN_PROFIT' || premium >= entryHigh + (target1 - entryHigh) * 0.30 || (premium - entryHigh) / Math.max(entryHigh, 1) >= 0.06) {
-    trailingStopLoss = roundToTick(Math.max(stopLoss, entryHigh));
-    capitalProtectionStatus = 'BREAK_EVEN_LOCKED';
-    trailingStopNote = `🛡️ Break-Even Locked: Trailed to Cost (${ticker.currency}${entryHigh.toFixed(2)}) · Zero risk of capital loss`;
   }
 
   // Summary Note: Explicitly states current price and reason
@@ -1432,7 +1451,9 @@ export function generateTradeSignal(
     : `Based on current market price of ${ticker.currency}${spotPrice.toLocaleString()} (${changeFormatted} vs reference close)`;
 
   let summaryNote = '';
-  if (action === 'BUY_CE') {
+  if (tradeStage === 'STOP_LOSS_HIT') {
+    summaryNote = `🛑 STOP LOSS HIT: Reference contract ${targetStrike} ${recommendedType} reached trailing stop loss level ${ticker.currency}${trailingStopLoss.toFixed(2)} (Current LTP: ${ticker.currency}${premium.toFixed(2)}). STRICT DIRECTIVE: Close position immediately to preserve trading capital.`;
+  } else if (action === 'BUY_CE') {
     summaryNote = `${pricePrefix}: Market is exhibiting upward momentum. Recommending CALL (CE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)} to capture upside rally. Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% at spot ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.${isTargetAlreadyAchieved ? ` [NOTE: Target 1 was already achieved; current ${ticker.currency}${premium.toFixed(2)} is a pullback]` : ''}`;
   } else if (action === 'BUY_PE') {
     summaryNote = `${pricePrefix}: Market is falling / trending downward. Recommending PUT (PE) ${targetStrike} @ ${ticker.currency}${premium.toFixed(2)} to capitalize on downside momentum (Put options increase in value as the underlying market drops). Target 1: ${ticker.currency}${target1.toFixed(2)} (+${((target1Delta / premium) * 100).toFixed(1)}% as spot declines to ${ticker.currency}${spotTarget1.toLocaleString()}) | Target 2: ${ticker.currency}${target2.toFixed(2)} (+${((target2Delta / premium) * 100).toFixed(1)}% at ${target2Basis}) | SL: ${ticker.currency}${stopLoss.toFixed(2)} (-${((actualRisk / premium) * 100).toFixed(1)}% if spot rebounds to ${ticker.currency}${spotStopLoss.toLocaleString()}). Derived via 2m/5m/15m candlesticks, VWAP & GEX bounds.${isTargetAlreadyAchieved ? ` [NOTE: Target 1 was already achieved; current ${ticker.currency}${premium.toFixed(2)} is a pullback]` : ''}`;
@@ -1663,6 +1684,24 @@ export function generateTradeSignal(
     const advRisk = Math.max(0.5, premium - advanceTradeSetup.advanceOptionStopLoss);
     const advReward = advanceTradeSetup.advanceOptionTarget1 - premium;
     advanceTradeSetup.advanceRiskRewardRatio = `1 : ${(advReward / advRisk).toFixed(1)}`;
+  } else {
+    // During active regular market sessions, advance setup MUST strictly harmonize with verified institutional signal
+    if (action === 'WAIT_NEUTRAL') {
+      advanceTradeSetup.anticipatedAction = 'WAIT_NEUTRAL';
+      advanceTradeSetup.isAvailable = false;
+      advanceTradeSetup.title = 'Equilibrium Range (Stand Aside / Capital Protection)';
+      advanceTradeSetup.subTitle = capitalProtectionReason || 'Consolidation between Key Levels · Capital Protected';
+      advanceTradeSetup.primaryLeadingCatalyst = capitalProtectionReason || 'Balanced order flow · Protect capital against theta decay during consolidation.';
+    } else {
+      advanceTradeSetup.anticipatedAction = action;
+      advanceTradeSetup.recommendedStrike = targetStrike;
+      advanceTradeSetup.recommendedType = recommendedType;
+      advanceTradeSetup.advanceEntryOptionRange = [entryLow, entryHigh];
+      advanceTradeSetup.advanceOptionTarget1 = target1;
+      advanceTradeSetup.advanceOptionTarget2 = target2;
+      advanceTradeSetup.advanceOptionStopLoss = stopLoss;
+      advanceTradeSetup.advanceRiskRewardRatio = rrRatio;
+    }
   }
 
   return {
@@ -1671,13 +1710,19 @@ export function generateTradeSignal(
     confidence,
     recommendedStrike: targetStrike,
     recommendedType,
-    recommendedContractLTP: premium,
-    entryPrice: premium,
+    recommendedContractLTP: initialEntryLtp,
+    entryPrice: initialEntryLtp,
     moneyness,
     entryRange: [entryLow, entryHigh],
     stopLoss,
+    trailingStopLoss,
+    capitalProtectionStatus,
     target1,
     target2,
+    tradeStage,
+    isTargetAlreadyAchieved,
+    targetAchievedNote,
+    trailingStopNote,
     riskRewardRatio: rrRatio,
     summaryNote,
     rationalePoints,
@@ -1692,14 +1737,8 @@ export function generateTradeSignal(
     realtimeIndicators: rt,
     constituentAnalysis,
     adjacentStrikes,
-    tradeStage,
-    trailingStopLoss,
-    trailingStopNote,
-    capitalProtectionStatus,
     sessionHighLTP,
     sessionLowLTP,
-    isTargetAlreadyAchieved,
-    targetAchievedNote,
     peakGainPercent,
     interMarketTelemetry,
     volumeAnalytics: rt.volumeAnalytics,

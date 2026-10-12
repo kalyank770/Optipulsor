@@ -1945,6 +1945,13 @@ app.get('/api/market-candles', async (req: Request, res: Response) => {
       return res.json(cached.data);
     }
 
+    if (requestedTf === '1m') {
+      const c = await fetchYahooCandles(yahooTicker, '1m', '1d');
+      const responseData = { symbol: rawSymbol, yahooTicker, timeframe: '1m', isRealFeed: true, candles: c };
+      candleCache.set(cacheKey, { data: responseData, expiry: Date.now() + 10000 });
+      return res.json(responseData);
+    }
+
     if (requestedTf === '2m') {
       const c = await fetchYahooCandles(yahooTicker, '2m', '1d');
       const responseData = { symbol: rawSymbol, yahooTicker, timeframe: '2m', isRealFeed: true, candles: c };
@@ -1966,8 +1973,23 @@ app.get('/api/market-candles', async (req: Request, res: Response) => {
       return res.json(responseData);
     }
 
-    // Default: Fetch all timeframes in parallel
-    const [c2m, c5m, c15m, ch1, cd1, cw1] = await Promise.all([
+    if (requestedTf === '1h' || requestedTf === '1hr') {
+      const c = await fetchYahooCandles(yahooTicker, '1h', '5d');
+      const responseData = { symbol: rawSymbol, yahooTicker, timeframe: '1h', isRealFeed: true, candles: c };
+      candleCache.set(cacheKey, { data: responseData, expiry: Date.now() + 10000 });
+      return res.json(responseData);
+    }
+
+    if (requestedTf === '1d' || requestedTf === '1day') {
+      const c = await fetchYahooCandles(yahooTicker, '1d', '1mo');
+      const responseData = { symbol: rawSymbol, yahooTicker, timeframe: '1d', isRealFeed: true, candles: c };
+      candleCache.set(cacheKey, { data: responseData, expiry: Date.now() + 10000 });
+      return res.json(responseData);
+    }
+
+    // Default: Fetch all timeframes in parallel (1m, 2m, 5m, 15m, 1hr, 1day, 1wk)
+    const [c1m, c2m, c5m, c15m, ch1, cd1, cw1] = await Promise.all([
+      fetchYahooCandles(yahooTicker, '1m', '1d'),
       fetchYahooCandles(yahooTicker, '2m', '1d'),
       fetchYahooCandles(yahooTicker, '5m', '1d'),
       fetchYahooCandles(yahooTicker, '15m', '5d'),
@@ -1983,6 +2005,7 @@ app.get('/api/market-candles', async (req: Request, res: Response) => {
       source: 'National Stock Exchange (NSE Live Chart Terminal)',
       lastUpdated: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' IST',
       candles: {
+        m1: c1m.length > 0 ? c1m.slice(-60) : [],
         m2: c2m.length > 0 ? c2m.slice(-60) : [],
         m5: c5m.length > 0 ? c5m.slice(-75) : [],
         m15: c15m.length > 0 ? c15m.slice(-40) : [],
@@ -2775,6 +2798,61 @@ function deriveOptionTakeaway(
       : 'Range-bound news catalyst; option premiums may experience time decay. Wait for decisive strike breakout before entering.';
 }
 
+// High-Accuracy Contextual Financial News Sentiment Classifier
+function classifyFinancialNews(title: string): { 
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; 
+  impact: 'HIGH' | 'MEDIUM';
+  category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight';
+} {
+  const t = title.toLowerCase();
+
+  // 1. Specific contextual market drivers
+  const isOilFalling = /crude|brent|oil/.test(t) && /drop|fall|dip|plunge|slip|tumble|slump|slide|down|decline|retreat|ease/.test(t);
+  const isOilRising = /crude|brent|oil/.test(t) && /spike|jump|rise|surge|soar|cross|high|rally|up|climb|gain/.test(t);
+
+  const isInflationCooling = /inflation|cpi|wpi/.test(t) && /cool|fall|drop|ease|slow|dip|decline|soften|moderates/.test(t);
+  const isInflationSpiking = /inflation|cpi|wpi/.test(t) && /surge|spike|rise|jump|high|heat|climb|accelerates/.test(t);
+
+  const isRateCut = /rate|repo/.test(t) && /cut|slash|reduction|easing|pause/.test(t);
+  const isRateHike = /rate|repo/.test(t) && /hike|raise|increase|tighten/.test(t);
+
+  const isFiiBuy = /fii|foreign|dii|institutional/.test(t) && /buy|inflow|invest|pump|boost|net buyer/.test(t);
+  const isFiiSell = /fii|foreign|dii|institutional/.test(t) && /sell|outflow|dump|pullout|offload|net seller/.test(t);
+
+  const isGeopoliticalWorsening = /war|conflict|missile|attack|escalat|strike|sanction|tension|military/.test(t);
+  const isGeopoliticalEasing = /ceasefire|peace|talks|treaty|de-escalat/.test(t);
+
+  let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+
+  if (isOilFalling || isInflationCooling || isRateCut || isFiiBuy || isGeopoliticalEasing) {
+    sentiment = 'BULLISH';
+  } else if (isOilRising || isInflationSpiking || isRateHike || isFiiSell || isGeopoliticalWorsening) {
+    sentiment = 'BEARISH';
+  } else if (/surge|jump|gain|record high|boost|bull|rise|rally|breakout|soar|bounce|outperform|climb|stimulus|recovery|positive|upbeat|all-time high|green|advances|up \d|wins order|beats profit|robust|dividend/.test(t)) {
+    sentiment = 'BULLISH';
+  } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|crash|bloodbath|rout|selloff|weakness|slide|recession|deficit|low|red|down \d|skid|penalty|fraud|probe|cuts guidance/.test(t)) {
+    sentiment = 'BEARISH';
+  }
+
+  let category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight' = 'Macro';
+  if (/gift nifty|wall street|overnight|us market|nasdaq|dow jones|s&p 500|nikkei|hang seng/.test(t)) {
+    category = 'Overnight';
+  } else if (/rbi|fed|inflation|rate|budget|policy|sebi|repo|tax|gst|monetary/.test(t)) {
+    category = 'Policy';
+  } else if (/war|iran|israel|middle east|sanctions|geopolit|ukraine|russia|conflict/.test(t)) {
+    category = 'Geopolitics';
+  } else if (/bank|it|metal|auto|energy|pharma|reliance|hdfc|icici|tcs|infy|sbi|tata/.test(t)) {
+    category = 'Sector';
+  } else if (/quarter|result|earnings|profit|revenue|ebitda|q1|q2|q3|q4/.test(t)) {
+    category = 'Earnings';
+  }
+
+  const isHighImpact = /crash|surge|plunge|rout|bloodbath|rbi|fed|gift nifty|crude|war|iran|all-time|fii|q2|q3|q4|q1|budget|inflation|rate cut|rate hike/.test(t);
+  const impact: 'HIGH' | 'MEDIUM' = isHighImpact ? 'HIGH' : 'MEDIUM';
+
+  return { sentiment, impact, category };
+}
+
 // In-memory cache for news feed (60s TTL)
 let newsCache: { data: any[]; timestamp: number; queryKey: string } | null = null;
 
@@ -2852,6 +2930,9 @@ app.get('/api/news', async (req: Request, res: Response) => {
             else if (hoursAgo <= 12) timeAgo = `${Math.floor(hoursAgo)}h ago`;
             else timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
 
+            const { sentiment, impact, category } = classifyFinancialNews(rawTitle);
+            const effectiveCategory = timing === 'OVERNIGHT' && category === 'Macro' ? 'Overnight' : category;
+
             items.push({
               id: `news-yahoo-${pubTime}-${cleanKey.slice(0, 16)}`,
               title: rawTitle,
@@ -2859,12 +2940,12 @@ app.get('/api/news', async (req: Request, res: Response) => {
               timeAgo,
               timestamp: pubTime,
               formattedPubTime,
-              sentiment: 'NEUTRAL',
-              impact: 'MEDIUM',
+              sentiment,
+              impact,
               relatedTickers: [queryKey],
-              optionTakeaway: deriveOptionTakeaway(rawTitle, 'NEUTRAL', timing, 'Macro'),
+              optionTakeaway: deriveOptionTakeaway(rawTitle, sentiment, timing, effectiveCategory),
               summary: rawTitle,
-              category: 'Macro',
+              category: effectiveCategory,
               timing,
               link: n.link,
             });
@@ -2924,33 +3005,11 @@ app.get('/api/news', async (req: Request, res: Response) => {
               timeAgo = `${Math.round(hoursAgo)}h ago (Overnight)`;
             }
 
+            const classified = classifyFinancialNews(rawTitle);
+            const sentiment = classified.sentiment;
+            const impact = classified.impact;
+            const category = timing === 'OVERNIGHT' && classified.category === 'Macro' ? 'Overnight' : classified.category;
             const titleLower = rawTitle.toLowerCase();
-            let sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
-            const isCrudeOrWarSpike = /crude|oil|brent|war|inflation|vix/.test(titleLower) && /spike|jump|rise|surge|soar|cross/.test(titleLower);
-
-            if (isCrudeOrWarSpike) {
-              sentiment = 'BEARISH';
-            } else if (/drop|fall|dip|plunge|bear|slip|down|tumble|loss|slump|drag|low|crash|bloodbath|rout|selloff|weakness|slide|recession|deficit/.test(titleLower)) {
-              sentiment = 'BEARISH';
-            } else if (/surge|jump|gain|record|boost|bull|rise|high|profit|rally|up|breakout|soar|bounce|outperform|climb|stimulus|recovery|positive/.test(titleLower)) {
-              sentiment = 'BULLISH';
-            }
-
-            let category: 'Macro' | 'Earnings' | 'Policy' | 'Sector' | 'Geopolitics' | 'Overnight' = 'Macro';
-            if (timing === 'OVERNIGHT' || /gift nifty|wall street|overnight|us market|nasdaq/.test(titleLower)) {
-              category = 'Overnight';
-            } else if (/rbi|fed|inflation|rate|budget|policy|sebi|repo/.test(titleLower)) {
-              category = 'Policy';
-            } else if (/war|iran|conflict|middle east|sanctions|geopolit/.test(titleLower)) {
-              category = 'Geopolitics';
-            } else if (/bank|it|metal|auto|energy|pharma|reliance|hdfc|icici|tcs/.test(titleLower)) {
-              category = 'Sector';
-            } else if (/quarter|result|earnings|profit|revenue/.test(titleLower)) {
-              category = 'Earnings';
-            }
-
-            const isHighImpact = /crash|surge|plunge|rout|bloodbath|rbi|fed|gift nifty|crude|900|1000|war|iran|all-time/.test(titleLower);
-            const impact: 'HIGH' | 'MEDIUM' = isHighImpact ? 'HIGH' : 'MEDIUM';
 
             const relatedTickers: string[] = [];
             if (/bank|hdfc|icici|kotak|sbi/.test(titleLower)) relatedTickers.push('BANKNIFTY');

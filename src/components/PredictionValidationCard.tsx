@@ -171,15 +171,15 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
-                Pre & After-Market Prediction vs Live Open Validation Engine
+                Prediction vs Live Open Accuracy
               </h3>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Self-Tuning AI Algorithm
+                Self-Tuning AI
               </span>
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Continuously logs overnight prediction parameters & verifies them against live 09:15 AM market opening trends to auto-tune model weights.
+              Verifies overnight predictions against 09:15 AM openings to tune model accuracy.
             </p>
           </div>
         </div>

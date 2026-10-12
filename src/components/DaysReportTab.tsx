@@ -429,10 +429,10 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
               </div>
               <div>
                 <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                  <span>Prediction Engine Audit &amp; Self-Healing Trail</span>
+                  <span>Prediction Audit &amp; Performance</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Holding the algorithm accountable: Exactly what it predicted vs how the real market progressed, tracking % discrepancy and auto-tuning parameters.
+                  Audit trail comparing predictions against real market outcomes with discrepancy analysis.
                 </p>
 
                 {/* Auto-Refresh Status Pill */}

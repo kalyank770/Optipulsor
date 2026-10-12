@@ -9,6 +9,7 @@ import {
 } from '../types/options';
 import { MarketHoursStatus } from '../utils/marketHours';
 import { MoneynessBadge, getMoneyness } from './MoneynessBadge';
+import { StabilityLockBadge } from './StabilityLockBadge';
 import { 
   Zap, 
   ShieldCheck, 
@@ -66,32 +67,28 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const [showRadarDetails, setShowRadarDetails] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const isBull = setup.anticipatedAction === 'BUY_CE';
-  const isBear = setup.anticipatedAction === 'BUY_PE';
-  const isWait = setup.anticipatedAction === 'WAIT_NEUTRAL';
-  const isSideways = !isBull && !isBear && (Boolean(signal?.sidewaysMarketAnalysis?.isSideways) || isWait);
+  const isSignalWait = signal?.action === 'WAIT_NEUTRAL';
+  const isBull = !isSignalWait && (signal?.action === 'BUY_CE' || setup.anticipatedAction === 'BUY_CE');
+  const isBear = !isSignalWait && (signal?.action === 'BUY_PE' || setup.anticipatedAction === 'BUY_PE');
+  const isWait = isSignalWait || setup.anticipatedAction === 'WAIT_NEUTRAL';
+  const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways);
 
   // Find live option LTP
   const contractRow = chain?.find(r => r.strike === setup.recommendedStrike);
   const liveOption = setup.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
   const currentLTP = liveOption && liveOption.ltp > 0.05
     ? liveOption.ltp
-    : setup.advanceEntryOptionRange[0] || 105;
+    : (signal?.recommendedContractLTP && signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : (setup.advanceEntryOptionRange[0] || 105));
 
-  // Synchronize Option Entry Range, Stop Loss, and Targets directly with currentLTP of the active recommended contract
-  const isUSD = ticker.currency === '$';
-  const isBankNifty = ticker.symbol.includes('BANK');
-  const roundToTick = (val: number) => Math.max(0.05, Math.round(val * 20) / 20);
-  const spreadBuf = isUSD ? 0.05 : (isBankNifty ? 1.50 : 0.75);
-
-  const optEntryLow = roundToTick(Math.max(0.05, currentLTP - spreadBuf));
-  const optEntryHigh = roundToTick(currentLTP + spreadBuf);
-  const optStopLoss = roundToTick(Math.max(0.05, currentLTP * 0.85));
-  const optTarget1 = roundToTick(currentLTP * 1.35);
-  const optTarget2 = roundToTick(currentLTP * 1.70);
+  // Harmonize Entry Range, Stop Loss, and Targets directly with the signal engine's anchored levels
+  const optEntryLow = signal?.entryRange ? signal.entryRange[0] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[0] : currentLTP);
+  const optEntryHigh = signal?.entryRange ? signal.entryRange[1] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[1] : currentLTP);
+  const optStopLoss = signal?.trailingStopLoss || signal?.stopLoss || setup.advanceOptionStopLoss;
+  const optTarget1 = signal?.target1 || setup.advanceOptionTarget1;
+  const optTarget2 = signal?.target2 || setup.advanceOptionTarget2;
   const optRisk = Math.max(0.5, currentLTP - optStopLoss);
   const optReward = optTarget1 - currentLTP;
-  const optRR = `1 : ${(optReward / optRisk).toFixed(1)}`;
+  const optRR = signal?.riskRewardRatio || setup.advanceRiskRewardRatio || `1 : ${(optReward / optRisk).toFixed(1)}`;
 
   const effectiveMoneyness = setup.moneyness || signal?.moneyness || getMoneyness(setup.recommendedStrike, setup.recommendedType, ticker.spotPrice, ticker.strikeStep);
 
@@ -135,10 +132,10 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-bold font-mono uppercase tracking-wider text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/60">
               {marketStatus?.isHoliday 
-                ? `Next Trading Session Prediction (${marketStatus.nextTradingDayName || 'Monday'} Open)`
+                ? `Next Session Prediction (${marketStatus.nextTradingDayName || 'Monday'})`
                 : marketStatus && !marketStatus.isOpen 
-                ? "Next Session Opening Prediction" 
-                : 'Institutional Early-Anticipation Engine'}
+                ? "Next Session Prediction" 
+                : 'Early Signal Engine'}
             </span>
 
             {/* Compact Copy Button */}
@@ -213,14 +210,21 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                   }`} />
                   <span>
                     {isBull
-                      ? `BULLISH EXPANSION (${setup.probabilityScore}% MOMENTUM)`
+                      ? `BULLISH (${setup.probabilityScore}% Momentum)`
                       : isBear
-                      ? `BEARISH BREAKDOWN (${setup.probabilityScore}% MOMENTUM)`
+                      ? `BEARISH (${setup.probabilityScore}% Momentum)`
                       : signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING'
-                      ? `FLAT OPEN (${signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${signal.afterMarketAnalytics.predictedOpeningGapPoints} pts) · WAIT 15M ORB`
-                      : `SIDEWAYS / RANGE CHOP (${signal?.sidewaysMarketAnalysis?.compressionPercentage || 64}% SQUEEZE)`}
+                      ? `FLAT OPEN (${signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : ''}${signal.afterMarketAnalytics.predictedOpeningGapPoints} pts) · Wait ORB`
+                      : `SIDEWAYS (${signal?.sidewaysMarketAnalysis?.compressionPercentage || 64}% Chop)`}
                   </span>
                 </span>
+
+                {/* Pillar 4: Minimum 1-to-2 Minute Prediction Lock & Anti-Whipsaw Badge */}
+                <StabilityLockBadge 
+                  stabilityLock={signal?.stabilityLock} 
+                  action={signal?.action || setup.anticipatedAction} 
+                  size="xs" 
+                />
 
                 {/* Pre-Market Predictor Active Badge */}
                 {(usePreMarket || ticker.isUsingPreMarket) && (
@@ -270,13 +274,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           <Activity className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <div className="font-bold text-amber-300 text-xs flex items-center gap-1.5 flex-wrap">
-              <span>Why Stand Aside on Flat Open despite Candlestick Momentum?</span>
+              <span>Flat Open Protocol: Stand Aside First 15 Mins</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
-                Institutional ORB Rule
+                ORB Rule
               </span>
             </div>
             <p className="text-[11px] text-amber-200/90 leading-normal">
-              Even though late-session candlesticks exhibit bearish pressure, overnight GIFT Nifty points to a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts · {signal?.afterMarketAnalytics?.predictedOpeningGapPercent ?? 0.12}%). Buying naked options (CE or PE) at 09:15 AM on a flat open triggers instant opening IV crush and theta decay with zero trend impulse. Professional protocol: Stand aside for the first 15 minutes. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> strictly upon a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
+              GIFT Nifty indicates a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts). Buying options at 09:15 AM on a flat open risks theta decay and IV crush. Stand aside for 15 mins. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> only after a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
             </p>
           </div>
         </div>
@@ -384,7 +388,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         >
           <div className="flex items-center gap-2">
             <Gauge className="w-4 h-4 text-indigo-400" />
-            <span className="font-bold">5 Institutional Leading Predictors Radar</span>
+            <span className="font-bold">Leading Predictors Radar</span>
             <span className="text-[10px] text-slate-400">({setup.leadingPredictorFactors.length} factors evaluated)</span>
           </div>
           <div className="flex items-center gap-1.5 text-indigo-400 text-[11px]">

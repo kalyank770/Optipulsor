@@ -416,7 +416,15 @@ export function computeAdvanceTradeSetup(
   let probabilityScore = 55;
   let leadTimeAdvantageMinutes = 3.0;
 
-  if (totalBullScore >= 2.0 && totalBullScore > totalBearScore + 0.6) {
+  // Pillar 3: Single Source of Truth & Stand-Aside Primacy:
+  // If the primary institutional signal engine has evaluated consolidation, chop, or unfavorable R:R (WAIT_NEUTRAL),
+  // the advance engine MUST NOT override it with speculative BUY calls or put entries.
+  if (currentSignalAction === 'WAIT_NEUTRAL') {
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'EQUILIBRIUM_WAIT';
+    probabilityScore = 52;
+    leadTimeAdvantageMinutes = 1.0;
+  } else if (totalBullScore >= 2.0 && totalBullScore > totalBearScore + 0.6) {
     anticipatedAction = 'BUY_CE';
     probabilityScore = Math.min(95, Math.round(74 + totalBullScore * 4.2));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));

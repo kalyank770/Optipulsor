@@ -3,11 +3,11 @@ import { TickerConfig, Candle, TimeframeCandleAnalysis, MultiTimeframeChartPatte
 /**
  * In-memory cache for real exchange candles
  */
-const realCandlesMap = new Map<string, { m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }>();
+const realCandlesMap = new Map<string, { m1?: Candle[]; m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }>();
 
 export function setGlobalRealCandles(
   symbol: string, 
-  candles: { m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }
+  candles: { m1?: Candle[]; m2?: Candle[]; m5?: Candle[]; m15?: Candle[]; h1?: Candle[]; d1?: Candle[]; w1?: Candle[] }
 ) {
   if (!symbol) return;
   const s = symbol.trim().toUpperCase();
@@ -57,7 +57,7 @@ export function generateRollingCandles(
 
   // 1. If REAL exchange candles exist for this symbol & timeframe, use them directly!
   const realStore = getGlobalRealCandles(ticker.symbol);
-  const tfKey = timeframeMinutes === 2 ? 'm2' : timeframeMinutes === 5 ? 'm5' : timeframeMinutes === 15 ? 'm15' : null;
+  const tfKey = timeframeMinutes === 1 ? 'm1' : timeframeMinutes === 2 ? 'm2' : timeframeMinutes === 5 ? 'm5' : timeframeMinutes === 15 ? 'm15' : timeframeMinutes === 60 ? 'h1' : timeframeMinutes === 1440 ? 'd1' : null;
   if (tfKey && realStore && realStore[tfKey] && realStore[tfKey]!.length > 0) {
     const raw = realStore[tfKey]!.map(c => ({ ...c }));
     if (raw.length > 0) {
@@ -187,7 +187,7 @@ export function generateRollingCandles(
  */
 export function analyzeTimeframeCandles(
   candles: Candle[],
-  timeframe: '2m' | '5m' | '15m',
+  timeframe: '1m' | '2m' | '5m' | '15m' | '1h' | '1d',
   ticker: TickerConfig
 ): TimeframeCandleAnalysis {
   // 1. Sanitize candles: clone cleanly to avoid in-place mutation of input candles
@@ -509,18 +509,27 @@ export function analyzeTimeframeCandles(
 export function computeMultiTimeframeChartPatterns(
   ticker: TickerConfig
 ): MultiTimeframeChartPatterns {
-  // Generate rolling candles for 2m, 5m, and 15m with rich session depth
+  // Generate rolling candles across all 6 timeframes: 1m, 2m, 5m, 15m, 1h, 1d
+  const c1m = generateRollingCandles(ticker, 1, 30);
   const c2m = generateRollingCandles(ticker, 2, 30);
   const c5m = generateRollingCandles(ticker, 5, 45);
   const c15m = generateRollingCandles(ticker, 15, 24);
+  const c1h = generateRollingCandles(ticker, 60, 24);
+  const c1d = generateRollingCandles(ticker, 1440, 15);
 
+  const m1 = analyzeTimeframeCandles(c1m, '1m', ticker);
   const m2 = analyzeTimeframeCandles(c2m, '2m', ticker);
   const m5 = analyzeTimeframeCandles(c5m, '5m', ticker);
   const m15 = analyzeTimeframeCandles(c15m, '15m', ticker);
+  const h1 = analyzeTimeframeCandles(c1h, '1h', ticker);
+  const d1 = analyzeTimeframeCandles(c1d, '1d', ticker);
 
+  const m1Score = m1.momentumScore;
   const m2Score = m2.momentumScore;
   const m5Score = m5.momentumScore;
   const m15Score = m15.momentumScore;
+  const h1Score = h1.momentumScore;
+  const d1Score = d1.momentumScore;
 
   // Real 15m Opening Range (ORB): first 3 candles of the 5m session
   let orbHigh: number | undefined;
@@ -547,11 +556,15 @@ export function computeMultiTimeframeChartPatterns(
     ? Number(Math.max(0.75, Math.min(1.40, 1.0 + ((latestVol - avgVol) / avgVol) * 0.25)).toFixed(2))
     : 1.0;
 
-  // Compute aggregate momentum index: weighted combination (15m: 40%, 5m: 35%, 2m: 25%)
+  // Compute aggregate momentum index across all 6 timeframes:
+  // Macro: 1D (20%) + 1H (20%) | Intermediate: 15m (25%) + 5m (20%) | Fast Trigger: 2m (10%) + 1m (5%)
   const aggregateMomentumIndex = Number((
-    m15Score * 0.40 +
-    m5Score * 0.35 +
-    m2Score * 0.25
+    d1Score * 0.20 +
+    h1Score * 0.20 +
+    m15Score * 0.25 +
+    m5Score * 0.20 +
+    m2Score * 0.10 +
+    m1Score * 0.05
   ).toFixed(1));
 
   let orbAdjustment = 0;
@@ -563,16 +576,16 @@ export function computeMultiTimeframeChartPatterns(
   let confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   let momentumAlignment: MultiTimeframeChartPatterns['momentumAlignment'] = 'NEUTRAL_MIXED';
 
-  if (confluenceScore >= 5.0 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
+  if (confluenceScore >= 4.5 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
-  } else if (confluenceScore >= 2.0) {
+  } else if (confluenceScore >= 1.8) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'MODERATE_BULLISH';
-  } else if (confluenceScore <= -5.0 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
+  } else if (confluenceScore <= -4.5 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
-  } else if (confluenceScore <= -2.0) {
+  } else if (confluenceScore <= -1.8) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'MODERATE_BEARISH';
   } else {
@@ -580,14 +593,14 @@ export function computeMultiTimeframeChartPatterns(
     momentumAlignment = 'NEUTRAL_MIXED';
   }
 
-  // Build descriptive confluence pattern headline
+  // Build descriptive confluence pattern headline factoring all timeframes
   let confluencePattern = '';
   if (confluenceBias === 'BULLISH') {
-    confluencePattern = `15m ${m15.trend} Structure (${m15Score > 0 ? '+' : ''}${m15Score}) + 5m ${m5?.pattern?.replace(/5m\s*/, '') || ''} (${m5Score > 0 ? '+' : ''}${m5Score}) + 2m Trigger (${m2Score > 0 ? '+' : ''}${m2Score})`;
+    confluencePattern = `1D ${d1.trend} · 1H ${h1.trend} · 15m ${m15.trend} Structure (${m15Score > 0 ? '+' : ''}${m15Score}) + 5m/2m Bullish Flow`;
   } else if (confluenceBias === 'BEARISH') {
-    confluencePattern = `15m ${m15.trend} Pressure (${m15Score}) + 5m ${m5?.pattern?.replace(/5m\s*/, '') || ''} (${m5Score}) + 2m Breakdown (${m2Score})`;
+    confluencePattern = `1D ${d1.trend} · 1H ${h1.trend} · 15m ${m15.trend} Pressure (${m15Score}) + 5m/2m Bearish Flow`;
   } else {
-    confluencePattern = `Multi-Timeframe Equilibrium (2m: ${m2Score > 0 ? '+' : ''}${m2Score} | 5m: ${m5Score > 0 ? '+' : ''}${m5Score} | 15m: ${m15Score > 0 ? '+' : ''}${m15Score})`;
+    confluencePattern = `Multi-Timeframe Equilibrium (1D: ${d1Score > 0 ? '+' : ''}${d1Score} | 1H: ${h1Score > 0 ? '+' : ''}${h1Score} | 15m: ${m15Score > 0 ? '+' : ''}${m15Score} | 5m: ${m5Score > 0 ? '+' : ''}${m5Score})`;
   }
 
   const S = ticker.spotPrice;
@@ -632,12 +645,18 @@ export function computeMultiTimeframeChartPatterns(
   }
 
   return {
+    m1,
     m2,
     m5,
     m15,
+    h1,
+    d1,
+    m1Score,
     m2Score,
     m5Score,
     m15Score,
+    h1Score,
+    d1Score,
     aggregateMomentumIndex,
     momentumAlignment,
     tacticalSwingPoints,

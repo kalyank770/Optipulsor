@@ -166,7 +166,7 @@ export function HTFPredictionsWorkstation({
           <div className="space-y-1">
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>Multi-Timeframe Candlestick &amp; Expiries Workstation</span>
+                <span>Multi-Timeframe &amp; Expiries</span>
               </h2>
               
               <div className={`px-3 py-1 rounded-lg text-xs font-bold font-mono border flex items-center gap-1.5 ${
@@ -175,7 +175,7 @@ export function HTFPredictionsWorkstation({
                 'bg-amber-950/60 text-amber-300 border-amber-500/40'
               }`}>
                 <span className={`w-2 h-2 rounded-full ${isBullish ? 'bg-emerald-400 animate-pulse' : isBearish ? 'bg-rose-400 animate-pulse' : 'bg-amber-400'}`} />
-                <span>Overall Trend: {overallHTFBias.replace(/_/g, ' ')}</span>
+                <span>Trend: {overallHTFBias.replace(/_/g, ' ')}</span>
               </div>
             </div>
           </div>
@@ -184,9 +184,9 @@ export function HTFPredictionsWorkstation({
         {/* Filter Switcher Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1">
           {[
-            { id: 'candlesticks', label: '🕯️ Candlestick Momentum' },
-            { id: 'expiries', label: '🔮 Next 2 Expiries Predictions' },
-            { id: 'horizons', label: '⏱️ 1H · 1D · 1W Horizons' },
+            { id: 'candlesticks', label: '🕯️ Candles & Momentum' },
+            { id: 'expiries', label: '🔮 Next 2 Expiries' },
+            { id: 'horizons', label: '⏱️ HTF Horizons' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -216,10 +216,10 @@ export function HTFPredictionsWorkstation({
                   </div>
                   <div>
                     <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                      <span>Intraday Candlestick Momentum Engine (2m · 5m · 15m)</span>
+                      <span>Intraday Candles (1m · 2m · 5m · 15m)</span>
                     </h3>
                     <p className="text-xs text-slate-400 font-mono mt-0.5">
-                      Micro-triggers, tactical swings, structural anchors &amp; pattern confluence
+                      Momentum, swings &amp; trend alignment
                     </p>
                   </div>
                 </div>
@@ -227,7 +227,7 @@ export function HTFPredictionsWorkstation({
                 <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
                   <div className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Live Exchange Feed: NSE Real OHLCV Stream</span>
+                    <span>Live NSE OHLCV</span>
                   </div>
                   <span className={`font-bold px-2.5 py-1 rounded-lg text-xs border ${
                     candleData.confluenceBias === 'BULLISH'
@@ -241,7 +241,55 @@ export function HTFPredictionsWorkstation({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                {/* 1-Minute Candle Momentum Analysis */}
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
+                      <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                        <span>1-Min Fast Trigger</span>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono ${
+                        (candleData.m1Score ?? candleData.m1?.momentumScore ?? 0) > 0 ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-500/30' :
+                        (candleData.m1Score ?? candleData.m1?.momentumScore ?? 0) < 0 ? 'text-rose-400 bg-rose-500/15 border border-rose-500/30' : 'text-slate-400 bg-slate-800'
+                      }`}>
+                        {(candleData.m1Score ?? candleData.m1?.momentumScore ?? 0) > 0 ? '+' : ''}
+                        {(candleData.m1Score ?? candleData.m1?.momentumScore ?? 0)}/10
+                      </span>
+                    </div>
+                    
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2.5">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (candleData.m1Score ?? candleData.m1?.momentumScore ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(10, Math.abs(candleData.m1Score ?? candleData.m1?.momentumScore ?? 0) * 10))}%` }}
+                      />
+                    </div>
+
+                    <div className="font-bold text-slate-200 text-xs mb-2">
+                      {candleData?.m1?.pattern?.replace(/1m\s*/, '') || 'Fast Tick Order Flow'}
+                    </div>
+
+                    {/* Visual 1M Mini Candle Chart */}
+                    {candleData?.m1?.candles && candleData.m1.candles.length > 0 && (
+                      <div className="mb-2">
+                        <MiniCandleChart 
+                          candles={candleData.m1.candles}
+                          resistance={candleData.m1.resistance}
+                          support={candleData.m1.support}
+                          ema20={Number(((candleData.m1.support + candleData.m1.resistance) / 2).toFixed(2))}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                    <span>Support: <strong className="text-slate-200">{ticker.currency}{candleData?.m1?.support?.toLocaleString() || candleData?.m2?.support?.toLocaleString()}</strong></span>
+                    <span>Resist: <strong className="text-slate-200">{ticker.currency}{candleData?.m1?.resistance?.toLocaleString() || candleData?.m2?.resistance?.toLocaleString()}</strong></span>
+                  </div>
+                </div>
+
                 {/* 2-Minute Candle Momentum Analysis */}
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 flex flex-col justify-between space-y-3">
                   <div>
@@ -401,10 +449,10 @@ export function HTFPredictionsWorkstation({
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-emerald-400" />
-                Higher Timeframe Candlestick Charts &amp; Levels (1H · 1D · 1W)
+                Higher Timeframe Charts (1H · 1D · 1W)
               </span>
               <span className="text-[11px] font-mono text-slate-400">
-                Visual Pattern Gauges &amp; Trend Lines
+                Pattern Gauges &amp; Levels
               </span>
             </div>
 

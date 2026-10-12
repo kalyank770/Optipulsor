@@ -222,13 +222,13 @@ export const PaperTradingTab: React.FC<PaperTradingTabProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">Paper Trading Simulator Desk</h2>
+                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">Paper Trading Simulator</h2>
                 <span className="text-[10px] font-mono font-semibold uppercase text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                  Live Market Feed • Dummy Money
+                  Real Feed • Virtual Cash
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Practice entry &amp; exit strategies on real option chain data with zero financial risk
+                Practice option strategies on real live data with zero capital risk
               </p>
             </div>
           </div>

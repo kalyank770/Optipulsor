@@ -359,7 +359,7 @@ export function useLiveOptionChain() {
   const [selectedTicker, setSelectedTicker] = useState<TickerConfig>(POPULAR_TICKERS[0]);
   const [expiryIndex, setExpiryIndex] = useState<number>(0);
   const [expiryTimestamps, setExpiryTimestamps] = useState<number[]>([]);
-  const [updateIntervalMs, setUpdateIntervalMs] = useState<number>(2000);
+  const [updateIntervalMs, setUpdateIntervalMs] = useState<number>(1000);
   const [isLiveActive, setIsLiveActive] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
@@ -381,7 +381,7 @@ export function useLiveOptionChain() {
   const usePreMarketRef = useRef<boolean>(usePreMarket);
   usePreMarketRef.current = usePreMarket;
   const isPollingInFlightRef = useRef<boolean>(false);
-  const calibrationOffsetRef = useRef<number>(0);
+  const lastPollStartRef = useRef<number>(0);
   const consecutiveFailuresRef = useRef<number>(0);
   const newsFeedRef = useRef<NewsItem[]>(newsFeed);
   newsFeedRef.current = newsFeed;
@@ -452,53 +452,142 @@ export function useLiveOptionChain() {
   // Signal Reference & Anti-Whipsaw Confirmation State
   const signalRef = useRef<TradeSignal>(signal);
   signalRef.current = signal;
-  const pendingFlipRef = useRef<{ action: SignalAction; count: number }>({ action: signal.action, count: 0 });
 
-  // Strategic Signal Execution & Confirmation Engine (Zero Delay on Valid Live Signals)
+  // Minimum 1-to-2 Minute Institutional Stability Lock & Persistence (Mandatory Point 4)
+  const signalLockRef = useRef<{
+    action: SignalAction;
+    strike: number;
+    optionType: OptionType;
+    lockedAt: number;
+    expiresAt: number;
+    durationSeconds: number;
+  }>({
+    action: signal.action,
+    strike: signal.recommendedStrike,
+    optionType: signal.recommendedType,
+    lockedAt: Date.now(),
+    expiresAt: Date.now() + 120000,
+    durationSeconds: 120,
+  });
+
+  // Strategic Signal Execution & Confirmation Engine (Enforces 1-to-2 Min Stability & Capital Safety)
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
-    if (bypassDebounce) {
-      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
-      return proposedSignal;
-    }
-    const prev = signalRef.current;
-    if (!prev) return proposedSignal;
+    const now = Date.now();
+    const lock = signalLockRef.current;
+    const isLocked = now < lock.expiresAt && lock.action !== 'WAIT_NEUTRAL';
+    const secondsRemaining = Math.max(0, Math.ceil((lock.expiresAt - now) / 1000));
 
-    if (proposedSignal.action === prev.action) {
-      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
-      return proposedSignal;
-    }
-
-    // Safety First: Transitions to WAIT_NEUTRAL or Stop Loss hit execute immediately
-    if (proposedSignal.action === 'WAIT_NEUTRAL' || proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
-      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
-      return proposedSignal;
-    }
-
-    // Fast-track active market predictions: if conviction is at least 55% or action is clear, execute immediately!
-    if (proposedSignal.confidence >= 55 || proposedSignal.strength === 'STRONG' || proposedSignal.strength === 'MODERATE') {
-      pendingFlipRef.current = { action: proposedSignal.action, count: 0 };
-      return proposedSignal;
-    }
-
-    // Direct Reversal Guard (BUY_CE <-> BUY_PE):
-    const isReversal = (prev.action === 'BUY_CE' && proposedSignal.action === 'BUY_PE') ||
-                       (prev.action === 'BUY_PE' && proposedSignal.action === 'BUY_CE');
-
-    if (pendingFlipRef.current.action === proposedSignal.action) {
-      pendingFlipRef.current.count += 1;
-    } else {
-      pendingFlipRef.current = { action: proposedSignal.action, count: 1 };
-    }
-
-    if (isReversal && pendingFlipRef.current.count < 2 && proposedSignal.confidence < 50) {
+    // Case 1: Hard Stop Loss breach -> Break lock immediately to protect capital!
+    if (proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
+      signalLockRef.current = {
+        action: proposedSignal.action,
+        strike: proposedSignal.recommendedStrike,
+        optionType: proposedSignal.recommendedType,
+        lockedAt: now,
+        expiresAt: now + 30000,
+        durationSeconds: 30,
+      };
       return {
         ...proposedSignal,
-        action: 'WAIT_NEUTRAL',
-        strength: 'CAUTION',
+        stabilityLock: {
+          isActive: false,
+          lockDurationSeconds: 120,
+          secondsRemaining: 0,
+          lockedAtTimestamp: now,
+          expiresAtTimestamp: now,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: '🛑 STOP LOSS HIT · Lock Released for Capital Exit',
+        },
       };
     }
 
-    return proposedSignal;
+    // Case 2: Target 2 Hit (Final Objective Met) -> Book full profit
+    if (proposedSignal.tradeStage === 'TARGET_2_HIT') {
+      return {
+        ...proposedSignal,
+        stabilityLock: {
+          isActive: false,
+          lockDurationSeconds: 120,
+          secondsRemaining: 0,
+          lockedAtTimestamp: now,
+          expiresAtTimestamp: now,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: '🎯 TARGET 2 REACHED · Full Profit Booked',
+        },
+      };
+    }
+
+    // Case 3: While an active directional trade is locked (1-2 min validity window):
+    // Minor tick fluctuations CANNOT flip the recommendation!
+    if (isLocked && !bypassDebounce) {
+      const lockedAction = lock.action;
+      const lockedStrike = lock.strike;
+      const lockedType = lock.optionType;
+
+      const lockedSignal: TradeSignal = {
+        ...proposedSignal,
+        action: lockedAction,
+        recommendedStrike: lockedStrike,
+        recommendedType: lockedType,
+        stabilityLock: {
+          isActive: true,
+          lockDurationSeconds: lock.durationSeconds,
+          secondsRemaining,
+          lockedAtTimestamp: lock.lockedAt,
+          expiresAtTimestamp: lock.expiresAt,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: `⏱️ 2-Min Institutional Stability Lock (${secondsRemaining}s remaining) · Zero-Noise Filter Active`,
+        },
+      };
+      return lockedSignal;
+    }
+
+    // Case 4: Lock has expired or new directional trade trigger:
+    if (proposedSignal.action !== 'WAIT_NEUTRAL') {
+      signalLockRef.current = {
+        action: proposedSignal.action,
+        strike: proposedSignal.recommendedStrike,
+        optionType: proposedSignal.recommendedType,
+        lockedAt: now,
+        expiresAt: now + 120000, // 120 seconds = 2 minutes
+        durationSeconds: 120,
+      };
+      return {
+        ...proposedSignal,
+        stabilityLock: {
+          isActive: true,
+          lockDurationSeconds: 120,
+          secondsRemaining: 120,
+          lockedAtTimestamp: now,
+          expiresAtTimestamp: now + 120000,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: '⏱️ 2-Min Institutional Stability Lock (120s remaining) · Zero-Noise Filter Active',
+        },
+      };
+    }
+
+    // Case 5: Equilibrium / Stand Aside
+    signalLockRef.current = {
+      action: 'WAIT_NEUTRAL',
+      strike: proposedSignal.recommendedStrike,
+      optionType: proposedSignal.recommendedType,
+      lockedAt: now,
+      expiresAt: now + 60000,
+      durationSeconds: 60,
+    };
+
+    return {
+      ...proposedSignal,
+      stabilityLock: {
+        isActive: true,
+        lockDurationSeconds: 60,
+        secondsRemaining: Math.max(0, Math.ceil((signalLockRef.current.expiresAt - now) / 1000)),
+        lockedAtTimestamp: now,
+        expiresAtTimestamp: signalLockRef.current.expiresAt,
+        lockType: 'EQUILIBRIUM_PERSISTENCE',
+        lockHeadline: '🛡️ 1-Min Capital Protection Filter Active · Noise-Free Stand Aside',
+      },
+    };
   }, []);
 
   // Strike History and Derived Profitability Trends State
@@ -610,8 +699,15 @@ export function useLiveOptionChain() {
     const activeIsLive = isLiveActiveRef.current;
     const activeUsePre = usePreMarketRef.current;
 
-    if (isPollingInFlightRef.current && !isManual) return;
+    if (isPollingInFlightRef.current && !isManual) {
+      if (performance.now() - lastPollStartRef.current > 2500) {
+        isPollingInFlightRef.current = false;
+      } else {
+        return;
+      }
+    }
     isPollingInFlightRef.current = true;
+    lastPollStartRef.current = performance.now();
     if (isManual) setIsSyncing(true);
     const tStart = performance.now();
 
@@ -631,7 +727,7 @@ export function useLiveOptionChain() {
         url += `?${qs}`;
       }
 
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(2200) });
       if (res.ok) {
         setFeedLatencies(prev => ({ ...prev, chain: Math.max(1, Math.round(performance.now() - tStart)) }));
         const data = await res.json();
@@ -665,13 +761,8 @@ export function useLiveOptionChain() {
           setUsePreMarket(false);
         }
 
-        if (activePreMarket && (!prePrice || prePrice === 0)) {
-          const defaultGap = activeTicker.symbol.includes('BANK') ? 142.50 : 40.0;
-          prePrice = Number(((data.prevClose || regularPrice) + defaultGap).toFixed(2));
-        }
-
-        // Selected active spot: strictly authentic exchange spot price without artificial jitter + calibration offset
-        let activeSpot = (activePreMarket && prePrice ? prePrice : regularPrice) + calibrationOffsetRef.current;
+        // Authentic active spot: strictly authentic live exchange spot price
+        let activeSpot = (activePreMarket && prePrice && prePrice > 0 ? prePrice : regularPrice);
 
         const step = activeTicker.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
@@ -842,7 +933,7 @@ export function useLiveOptionChain() {
     }
   }, [selectedTicker.symbol]);
 
-  // Real live exchange candlestick stream state (2m, 5m, 15m, 1h, 1d, 1w OHLCV from NSE)
+  // Real live exchange candlestick stream state (1m, 2m, 5m, 15m, 1hr, 1day, 1w OHLCV from NSE)
   const [isCandlesLiveFeed, setIsCandlesLiveFeed] = useState<boolean>(false);
   const [candlesLastSynced, setCandlesLastSynced] = useState<Date>(new Date());
 
@@ -882,12 +973,12 @@ export function useLiveOptionChain() {
     return () => clearInterval(candleTimer);
   }, [selectedTicker.symbol, fetchMarketCandles]);
 
-  // Global Macro refresh loop (every 30s)
+  // Periodic refresh loop for GIFT Nifty & Inter-Market Telemetry (every 10s)
   useEffect(() => {
     fetchGlobalMacro(selectedTicker.symbol);
     const macroTimer = setInterval(() => {
       fetchGlobalMacro(selectedTicker.symbol);
-    }, 30000);
+    }, 10000);
     return () => clearInterval(macroTimer);
   }, [selectedTicker.symbol, fetchGlobalMacro]);
 
@@ -899,15 +990,6 @@ export function useLiveOptionChain() {
     }, interval);
     return () => clearInterval(newsTimer);
   }, [isLiveActive, marketStatus.isOpen, selectedTicker.symbol, fetchRealNews]);
-
-  // Aggressive 24/7 refresh loop for GIFT Nifty & Inter-Market Telemetry (every 4s continuously)
-  useEffect(() => {
-    fetchGlobalMacro(selectedTicker.symbol);
-    const macroTimer = setInterval(() => {
-      fetchGlobalMacro(selectedTicker.symbol);
-    }, 4000);
-    return () => clearInterval(macroTimer);
-  }, [selectedTicker.symbol, fetchGlobalMacro]);
 
   // Periodically refresh heavyweights (every 6s during market hours, 30s overnight)
   useEffect(() => {
@@ -921,7 +1003,6 @@ export function useLiveOptionChain() {
 
   // Handle ticker change
   const handleSelectTicker = (newTicker: TickerConfig) => {
-    calibrationOffsetRef.current = 0;
     setSelectedTicker(newTicker);
     setExpiryIndex(0);
     setFilters(prev => ({
@@ -1048,13 +1129,18 @@ export function useLiveOptionChain() {
     setStrikeAnalytics(deriveStrikeTrendAnalytics(fresh, selectedTicker, activeChain));
   }, [selectedTicker, chain, expiryIndex]);
 
-  // Resilient Real-Time Live Polling Engine with Smart Backoff Strategy:
-  // Dynamically backs off polling interval during high volatility or rate limits (429/errors), preventing freezes and hammering.
+  const marketStatusRef = useRef(marketStatus);
+  marketStatusRef.current = marketStatus;
+
+  // Continuous Live Polling Engine (Strictly 1s during Active Indian Pre-Market & Regular Hours)
   useEffect(() => {
     if (!isLiveActive) return;
 
+    let isMounted = true;
     let timer: NodeJS.Timeout;
+
     const poll = async () => {
+      if (!isMounted) return;
       try {
         await fetchOptionChainFromBackend(
           selectedTickerRef.current,
@@ -1065,15 +1151,24 @@ export function useLiveOptionChain() {
       } catch {
         // Handled internally in fetchOptionChainFromBackend
       } finally {
-        const failures = consecutiveFailuresRef.current;
-        const nextInterval = failures > 0 ? 2000 : updateIntervalMs;
+        if (!isMounted) return;
+        const currentMkt = marketStatusRef.current;
+        const isMarketActive = currentMkt.isOpen || currentMkt.session === 'REGULAR' || currentMkt.session === 'PRE_MARKET';
+        const nextInterval = isMarketActive ? 1000 : 2000;
         timer = setTimeout(poll, nextInterval);
       }
     };
 
-    timer = setTimeout(poll, updateIntervalMs);
-    return () => clearTimeout(timer);
-  }, [isLiveActive, updateIntervalMs, fetchOptionChainFromBackend]);
+    const initialMkt = marketStatusRef.current;
+    const isMarketActive = initialMkt.isOpen || initialMkt.session === 'REGULAR' || initialMkt.session === 'PRE_MARKET';
+    const initialInterval = isMarketActive ? 1000 : 2000;
+    timer = setTimeout(poll, initialInterval);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [isLiveActive, fetchOptionChainFromBackend]);
 
 
 
@@ -1154,6 +1249,7 @@ export function useLiveOptionChain() {
 
   // Manual Force Refresh
   const handleForceRefresh = () => {
+    setIsSyncing(true);
     fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
     fetchRealNews(selectedTickerRef.current.symbol, true);
     fetchHeavyweights(selectedTickerRef.current.symbol);
@@ -1223,41 +1319,6 @@ export function useLiveOptionChain() {
       } finally {
         setIsSyncing(false);
       }
-    },
-    handleCalibrateSpot: (newSpot: number) => {
-      if (!newSpot || isNaN(newSpot) || newSpot <= 0) return;
-      const currentRawSpot = selectedTicker.spotPrice - calibrationOffsetRef.current;
-      const newOffset = newSpot - currentRawSpot;
-      calibrationOffsetRef.current = newOffset;
-
-      const step = selectedTicker.strikeStep;
-      const newAtm = Math.round(newSpot / step) * step;
-      const diff = newSpot - selectedTicker.prevClose;
-      const pct = selectedTicker.prevClose > 0 ? (diff / selectedTicker.prevClose) * 100 : 0;
-      
-      const updated: TickerConfig = {
-        ...selectedTicker,
-        spotPrice: newSpot,
-        regularPrice: newSpot,
-        atmStrike: newAtm,
-        change: Number(diff.toFixed(2)),
-        changePercent: Number(pct.toFixed(2)),
-        dayHigh: Math.max(selectedTicker.dayHigh, newSpot),
-        dayLow: selectedTicker.dayLow > 0 ? Math.min(selectedTicker.dayLow, newSpot) : newSpot,
-        isLiveSynced: true,
-      };
-
-      const newChain = buildInitialChain(updated, expiryIndex);
-      const newMetrics = computeMarketMetrics(updated, newChain);
-      const rawSignal = generateTradeSignal(updated, newMetrics, newChain, newsFeedRef.current, signalRef.current || undefined, expiryIndex, liveConstituentAnalysisRef.current, liveGlobalMacroRef.current);
-      const instantSignal = applySignalWithDebounce(rawSignal, true);
-      instantSignal.allExpiriesSignals = computeAllExpiriesSignals(updated, newsFeedRef.current, expiryIndex, instantSignal);
-      
-      setSelectedTicker(updated);
-      setChain(newChain);
-      setMetrics(newMetrics);
-      setSignal(instantSignal);
-      setLastUpdated(new Date());
     },
     logCurrentSignalToHistory,
     refreshStrikeHistory,

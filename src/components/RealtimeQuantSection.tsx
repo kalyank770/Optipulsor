@@ -185,7 +185,11 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
         <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex flex-col justify-between min-h-[64px]">
           <span className="text-[10px] text-slate-400 font-bold uppercase font-sans">Gamma GEX</span>
           <span className="text-sm font-extrabold font-mono text-purple-300 mt-0.5">
-            {gammaExposure.netGex > 0 ? `+${(gammaExposure.netGex / 1000000).toFixed(1)}M` : `${(gammaExposure.netGex / 1000000).toFixed(1)}M`}
+            {Math.abs(gammaExposure.netGex) >= 1000000 
+              ? `${gammaExposure.netGex > 0 ? '+' : ''}${(gammaExposure.netGex / 1000000).toFixed(1)}M`
+              : Math.abs(gammaExposure.netGex) >= 1000
+              ? `${gammaExposure.netGex > 0 ? '+' : ''}${(gammaExposure.netGex / 1000).toFixed(0)}K`
+              : `${gammaExposure.netGex > 0 ? '+' : ''}${gammaExposure.netGex.toFixed(0)}`}
           </span>
           <span className="text-[10px] font-mono text-slate-400 truncate">
             {gammaExposure.regime?.replace(/_GAMMA/g, '') || 'BALANCED'}
@@ -198,8 +202,13 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
           <span className="text-sm font-extrabold font-mono text-amber-300 mt-0.5">
             {vixVelocity.vix.toFixed(2)}
           </span>
-          <span className="text-[10px] font-mono text-slate-400 truncate">
-            {orderFlow.sentiment?.replace(/_DOMINANCE/g, ' DOM') || 'BALANCED'}
+          <span className={`text-[10px] font-mono font-bold truncate ${
+            vixVelocity.velocityState === 'SURGING' ? 'text-rose-400' :
+            vixVelocity.velocityState === 'EXPANDING' ? 'text-amber-400' :
+            vixVelocity.velocityState === 'COMPRESSING' ? 'text-emerald-400' :
+            'text-slate-400'
+          }`}>
+            {vixVelocity.velocityState || 'STABLE'}
           </span>
         </div>
       </div>
@@ -282,7 +291,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               <span className="text-[9px] text-slate-500 block">S&P 500 FUT</span>
               <span className="font-bold text-white block mt-0.5">{telemetry?.sp500Futures?.price ? telemetry.sp500Futures.price.toLocaleString() : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.sp500Futures?.changePercent || 0}%
+                {(telemetry?.sp500Futures?.changePercent || 0) >= 0 ? '+' : ''}{(telemetry?.sp500Futures?.changePercent || 0).toFixed(2)}%
               </span>
             </div>
 
@@ -291,7 +300,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               <span className="text-[9px] text-slate-500 block">USD / INR</span>
               <span className="font-bold text-white block mt-0.5">{telemetry?.usdInr?.price ? `₹${telemetry.usdInr.price.toFixed(2)}` : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.usdInr?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.usdInr?.changePercent || 0}%
+                {(telemetry?.usdInr?.changePercent || 0) >= 0 ? '+' : ''}{(telemetry?.usdInr?.changePercent || 0).toFixed(2)}%
               </span>
             </div>
 
@@ -300,7 +309,7 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               <span className="text-[9px] text-slate-500 block">BRENT CRUDE</span>
               <span className="font-bold text-white block mt-0.5">{telemetry?.brentCrude?.price ? `$${telemetry.brentCrude.price.toFixed(2)}` : '—'}</span>
               <span className={`text-[9.5px] font-bold ${(telemetry?.brentCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{telemetry?.brentCrude?.changePercent || 0}%
+                {(telemetry?.brentCrude?.changePercent || 0) >= 0 ? '+' : ''}{(telemetry?.brentCrude?.changePercent || 0).toFixed(2)}%
               </span>
             </div>
           </div>

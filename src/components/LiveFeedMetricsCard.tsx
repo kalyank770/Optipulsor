@@ -101,35 +101,35 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
   const feedSources = [
     {
       id: 'chain',
-      name: 'Option Chain & Greeks Stream',
+      name: 'Option Chain & Greeks',
       endpoint: `/api/option-chain/${ticker.symbol}`,
       status: isSyncing ? 'SYNCING' : 'CONNECTED',
       latency: `${feedLatencies.chain}ms`,
       interval: '1s - 2s stream',
       lastSynced: lastUpdated,
       sampleMetric: `${chainRowCount} Strikes · ATM ₹${metrics.atmStrike} · PCR ${metrics.pcrTotalOI.toFixed(2)}`,
-      predictionRole: 'Powers CE/PE Strike Selection, Max Pain & Payoff Targets',
+      predictionRole: 'Strike Selection, Max Pain & Payoff Targets',
       icon: Layers,
       color: 'emerald',
       onRefresh: onRefreshChain || onSyncAllFeeds,
     },
     {
       id: 'candles',
-      name: 'Exchange Candlesticks (OHLCV)',
+      name: 'Exchange Candles (OHLCV)',
       endpoint: `/api/market-candles?symbol=${ticker.symbol}`,
       status: 'CONNECTED',
       latency: `${feedLatencies.candles}ms`,
       interval: '15s stream',
       lastSynced: candlesLastSynced,
-      sampleMetric: `6 Timeframes Live · 2m, 5m, 15m, 1h, 1d, 1w OHLCV`,
-      predictionRole: 'Powers Candlestick Momentum, ORB & HTF Reversals',
+      sampleMetric: `7 Timeframes · 1m, 2m, 5m, 15m, 1hr, 1day, 1wk OHLCV`,
+      predictionRole: '1m, 2m, 5m, 15m, 1hr, 1day Momentum & ORB',
       icon: BarChart2,
       color: 'sky',
       onRefresh: onRefreshCandles || onSyncAllFeeds,
     },
     {
       id: 'macro',
-      name: 'GIFT Nifty & Global Macro Engine',
+      name: 'GIFT Nifty & Macro',
       endpoint: `/api/global-macro?symbol=${ticker.symbol}`,
       status: isGiftNiftySyncing ? 'SYNCING' : 'CONNECTED',
       latency: `${feedLatencies.macro}ms`,
@@ -138,28 +138,28 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
       sampleMetric: globalMacro?.giftNifty 
         ? `GIFT Nifty: ${globalMacro.giftNifty.price} (${globalMacro.giftNifty.change >= 0 ? '+' : ''}${globalMacro.giftNifty.change} pts) · DXY ${globalMacro.dxyIndex?.price || '106.4'}`
         : 'Active 24/7 Futures Telemetry',
-      predictionRole: 'Powers Overnight Opening Gap & Directional Skew',
+      predictionRole: 'Overnight Opening Gap & Global Bias',
       icon: Globe2,
       color: 'amber',
       onRefresh: onRefreshMacro || onSyncAllFeeds,
     },
     {
       id: 'quote',
-      name: 'Cash Spot Price & Intraday VWAP',
+      name: 'Cash Spot & VWAP',
       endpoint: `/api/quote/${ticker.symbol}`,
       status: 'CONNECTED',
       latency: `${feedLatencies.chain}ms`,
       interval: 'Real-time Tick',
       lastSynced: lastUpdated,
       sampleMetric: `Spot: ₹${(ticker?.spotPrice ?? 0).toLocaleString()} · VWAP: ₹${ticker.vwap?.toLocaleString() || '₹22,465'} (${ticker.changePercent >= 0 ? '+' : ''}${ticker.changePercent}%)`,
-      predictionRole: 'Powers Real-Time Entry Triggers & Stop-Loss Anchors',
+      predictionRole: 'Live Entry Triggers & Stop-Loss Anchors',
       icon: TrendingUp,
       color: 'emerald',
       onRefresh: onRefreshChain || onSyncAllFeeds,
     },
     {
       id: 'heavyweights',
-      name: 'Heavyweights Breadth & Sector Impact',
+      name: 'Index Heavyweights',
       endpoint: `/api/heavyweights?symbol=${ticker.symbol}`,
       status: 'CONNECTED',
       latency: `${feedLatencies.heavyweights}ms`,
@@ -168,35 +168,35 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
       sampleMetric: constituentAnalysis?.constituents?.length 
         ? `${constituentAnalysis.constituents.length} Weights Live · Adv: ${constituentAnalysis.advances} Dec: ${constituentAnalysis.declines} (${constituentAnalysis.overallHeavyweightBias})`
         : 'Top 5 Constituents Active',
-      predictionRole: 'Powers Institutional Order Flow & Resistance Drag',
+      predictionRole: 'Heavyweight Breadth & Sector Impact',
       icon: Cpu,
       color: 'indigo',
       onRefresh: onRefreshHeavyweights || onSyncAllFeeds,
     },
     {
       id: 'news',
-      name: 'Financial Wire News & Catalysts',
+      name: 'News & Catalysts',
       endpoint: `/api/news?symbol=${ticker.symbol}`,
       status: 'CONNECTED',
       latency: `${feedLatencies.news}ms`,
       interval: '60s wire',
       lastSynced: newsLastSynced,
       sampleMetric: `${newsFeed.length} Verified Articles Streamed`,
-      predictionRole: 'Powers News Impact Multiplier & Catalyst Scoring',
+      predictionRole: 'News Sentiment & Catalyst Impact',
       icon: Radio,
       color: 'purple',
       onRefresh: onRefreshNews || onSyncAllFeeds,
     },
     {
       id: 'status',
-      name: 'Exchange Session Clock & Market Hours',
+      name: 'Market Clock',
       endpoint: '/api/market-status',
       status: marketStatus?.isOpen ? 'CONNECTED' : 'CONNECTED',
       latency: `${feedLatencies.status}ms`,
       interval: 'Real-Time IST',
       lastSynced: lastUpdated,
       sampleMetric: `${marketStatus?.marketName || 'NSE'} · ${marketStatus?.session || 'REGULAR'} (${marketStatus?.isOpen ? 'Live Open' : 'Session Settled'})`,
-      predictionRole: 'Powers Session Gating, After-Market Mode & Holiday Rules',
+      predictionRole: 'Trading Hours, CAS & Holiday Rules',
       icon: Clock,
       color: 'teal',
       onRefresh: onSyncAllFeeds,
@@ -348,11 +348,11 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
 
           <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] font-mono text-slate-400 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-emerald-400 font-bold">● STRICT REAL-TIME PROTOCOL:</span>
-              <span>All 7 streams connect directly to live exchange endpoints. Zero synthetic mock datasets, zero fallbacks.</span>
+              <span className="text-emerald-400 font-bold">● STRICT REAL-TIME:</span>
+              <span>Live exchange feeds connected. 100% authentic real-time data.</span>
             </div>
             <span className="text-slate-500 text-[10px]">
-              OptiPulse V8.0 Core Pipeline
+              OptiPulse V9.0 Core Pipeline
             </span>
           </div>
         </div>

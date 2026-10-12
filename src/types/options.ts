@@ -223,7 +223,7 @@ export interface Candle {
 }
 
 export interface TimeframeCandleAnalysis {
-  timeframe: '2m' | '5m' | '15m';
+  timeframe: '1m' | '2m' | '5m' | '15m' | '1h' | '1d';
   candles: Candle[];
   latestCandle: Candle;
   trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
@@ -242,12 +242,18 @@ export interface TimeframeCandleAnalysis {
 }
 
 export interface MultiTimeframeChartPatterns {
+  m1?: TimeframeCandleAnalysis;
   m2: TimeframeCandleAnalysis;
   m5: TimeframeCandleAnalysis;
   m15: TimeframeCandleAnalysis;
+  h1?: TimeframeCandleAnalysis;
+  d1?: TimeframeCandleAnalysis;
+  m1Score?: number;
   m2Score?: number;
   m5Score?: number;
   m15Score?: number;
+  h1Score?: number;
+  d1Score?: number;
   aggregateMomentumIndex?: number;
   momentumAlignment?: 'FULL_BULLISH_CONFLUENCE' | 'MODERATE_BULLISH' | 'NEUTRAL_MIXED' | 'MODERATE_BEARISH' | 'FULL_BEARISH_CONFLUENCE';
   tacticalSwingPoints?: number;
@@ -523,6 +529,16 @@ export interface AdvanceTradeSetup {
   invalidationReason?: string;
 }
 
+export interface SignalStabilityLock {
+  isActive: boolean;
+  lockDurationSeconds: number; // 60 to 120 seconds
+  secondsRemaining: number;
+  lockedAtTimestamp: number;
+  expiresAtTimestamp: number;
+  lockType: 'INSTITUTIONAL_PERSISTENCE' | 'EQUILIBRIUM_PERSISTENCE';
+  lockHeadline: string;
+}
+
 export interface TradeSignal {
   action: SignalAction;
   strength: SignalStrength;
@@ -566,6 +582,7 @@ export interface TradeSignal {
   sidewaysMarketAnalysis?: SidewaysMarketAnalysis;
   htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
   advanceTradeSetup?: AdvanceTradeSetup;
+  stabilityLock?: SignalStabilityLock;
 }
 
 export * from './htfPredictions';
