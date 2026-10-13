@@ -793,7 +793,7 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string) {
         'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
         'Cookie': cookie || '',
       },
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(1500),
     });
     if (res.ok) {
       const json = await res.json();
@@ -850,9 +850,77 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string) {
         };
       }
     }
-  } catch (e) {
-    console.warn('Official NSE index API fetch failed:', e);
+  } catch (_e) {
+    // Silent failover when NSE site blocks or times out on GCP container IP
   }
+  return null;
+}
+
+async function fetchYahooFastIndexQuote(rawSymbol: string) {
+  const isBank = rawSymbol.toUpperCase().includes('BANK');
+  const isFin = rawSymbol.toUpperCase().includes('FIN');
+  const ySymbol = isBank 
+    ? '^NSEBANK' 
+    : (isFin ? 'NIFTY_FIN_SERVICE.NS' : '^NSEI');
+  try {
+    const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(2000)
+    });
+    if (yahooRes.ok) {
+      const json = await yahooRes.json();
+      const meta = json?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 1000) {
+        const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+        const dayHigh = Number((meta.regularMarketDayHigh || spotPrice).toFixed(2));
+        const dayLow = Number((meta.regularMarketDayLow || spotPrice).toFixed(2));
+        const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+        const change = Number((spotPrice - prevClose).toFixed(2));
+        const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
+        const holiday = checkMarketHoliday(new Date(), true);
+        const tz = 'Asia/Kolkata';
+        const ist = getExchangeClock(tz);
+        let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
+        if (!holiday.isHoliday && !ist.isWeekend) {
+          if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
+            marketState = 'PRE_MARKET';
+          } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
+            marketState = 'CLOSED';
+          }
+        }
+
+        const istString = new Date().toLocaleString('en-IN', {
+          timeZone: tz,
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' IST';
+
+        return {
+          symbol: rawSymbol,
+          price: spotPrice,
+          spotPrice: spotPrice,
+          regularPrice: spotPrice,
+          change,
+          changePercent,
+          dayHigh,
+          dayLow,
+          dayOpen: prevClose,
+          prevClose,
+          vwap: spotPrice,
+          volume: 0,
+          marketState,
+          lastUpdated: istString,
+          source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
+        };
+      }
+    }
+  } catch (_e) {}
   return null;
 }
 
@@ -910,87 +978,20 @@ async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
 
   const yahooSymbol = SYMBOL_MAP[rawSymbol.toUpperCase()] || rawSymbol;
   const isIndianIndex = rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
-  const isBank = rawSymbol.toUpperCase().includes('BANK');
 
-  // Primary Source for Indian Benchmark Indices: Direct Official NSE India Endpoint (nseindia.com/api/allIndices)
+  // Primary Source for Indian Benchmark Indices: Fast Resilient Concurrent Race (Official NSE India + Yahoo Chart v8)
   if (isIndianIndex) {
-    // 1. Direct Official NSE India Site Endpoint
     try {
-      const officialNse = await fetchOfficialNseIndexQuote(rawSymbol);
-      if (officialNse) {
-        liveQuoteCache.set(normSym, { quote: officialNse, timestamp: now });
-        return officialNse;
+      const liveQuote = await Promise.any([
+        fetchOfficialNseIndexQuote(rawSymbol).then(q => { if (!q) throw new Error('NSE null'); return q; }),
+        fetchYahooFastIndexQuote(rawSymbol).then(q => { if (!q) throw new Error('Yahoo null'); return q; }),
+      ]);
+      if (liveQuote) {
+        liveQuoteCache.set(normSym, { quote: liveQuote, timestamp: now });
+        return liveQuote;
       }
-    } catch (_nseErr) {}
+    } catch (_err) {}
 
-    // 2. Fallback: Yahoo Chart v8 API (if official NSE site is briefly unreachable)
-    try {
-      const ySymbol = isBank 
-        ? '^NSEBANK' 
-        : (rawSymbol.toUpperCase().includes('FIN') ? 'NIFTY_FIN_SERVICE.NS' : '^NSEI');
-      const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: AbortSignal.timeout(3000)
-      });
-      if (yahooRes.ok) {
-        const json = await yahooRes.json();
-        const meta = json?.chart?.result?.[0]?.meta;
-        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 1000) {
-          const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
-          const dayHigh = Number((meta.regularMarketDayHigh || spotPrice).toFixed(2));
-          const dayLow = Number((meta.regularMarketDayLow || spotPrice).toFixed(2));
-          const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
-          const change = Number((spotPrice - prevClose).toFixed(2));
-          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-
-          const holiday = checkMarketHoliday(new Date(), true);
-          const tz = 'Asia/Kolkata';
-          const ist = getExchangeClock(tz);
-          let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
-          if (!holiday.isHoliday && !ist.isWeekend) {
-            if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
-              marketState = 'PRE_MARKET';
-            } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
-              marketState = 'CLOSED';
-            }
-          }
-
-          const istString = new Date().toLocaleString('en-IN', {
-            timeZone: tz,
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false,
-          }) + ' IST';
-
-          const fastQuote = {
-            symbol: rawSymbol,
-            price: spotPrice,
-            spotPrice: spotPrice,
-            regularPrice: spotPrice,
-            change,
-            changePercent,
-            dayHigh,
-            dayLow,
-            dayOpen: prevClose,
-            prevClose,
-            vwap: spotPrice,
-            volume: 0,
-            marketState,
-            lastUpdated: istString,
-            source: 'Official NSE India Exchange Feed'
-          };
-
-          liveQuoteCache.set(normSym, { quote: fastQuote, timestamp: now });
-          return fastQuote;
-        }
-      }
-    } catch (_yErr) {}
-
-    // 3. Failover: Return last known cached live quote if temporary network glitch
     if (cached) {
       return cached.quote;
     }
@@ -2202,14 +2203,15 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
               'Accept': 'application/json, text/plain, */*',
             },
-            signal: AbortSignal.timeout(1800)
+            signal: AbortSignal.timeout(3500)
           }).catch(() => null)
         ]);
 
         if (growwRes && growwRes.ok) {
-          const growwJson = await growwRes.json();
-          let rawOptionChains = growwJson.optionChain?.optionChains || [];
-          const rawExpiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
+          const growwJson = await growwRes.json().catch(() => null);
+          if (growwJson) {
+            let rawOptionChains = growwJson.optionChain?.optionChains || [];
+            const rawExpiryDates: string[] = growwJson.optionChain?.expiryDetailsDto?.expiryDates || [];
 
           // Filter expiry dates to strictly valid future dates
           const nowMs = Date.now();
@@ -2492,9 +2494,10 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
             return res.json(payload);
           }
         }
-      } catch (growwErr) {
-        console.warn('Real NSE Option Chain fetch error, falling back to calibrated quotes:', growwErr);
       }
+    } catch (growwErr) {
+      console.warn('Real NSE Option Chain fetch error, falling back to calibrated quotes:', growwErr);
+    }
     }
 
     // Fallback: fetch live spot quote and attach official SEBI Tuesday expiry dates
