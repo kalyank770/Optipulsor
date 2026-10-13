@@ -738,52 +738,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         );
       })()}
 
-      {/* Single Decisive Position Directive (Shown when market is closed or on holidays) */}
-      {(() => {
-        const conf = signal.confidence || 75;
-        const showCard = !marketStatus?.isOpen || marketStatus?.isHoliday;
-        if (!showCard) return null;
-
-        const isBullish = signal.action === 'BUY_CE';
-        const isBearish = signal.action === 'BUY_PE';
-
-        return (
-          <div className="mt-3.5 bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-2.5 font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
-                Primary Position Directive ({conf}% Confluence)
-              </h4>
-              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
-                isBullish ? 'bg-emerald-950 text-emerald-300 border-emerald-800' :
-                isBearish ? 'bg-rose-950 text-rose-300 border-rose-800' :
-                'bg-amber-950 text-amber-300 border-amber-800'
-              }`}>
-                {isBullish ? 'BULLISH CALL DIRECTIVE' : isBearish ? 'BEARISH PUT DIRECTIVE' : 'NEUTRAL STAND ASIDE'}
-              </span>
-            </div>
-
-            <div className={`p-3 rounded-lg border text-xs ${
-              isBullish ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200' :
-              isBearish ? 'bg-rose-950/30 border-rose-500/40 text-rose-200' :
-              'bg-amber-950/30 border-amber-500/40 text-amber-200'
-            }`}>
-              <div className="font-bold flex items-center justify-between mb-1">
-                <span>Dominant Direction: {isBullish ? `BUY ${signal.recommendedStrike} CE` : isBearish ? `BUY ${signal.recommendedStrike} PE` : 'STAND ASIDE (ORB RANGE)'}</span>
-                <span className="text-purple-300 font-mono font-bold">{conf}% Signal Strength</span>
-              </div>
-              <p className="text-[11px] text-slate-300 font-sans leading-relaxed">
-                {isBullish
-                  ? `Decisive Bullish Bias: 15-Pillar model confirms upward order flow. Maintain Call positions, align stop loss at ${ticker.currency}${signal.stopLoss}, and target ${ticker.currency}${signal.target1}.`
-                  : isBearish
-                  ? `Decisive Bearish Bias: 15-Pillar model confirms persistent institutional selling. Maintain Put positions, align stop loss at ${ticker.currency}${signal.stopLoss}, and target ${ticker.currency}${signal.target1}.`
-                  : `Balanced / Neutral Market: No directional breakout confirmed. Stand aside for the 15-Minute Opening Range to establish clear momentum.`}
-              </p>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* After-Market & Pre-Market Opening Analytics Card */}
       {signal.afterMarketAnalytics && (
         <AfterMarketOpeningCard 

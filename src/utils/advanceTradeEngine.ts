@@ -818,26 +818,10 @@ export function computeAdvanceTradeSetup(
   let probabilityScore = 55;
   let leadTimeAdvantageMinutes = 3.0;
 
-  if (totalBearScore >= 1.6 && totalBearScore > totalBullScore + 0.4 && !isDerivativesOrCandleBullish) {
-    if (currentSignalAction === 'BUY_PE' || currentSignalAction === 'WAIT_NEUTRAL') {
-      anticipatedAction = 'BUY_PE';
-    }
-    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
-    leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
+  const minThreshold = currentSignalAction === 'WAIT_NEUTRAL' ? 2.8 : 1.6;
 
-    if (swBearScore >= 2.0) {
-      setupType = 'EARLY_DISTRIBUTION_REVERSAL_PE';
-    } else if (hwBearScore >= 2.0) {
-      setupType = 'HEAVYWEIGHT_FRONT_RUN_PE';
-    } else if (oiBearScore >= 2.0) {
-      setupType = 'OI_UNWINDING_THRUST_PE';
-    } else {
-      setupType = 'PRE_BREAKDOWN_COILING_PE';
-    }
-  } else if (totalBullScore >= 1.6 && totalBullScore > totalBearScore + 0.4 && !isDerivativesOrCandleBearish) {
-    if (currentSignalAction === 'BUY_CE' || currentSignalAction === 'WAIT_NEUTRAL') {
-      anticipatedAction = 'BUY_CE';
-    }
+  if (totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.5 && !isDerivativesOrCandleBearish) {
+    anticipatedAction = 'BUY_CE';
     probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBullScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
@@ -850,6 +834,20 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKOUT_COILING_CE';
     }
+  } else if (totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.5 && !isDerivativesOrCandleBullish) {
+    anticipatedAction = 'BUY_PE';
+    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
+    leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
+
+    if (swBearScore >= 2.0) {
+      setupType = 'EARLY_DISTRIBUTION_REVERSAL_PE';
+    } else if (hwBearScore >= 2.0) {
+      setupType = 'HEAVYWEIGHT_FRONT_RUN_PE';
+    } else if (oiBearScore >= 2.0) {
+      setupType = 'OI_UNWINDING_THRUST_PE';
+    } else {
+      setupType = 'PRE_BREAKDOWN_COILING_PE';
+    }
   } else {
     // True Stand-Aside / Capital Preservation Equilibrium
     anticipatedAction = 'WAIT_NEUTRAL';
@@ -858,7 +856,7 @@ export function computeAdvanceTradeSetup(
     leadTimeAdvantageMinutes = 1.0;
   }
 
-  // Directional signal actions align with advance setups; if current signal action is WAIT_NEUTRAL, preserve advance leading pre-breakout/pre-breakdown setups
+  // Directional signal actions align with advance setups
   if (currentSignalAction === 'BUY_CE') {
     anticipatedAction = 'BUY_CE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
@@ -872,9 +870,8 @@ export function computeAdvanceTradeSetup(
     anticipatedAction === 'BUY_PE' ||
     (anticipatedAction === 'WAIT_NEUTRAL' && (
       candlePatterns.confluenceBias === 'BEARISH' ||
-      candlePatterns.confluenceScore < -1.0 ||
-      totalBearScore > totalBullScore + 0.2 ||
-      (totalBearScore === totalBullScore && (ticker.spotPrice < ticker.prevClose || (ticker.changePercent || 0) < 0)) ||
+      candlePatterns.confluenceScore < -1.5 ||
+      totalBearScore > totalBullScore + 0.8 ||
       isDerivativesOrCandleBearish
     ))
   );

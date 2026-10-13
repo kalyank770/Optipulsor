@@ -214,7 +214,7 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
           </div>
 
           <span className="text-xs font-bold text-white shrink-0">
-            Live Feed Sources
+            Live Feed
           </span>
 
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">

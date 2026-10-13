@@ -69,8 +69,8 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
 
   const isSignalWait = signal?.action === 'WAIT_NEUTRAL';
   const isSetupWait = setup.anticipatedAction === 'WAIT_NEUTRAL';
-  const isBull = signal?.action === 'BUY_CE' || (signal?.action !== 'BUY_PE' && setup.anticipatedAction === 'BUY_CE');
-  const isBear = signal?.action === 'BUY_PE' || (signal?.action !== 'BUY_CE' && setup.anticipatedAction === 'BUY_PE');
+  const isBull = signal ? signal.action === 'BUY_CE' : setup.anticipatedAction === 'BUY_CE';
+  const isBear = signal ? signal.action === 'BUY_PE' : setup.anticipatedAction === 'BUY_PE';
   const isWait = !isBull && !isBear;
   const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways && isWait);
 
@@ -235,14 +235,6 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                   action={signal?.action || setup.anticipatedAction} 
                   size="xs" 
                 />
-
-                {/* Pre-Market Predictor Automatic Badge */}
-                {(usePreMarket || ticker.isUsingPreMarket) && (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs" title="Pre-market auto discovery active outside regular trading hours">
-                    <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                    <span>Pre-Market Discovery Active (Auto)</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
