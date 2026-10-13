@@ -35,8 +35,41 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
   const [activeTab, setActiveTab] = useState<'directive' | 'allRules'>('directive');
 
   const isDirectional = action === 'BUY_CE' || action === 'BUY_PE';
-  const secondsRemaining = stabilityLock?.secondsRemaining ?? 30;
-  const totalSeconds = stabilityLock?.lockDurationSeconds ?? 30;
+  const totalSeconds = stabilityLock?.lockDurationSeconds ?? (action === 'WAIT_NEUTRAL' ? 300 : 30);
+  const expiresAt = stabilityLock?.expiresAtTimestamp;
+
+  const [liveSeconds, setLiveSeconds] = useState<number>(() => {
+    if (expiresAt && expiresAt > Date.now()) {
+      return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+    }
+    return stabilityLock?.secondsRemaining ?? totalSeconds;
+  });
+
+  // Dynamic 1-second real-time ticker
+  useEffect(() => {
+    const calcSecs = () => {
+      if (expiresAt && expiresAt > Date.now()) {
+        return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      }
+      if (stabilityLock?.secondsRemaining !== undefined && stabilityLock.secondsRemaining > 0) {
+        return stabilityLock.secondsRemaining;
+      }
+      return totalSeconds;
+    };
+
+    setLiveSeconds(calcSecs());
+
+    const timer = setInterval(() => {
+      setLiveSeconds(prev => {
+        if (expiresAt && expiresAt > Date.now()) {
+          return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+        }
+        return prev > 1 ? prev - 1 : totalSeconds;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [expiresAt, stabilityLock?.secondsRemaining, totalSeconds]);
 
   // Close modal on Escape key press & prevent background scroll
   useEffect(() => {
@@ -64,6 +97,12 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
     sm: 'px-2.5 py-1 text-[11px] gap-1.5',
     md: 'px-3 py-1.5 text-xs gap-2',
   }[size];
+
+  // Formatting display time cleanly (e.g. 5m 0s, 4m 58s, 30s)
+  const displaySecs = liveSeconds > 0 ? liveSeconds : totalSeconds;
+  const timeFormatted = totalSeconds >= 300 
+    ? `${Math.floor(displaySecs / 60)}m ${displaySecs % 60}s` 
+    : `${displaySecs}s`;
 
   return (
     <>
@@ -104,14 +143,20 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
               <>
                 <span className="font-bold text-white">Stability Lock:</span>
                 <span className="text-indigo-300 ml-1 font-mono">
-                  {secondsRemaining}s
+                  {timeFormatted}
                 </span>
-                <span className="hidden sm:inline text-slate-400 font-mono text-[9.5px]">/{totalSeconds}s</span>
+                <span className="hidden sm:inline text-slate-400 font-mono text-[9.5px]">
+                  /{totalSeconds >= 300 ? '5m' : '30s'}
+                </span>
               </>
             ) : (
               <>
                 <span className="font-bold text-slate-200">Stability Lock:</span>
-                <span className="text-slate-300 ml-1 font-mono">{secondsRemaining}s/{totalSeconds}s</span>
+                <span className="text-slate-300 ml-1 font-mono">
+                  {totalSeconds >= 300 
+                    ? `${timeFormatted}/5m` 
+                    : `${timeFormatted}/30s`}
+                </span>
               </>
             )}
           </span>
@@ -150,7 +195,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     </span>
                   </div>
                   <h3 id="pillar4-modal-title" className="font-bold text-white text-base sm:text-lg tracking-tight mt-0.5">
-                    30-Second Prediction Lock &amp; Anti-Whipsaw Filter
+                    {totalSeconds >= 300 ? '5-Minute Non-Market Lock' : '30-Second Live Market Lock'} &amp; Anti-Whipsaw Filter
                   </h3>
                 </div>
               </div>
@@ -205,7 +250,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     &ldquo;Trade recommendation should not quickly change as per just live market is moving up/down. for this I don&apos;t need this application. I want this application should come up with prediction which should valid for atleast a min or 2 and also more accurate such that I can rely on this and will not loose any money.&rdquo;
                   </blockquote>
                   <p className="text-[11.5px] text-slate-300 leading-relaxed">
-                    This directive protects real trading capital by banning rapid 5–10 second signal flips caused by normal exchange tick flutter. Directional trade setups remain firmly stabilized for <strong className="text-emerald-400">30 seconds</strong> while real-time underlying market ticks continue updating without disturbance.
+                    This directive protects trading capital by preventing signal flicker. Setups remain stabilized for <strong className="text-emerald-400">30 seconds during 9:00 AM – 3:40 PM live market hours</strong> and <strong className="text-emerald-400">5 minutes (300s) during non-market hours</strong>.
                   </p>
                 </div>
 
@@ -224,15 +269,15 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                   <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800">
                     <span className="text-[10px] uppercase text-slate-400 block font-sans">Lock Duration</span>
                     <span className="text-sm font-bold text-white mt-0.5 block">
-                      {totalSeconds} Seconds
+                      {totalSeconds >= 300 ? '5 Mins (300s)' : '30 Seconds'}
                     </span>
-                    <span className="text-[9.5px] text-slate-400">30s Window</span>
+                    <span className="text-[9.5px] text-slate-400">{totalSeconds >= 300 ? 'Non-Market Mode' : 'Live 9AM-3:40PM'}</span>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800">
                     <span className="text-[10px] uppercase text-slate-400 block font-sans">Lock Remaining</span>
                     <span className="text-sm font-bold text-emerald-400 mt-0.5 block">
-                      {secondsRemaining}s
+                      {timeFormatted}
                     </span>
                     <span className="text-[9.5px] text-slate-400">Anti-Flicker Active</span>
                   </div>
@@ -255,13 +300,13 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
                       <span>
-                        <strong className="text-emerald-300">30-Second Stability Lock:</strong> Once a high-confluence BUY CE or BUY PE entry is issued, the trade recommendation action, recommended strike, entry range, and profit targets are strictly locked for 30 seconds.
+                        <strong className="text-emerald-300">Dual-Mode Stability Lock:</strong> Locks predictions for 30 seconds during live market hours (9:00 AM – 3:40 PM IST) and 5 minutes (300s) during non-market hours.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
                       <span>
-                        <strong className="text-emerald-300">Uninterrupted 1-Second Price Streaming:</strong> Live spot price, contract LTP, Greeks, and P&amp;L continuously stream every second in the background without modifying the trade thesis.
+                        <strong className="text-emerald-300">Uninterrupted Price Streaming:</strong> Live spot price, contract LTP, Greeks, and P&amp;L continuously stream every second in the background without modifying the trade thesis.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">

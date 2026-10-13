@@ -33,7 +33,7 @@ import {
   forceRecordSignalInHistory,
   deriveStrikeTrendAnalytics 
 } from '../utils/strikeHistoryEngine';
-import { getMarketHoursStatus, MarketHoursStatus } from '../utils/marketHours';
+import { getMarketHoursStatus, isMarketAutoRefreshActive, MarketHoursStatus } from '../utils/marketHours';
 import { setGlobalRealCandles } from '../utils/candlestickEngine';
 import { recordPredictionSnapshot, validatePredictionAgainstLiveOpen } from '../utils/predictionValidationStore';
 
@@ -450,6 +450,16 @@ export function useLiveOptionChain() {
     const initConstituents = POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].changePercent) : undefined;
     const s = generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED, undefined, 0, initConstituents, initMacro);
     s.allExpiriesSignals = computeAllExpiriesSignals(POPULAR_TICKERS[0], INITIAL_NEWS_FEED, 0, s);
+    const initSecs = isMarketAutoRefreshActive(POPULAR_TICKERS[0]).isActive ? 30 : 300;
+    s.stabilityLock = {
+      isActive: true,
+      lockDurationSeconds: initSecs,
+      secondsRemaining: initSecs,
+      lockedAtTimestamp: Date.now(),
+      expiresAtTimestamp: Date.now() + initSecs * 1000,
+      lockType: 'EQUILIBRIUM_PERSISTENCE',
+      lockHeadline: `⏱️ ${initSecs >= 300 ? '5-Min Non-Market' : '30s Live'} Stability Lock Active`,
+    };
     return s;
   });
 
@@ -457,7 +467,16 @@ export function useLiveOptionChain() {
   const signalRef = useRef<TradeSignal>(signal);
   signalRef.current = signal;
 
-  // Strict 30-Second Institutional Stability Lock & Persistence
+  // Dynamic Lock Duration: 30s during live market (9:00 AM - 03:40 PM), 5 mins (300s) during non-market hours
+  const getTargetLockDurationSeconds = useCallback((tickerToUse?: TickerConfig): number => {
+    const activeT = tickerToUse || selectedTickerRef.current || POPULAR_TICKERS[0];
+    const autoRefresh = isMarketAutoRefreshActive(activeT);
+    return autoRefresh.isActive ? 30 : 300;
+  }, []);
+
+  // Strict Institutional Stability Lock & Persistence (30s Live Market / 5m Non-Market Hours)
+  const initialLockSecs = isMarketAutoRefreshActive(POPULAR_TICKERS[0]).isActive ? 30 : 300;
+
   const signalLockRef = useRef<{
     symbol: string;
     action: SignalAction;
@@ -472,34 +491,47 @@ export function useLiveOptionChain() {
     strike: signal.recommendedStrike,
     optionType: signal.recommendedType,
     lockedAt: Date.now(),
-    expiresAt: Date.now() + 30000,
-    durationSeconds: 30,
+    expiresAt: Date.now() + initialLockSecs * 1000,
+    durationSeconds: initialLockSecs,
   });
 
-  // Strategic Signal Execution & Confirmation Engine (Enforces 30-Sec Stability & Capital Safety)
+  // Strategic Signal Execution & Confirmation Engine (Enforces 30s/5m Stability & Capital Safety)
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
     const now = Date.now();
+    const activeTicker = selectedTickerRef.current;
+    const targetLockSecs = getTargetLockDurationSeconds(activeTicker);
+    const lockMs = targetLockSecs * 1000;
+
     const lock = signalLockRef.current;
     const isSameSymbol = lock.symbol === proposedSignal.tickerSymbol;
     const isLocked = isSameSymbol && now < lock.expiresAt && lock.action !== 'WAIT_NEUTRAL';
     const secondsRemaining = Math.max(0, Math.ceil((lock.expiresAt - now) / 1000));
 
+    const getHeadline = (durationSecs: number, secsRem: number, suffix: string) => {
+      if (durationSecs >= 300) {
+        const minsRem = Math.ceil(secsRem / 60);
+        return `⏱️ 5-Min Non-Market Hours Lock (${minsRem}m remaining) · ${suffix}`;
+      } else {
+        return `⏱️ 30s Live Session Stability Lock (${secsRem}s remaining) · ${suffix}`;
+      }
+    };
+
     // Case 1: Hard Stop Loss breach -> Break lock immediately to protect capital!
     if (proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
       signalLockRef.current = {
-        symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
+        symbol: proposedSignal.tickerSymbol || activeTicker.symbol,
         action: proposedSignal.action,
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 30000,
-        durationSeconds: 30,
+        expiresAt: now + lockMs,
+        durationSeconds: targetLockSecs,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 30,
+          lockDurationSeconds: targetLockSecs,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -515,7 +547,7 @@ export function useLiveOptionChain() {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 30,
+          lockDurationSeconds: targetLockSecs,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -549,7 +581,7 @@ export function useLiveOptionChain() {
           lockedAtTimestamp: lock.lockedAt,
           expiresAtTimestamp: lock.expiresAt,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: `⏱️ 30s Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
+          lockHeadline: getHeadline(lock.durationSeconds, secondsRemaining, 'Anti-Whipsaw Filter Active'),
         },
       };
       return lockedSignal;
@@ -558,52 +590,70 @@ export function useLiveOptionChain() {
     // Case 4: Lock has expired or new directional trade trigger:
     if (proposedSignal.action !== 'WAIT_NEUTRAL') {
       signalLockRef.current = {
-        symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
+        symbol: proposedSignal.tickerSymbol || activeTicker.symbol,
         action: proposedSignal.action,
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 30000, // 30 seconds
-        durationSeconds: 30,
+        expiresAt: now + lockMs,
+        durationSeconds: targetLockSecs,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: true,
-          lockDurationSeconds: 30,
-          secondsRemaining: 30,
+          lockDurationSeconds: targetLockSecs,
+          secondsRemaining: targetLockSecs,
           lockedAtTimestamp: now,
-          expiresAtTimestamp: now + 30000,
+          expiresAtTimestamp: now + lockMs,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: '⏱️ 30s Institutional Stability Lock (30s remaining) · Zero-Noise Filter Active',
+          lockHeadline: getHeadline(targetLockSecs, targetLockSecs, 'Zero-Noise Filter Active'),
         },
       };
     }
 
-    // Case 5: Equilibrium / Stand Aside
+    // Case 5: Equilibrium / Stand Aside (Preserve running lock if active, or establish new lock)
+    const isEquilibriumLocked = isSameSymbol && now < lock.expiresAt && lock.action === 'WAIT_NEUTRAL';
+    if (isEquilibriumLocked) {
+      const eqSecsRem = Math.max(0, Math.ceil((lock.expiresAt - now) / 1000));
+      return {
+        ...proposedSignal,
+        stabilityLock: {
+          isActive: true,
+          lockDurationSeconds: lock.durationSeconds,
+          secondsRemaining: eqSecsRem,
+          lockedAtTimestamp: lock.lockedAt,
+          expiresAtTimestamp: lock.expiresAt,
+          lockType: 'EQUILIBRIUM_PERSISTENCE',
+          lockHeadline: getHeadline(lock.durationSeconds, eqSecsRem, 'Capital Protection Filter Active'),
+        },
+      };
+    }
+
+    // Fresh Equilibrium Lock
     signalLockRef.current = {
-      symbol: proposedSignal.tickerSymbol || selectedTicker.symbol,
+      symbol: proposedSignal.tickerSymbol || activeTicker.symbol,
       action: 'WAIT_NEUTRAL',
       strike: proposedSignal.recommendedStrike,
       optionType: proposedSignal.recommendedType,
       lockedAt: now,
-      expiresAt: now + 30000,
-      durationSeconds: 30,
+      expiresAt: now + lockMs,
+      durationSeconds: targetLockSecs,
     };
 
     return {
       ...proposedSignal,
       stabilityLock: {
         isActive: true,
-        lockDurationSeconds: 30,
-        secondsRemaining: Math.max(0, Math.ceil((signalLockRef.current.expiresAt - now) / 1000)),
+        lockDurationSeconds: targetLockSecs,
+        secondsRemaining: targetLockSecs,
         lockedAtTimestamp: now,
-        expiresAtTimestamp: signalLockRef.current.expiresAt,
+        expiresAtTimestamp: now + lockMs,
         lockType: 'EQUILIBRIUM_PERSISTENCE',
-        lockHeadline: '🛡️ 30s Capital Protection Filter Active · Noise-Free Stand Aside',
+        lockHeadline: getHeadline(targetLockSecs, targetLockSecs, 'Capital Protection Filter Active'),
       },
     };
-  }, []);
+  }, [getTargetLockDurationSeconds]);
 
   // Strike History and Derived Profitability Trends State
   const [strikeHistory, setStrikeHistory] = useState<StrikeHistoryItem[]>(() =>
