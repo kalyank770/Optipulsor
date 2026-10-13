@@ -469,11 +469,11 @@ export function useLiveOptionChain() {
     strike: signal.recommendedStrike,
     optionType: signal.recommendedType,
     lockedAt: Date.now(),
-    expiresAt: Date.now() + 120000,
-    durationSeconds: 120,
+    expiresAt: Date.now() + 60000,
+    durationSeconds: 60,
   });
 
-  // Strategic Signal Execution & Confirmation Engine (Enforces 1-to-2 Min Stability & Capital Safety)
+  // Strategic Signal Execution & Confirmation Engine (Enforces 60-Sec Stability & Capital Safety)
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
     const now = Date.now();
     const lock = signalLockRef.current;
@@ -489,14 +489,14 @@ export function useLiveOptionChain() {
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 30000,
-        durationSeconds: 30,
+        expiresAt: now + 60000,
+        durationSeconds: 60,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 120,
+          lockDurationSeconds: 60,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -512,7 +512,7 @@ export function useLiveOptionChain() {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 120,
+          lockDurationSeconds: 60,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -527,7 +527,7 @@ export function useLiveOptionChain() {
     // However, if the market reverses direction (BUY_PE vs BUY_CE) with confirmed confidence,
     // or transitions to WAIT_NEUTRAL / Capital Preservation, release the directional lock.
     const isDirectionalReversal = isLocked && proposedSignal.action !== 'WAIT_NEUTRAL' && proposedSignal.action !== lock.action && (proposedSignal.confidence >= 75 || bypassDebounce);
-    const isStandAsideTransition = isLocked && proposedSignal.action === 'WAIT_NEUTRAL' && (secondsRemaining <= 60 || bypassDebounce);
+    const isStandAsideTransition = isLocked && proposedSignal.action === 'WAIT_NEUTRAL' && (secondsRemaining <= 0 || bypassDebounce);
 
     if (isLocked && !bypassDebounce && !isDirectionalReversal && !isStandAsideTransition) {
       const lockedAction = lock.action;
@@ -546,7 +546,7 @@ export function useLiveOptionChain() {
           lockedAtTimestamp: lock.lockedAt,
           expiresAtTimestamp: lock.expiresAt,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: `⏱️ 2-Min Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
+          lockHeadline: `⏱️ 60s Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
         },
       };
       return lockedSignal;
@@ -560,19 +560,19 @@ export function useLiveOptionChain() {
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 120000, // 120 seconds = 2 minutes
-        durationSeconds: 120,
+        expiresAt: now + 60000, // 60 seconds
+        durationSeconds: 60,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: true,
-          lockDurationSeconds: 120,
-          secondsRemaining: 120,
+          lockDurationSeconds: 60,
+          secondsRemaining: 60,
           lockedAtTimestamp: now,
-          expiresAtTimestamp: now + 120000,
+          expiresAtTimestamp: now + 60000,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: '⏱️ 2-Min Institutional Stability Lock (120s remaining) · Zero-Noise Filter Active',
+          lockHeadline: '⏱️ 60s Institutional Stability Lock (60s remaining) · Zero-Noise Filter Active',
         },
       };
     }
@@ -597,7 +597,7 @@ export function useLiveOptionChain() {
         lockedAtTimestamp: now,
         expiresAtTimestamp: signalLockRef.current.expiresAt,
         lockType: 'EQUILIBRIUM_PERSISTENCE',
-        lockHeadline: '🛡️ 1-Min Capital Protection Filter Active · Noise-Free Stand Aside',
+        lockHeadline: '🛡️ 60s Capital Protection Filter Active · Noise-Free Stand Aside',
       },
     };
   }, []);

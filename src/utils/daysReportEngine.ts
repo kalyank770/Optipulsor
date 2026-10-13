@@ -92,7 +92,7 @@ export interface DayReportSummary {
   selfHealingSummary: string;
 }
 
-const STORAGE_PREFIX = 'optipulse_days_report_v6_';
+const STORAGE_PREFIX = 'optipulse_days_report_v7_';
 
 /**
  * Returns ISO date string YYYY-MM-DD for a given epoch timestamp in exchange timezone (Asia/Kolkata for India, America/New_York for US)
@@ -224,13 +224,11 @@ export function getRecentOfficialTradingDates(count: number = 5, isIndian: boole
   }
 
   const exchangeDateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  const marketCloseMinutes = isIndian ? 15 * 60 + 30 : 16 * 60; // 03:30 PM IST / 04:00 PM ET
-  const totalMinutes = hour * 60 + minute;
-  const isTodaySessionCompleted = isOfficialTradingDay(exchangeDateStr, isIndian) && totalMinutes >= marketCloseMinutes;
+  const isTodayOfficial = isOfficialTradingDay(exchangeDateStr, isIndian);
 
-  // Benchmark seed dates strictly start from YESTERDAY unless today's trading session has completed
+  // Benchmark seed dates strictly include TODAY when today is an official trading session
   let cursor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  if (!isTodaySessionCompleted) {
+  if (!isTodayOfficial) {
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
 
@@ -247,7 +245,7 @@ export function getRecentOfficialTradingDates(count: number = 5, isIndian: boole
       
       let relative = weekday;
       if (results.length === 0) {
-        relative = 'Latest Session';
+        relative = dateStr === exchangeDateStr ? 'Today' : 'Latest Session';
       }
 
       results.push({

@@ -737,20 +737,23 @@ export function computeAdvanceTradeSetup(
     };
   }
 
-  // Pillar 3: Single Source of Truth & Stand-Aside Primacy:
-  const isDerivativesOrCandleBearish = (
-    metrics.pcrTotalOI <= 0.90 ||
-    rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ||
-    candlePatterns.confluenceBias === 'BEARISH' ||
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -8)
+  // Multi-factor contradiction counters: Require 2+ contradictory indicators to veto an advance trade setup,
+  // preventing a single dissenting micro-metric from blocking high-probability setups.
+  const bearContradictionCount = (
+    (metrics.pcrTotalOI <= 0.80 ? 1 : 0) +
+    (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ? 1 : 0) +
+    (candlePatterns.confluenceBias === 'BEARISH' ? 1 : 0) +
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -20 ? 1 : 0)
   );
+  const isDerivativesOrCandleBearish = bearContradictionCount >= 2;
 
-  const isDerivativesOrCandleBullish = (
-    metrics.pcrTotalOI >= 1.15 ||
-    rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ||
-    candlePatterns.confluenceBias === 'BULLISH' ||
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 8)
+  const bullContradictionCount = (
+    (metrics.pcrTotalOI >= 1.25 ? 1 : 0) +
+    (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ? 1 : 0) +
+    (candlePatterns.confluenceBias === 'BULLISH' ? 1 : 0) +
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 20 ? 1 : 0)
   );
+  const isDerivativesOrCandleBullish = bullContradictionCount >= 2;
 
   // --- 15. FACTOR 15: ANTI-WHIPSAW HYSTERESIS STATE ---
   let hysteresisFactor: LeadingPredictorFactor;
