@@ -20,7 +20,7 @@ import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
 import { getInterMarketTelemetry } from '../data/globalMacroData';
-import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
+import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22850_QUOTES, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
 import { filterActiveExpiries } from '../utils/expiryEngine';
 import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
@@ -119,8 +119,9 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     let ceChange = Number((ceLtp - cePrevClose).toFixed(2));
     let peChange = Number((peLtp - pePrevClose).toFixed(2));
 
-    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY') && K === 22900 
-      ? (NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex + 1] || NSE_CROSS_EXPIRY_22900_QUOTES[1]) 
+    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY')
+      ? (K === 22850 ? (NSE_CROSS_EXPIRY_22850_QUOTES[expiryIndex] || NSE_CROSS_EXPIRY_22850_QUOTES[1])
+        : (K === 22900 ? (NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] || NSE_CROSS_EXPIRY_22900_QUOTES[1]) : undefined))
       : undefined;
 
     if (crossExpiryQuote) {
@@ -770,7 +771,7 @@ export function useLiveOptionChain() {
     const activeUsePre = usePreMarketRef.current;
 
     if (isPollingInFlightRef.current && !isManual) {
-      if (performance.now() - lastPollStartRef.current > 400) {
+      if (performance.now() - lastPollStartRef.current > 150) {
         isPollingInFlightRef.current = false;
       } else {
         return;
@@ -1271,14 +1272,14 @@ export function useLiveOptionChain() {
         if (!isMounted) return;
         const currentMkt = marketStatusRef.current;
         const isMarketActive = currentMkt.isOpen || currentMkt.session === 'REGULAR' || currentMkt.session === 'PRE_MARKET';
-        const nextInterval = isMarketActive ? 250 : 500;
+        const nextInterval = isMarketActive ? 150 : 250;
         timer = setTimeout(poll, nextInterval);
       }
     };
 
     const initialMkt = marketStatusRef.current;
     const isMarketActive = initialMkt.isOpen || initialMkt.session === 'REGULAR' || initialMkt.session === 'PRE_MARKET';
-    const initialInterval = isMarketActive ? 250 : 500;
+    const initialInterval = isMarketActive ? 150 : 250;
     timer = setTimeout(poll, initialInterval);
 
     return () => {

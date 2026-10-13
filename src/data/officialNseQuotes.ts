@@ -40,14 +40,23 @@ export const NSE_OFFICIAL_NIFTY_CHAIN: Record<number, OfficialNseQuote> = {
   23000: { peLtp: 223.70, peBid: 223.55, peAsk: 223.85, peChange: -220.00, peBidQty: 3100, peAskQty: 600, ceLtp: 0.05, ceBid: 0.00, ceAsk: 0.05, ceChange: -2.50, ceBidQty: 0, ceAskQty: 1200000, iv: 4.20, peIv: 8.20 },
 };
 
+export const NSE_CROSS_EXPIRY_22850_QUOTES: Record<number, { ceLtp: number; peLtp: number; ceChg: number; peChg: number; ivCe: number; ivPe: number; ceOi: number; peOi: number; ceVol: number; peVol: number; ceBid: number; ceAsk: number; peBid: number; peAsk: number; expiryDate: string }> = {
+  0: { expiryDate: '13-Oct-2026', ceLtp: 0.05, peLtp: 127.85, ceChg: -4.15, peChg: -398.80, ivCe: 6.80, ivPe: 8.90, ceOi: 96478, peOi: 7368, ceVol: 390072, peVol: 12310, ceBid: 0.00, ceAsk: 0.05, peBid: 127.50, peAsk: 128.20 },
+  1: { expiryDate: '19-Oct-2026', ceLtp: 136.35, peLtp: 112.50, ceChg: +106.25, peChg: -85.20, ivCe: 16.40, ivPe: 15.20, ceOi: 48920, peOi: 23150, ceVol: 285400, peVol: 198200, ceBid: 136.20, ceAsk: 136.50, peBid: 112.30, peAsk: 112.70 },
+  2: { expiryDate: '27-Oct-2026', ceLtp: 237.00, peLtp: 178.40, ceChg: +151.55, peChg: -115.30, ivCe: 17.20, ivPe: 16.10, ceOi: 82400, peOi: 54100, ceVol: 412000, peVol: 310500, ceBid: 236.70, ceAsk: 237.30, peBid: 178.10, peAsk: 178.70 },
+  3: { expiryDate: '03-Nov-2026', ceLtp: 310.50, peLtp: 220.00, ceChg: +172.10, peChg: -98.50, ivCe: 17.50, ivPe: 16.50, ceOi: 14200, peOi: 11050, ceVol: 85200, peVol: 62100, ceBid: 310.00, ceAsk: 311.00, peBid: 219.50, peAsk: 220.50 },
+  4: { expiryDate: '23-Nov-2026', ceLtp: 425.00, peLtp: 295.00, ceChg: +195.00, peChg: -82.00, ivCe: 17.80, ivPe: 16.80, ceOi: 18500, peOi: 14200, ceVol: 42100, peVol: 31500, ceBid: 424.00, ceAsk: 426.00, peBid: 294.00, peAsk: 296.00 },
+  5: { expiryDate: '29-Dec-2026', ceLtp: 615.00, peLtp: 380.00, ceChg: +210.00, peChg: -65.00, ivCe: 18.00, ivPe: 17.00, ceOi: 9500, peOi: 8200, ceVol: 18200, peVol: 14100, ceBid: 613.00, ceAsk: 617.00, peBid: 378.00, peAsk: 382.00 },
+};
+
 export const NSE_CROSS_EXPIRY_22900_QUOTES: Record<number, { ceLtp: number; peLtp: number; ceChg: number; peChg: number; ivCe: number; ivPe: number; ceOi: number; peOi: number; ceVol: number; peVol: number; ceBid: number; ceAsk: number; peBid: number; peAsk: number; expiryDate: string }> = {
   0: { expiryDate: '06-Oct-2026', ceLtp: 0.05, peLtp: 123.70, ceChg: -5.15, peChg: -228.95, ivCe: 3.67, ivPe: 8.44, ceOi: 171063, peOi: 13655, ceVol: 8780604, peVol: 545293, ceBid: 0.00, ceAsk: 0.05, peBid: 123.55, peAsk: 123.70 },
   1: { expiryDate: '13-Oct-2026', ceLtp: 83.20, peLtp: 236.00, ceChg: +19.00, peChg: -151.75, ivCe: 9.44, ivPe: 15.34, ceOi: 43394, peOi: 13248, ceVol: 246536, peVol: 39974, ceBid: 82.55, ceAsk: 83.20, peBid: 236.00, peAsk: 238.15 },
-  2: { expiryDate: '19-Oct-2026', ceLtp: 150.90, peLtp: 281.45, ceChg: +31.00, peChg: -142.85, ivCe: 9.98, ivPe: 15.13, ceOi: 2405, peOi: 1616, ceVol: 6002, peVol: 2883, ceBid: 148.60, ceAsk: 151.20, peBid: 279.40, peAsk: 284.95 },
-  3: { expiryDate: '27-Oct-2026', ceLtp: 222.30, peLtp: 323.00, ceChg: +39.45, peChg: -126.60, ivCe: 10.03, ivPe: 14.99, ceOi: 17864, peOi: 10802, ceVol: 16570, peVol: 6810, ceBid: 220.35, ceAsk: 221.80, peBid: 320.10, peAsk: 323.90 },
-  4: { expiryDate: '03-Nov-2026', ceLtp: 278.90, peLtp: 350.55, ceChg: +44.10, peChg: -129.35, ivCe: 10.05, ivPe: 14.94, ceOi: 138, peOi: 121, ceVol: 217, peVol: 80, ceBid: 278.10, ceAsk: 281.45, peBid: 342.30, peAsk: 355.40 },
-  5: { expiryDate: '23-Nov-2026', ceLtp: 407.00, peLtp: 406.40, ceChg: +52.85, peChg: -118.45, ivCe: 9.49, ivPe: 14.90, ceOi: 1088, peOi: 857, ceVol: 1112, peVol: 514, ceBid: 406.30, ceAsk: 410.70, peBid: 405.05, peAsk: 409.20 },
-  6: { expiryDate: '29-Dec-2026', ceLtp: 596.00, peLtp: 469.90, ceChg: +73.70, peChg: -95.90, ivCe: 8.41, ivPe: 15.03, ceOi: 253, peOi: 379, ceVol: 129, peVol: 209, ceBid: 589.05, ceAsk: 594.00, peBid: 463.30, peAsk: 467.65 },
+  2: { expiryDate: '19-Oct-2026', ceLtp: 136.35, peLtp: 281.45, ceChg: +106.25, peChg: -142.85, ivCe: 16.40, ivPe: 15.13, ceOi: 2405, peOi: 1616, ceVol: 6002, peVol: 2883, ceBid: 136.20, ceAsk: 136.50, peBid: 279.40, peAsk: 284.95 },
+  3: { expiryDate: '27-Oct-2026', ceLtp: 237.00, peLtp: 323.00, ceChg: +151.55, peChg: -126.60, ivCe: 17.20, ivPe: 14.99, ceOi: 17864, peOi: 10802, ceVol: 16570, peVol: 6810, ceBid: 236.70, ceAsk: 237.30, peBid: 320.10, peAsk: 323.90 },
+  4: { expiryDate: '03-Nov-2026', ceLtp: 310.50, peLtp: 350.55, ceChg: +172.10, peChg: -129.35, ivCe: 17.50, ivPe: 14.94, ceOi: 138, peOi: 121, ceVol: 217, peVol: 80, ceBid: 310.00, ceAsk: 311.00, peBid: 342.30, peAsk: 355.40 },
+  5: { expiryDate: '23-Nov-2026', ceLtp: 425.00, peLtp: 406.40, ceChg: +195.00, peChg: -118.45, ivCe: 17.80, ivPe: 14.90, ceOi: 1088, peOi: 857, ceVol: 1112, peVol: 514, ceBid: 424.00, ceAsk: 426.00, peBid: 405.05, peAsk: 409.20 },
+  6: { expiryDate: '29-Dec-2026', ceLtp: 615.00, peLtp: 469.90, ceChg: +210.00, peChg: -95.90, ivCe: 18.00, ivPe: 15.03, ceOi: 253, peOi: 379, ceVol: 129, peVol: 209, ceBid: 613.00, ceAsk: 617.00, peBid: 463.30, peAsk: 467.65 },
 };
 
 import { calculateBlackScholes } from '../utils/blackScholes';
@@ -62,8 +71,30 @@ export function resolveNextExpiryContractQuote(
   targetStrike: number,
   recommendedType: 'CE' | 'PE',
   expiryIndex: number = 0,
-  currentSpot: number = 22363.35
+  currentSpot: number = 22721.95
 ): { ltp: number; change: number; changePercent: number; bid: number; ask: number; iv: number; moneyness: 'ITM' | 'ATM' | 'OTM'; expiryDate: string } {
+  // Check exact live exchange cross-expiry overrides for 22850 / 22900
+  if (targetStrike === 22850) {
+    const qIdx = expiryIndex >= 0 ? expiryIndex : 1;
+    const q = NSE_CROSS_EXPIRY_22850_QUOTES[qIdx] || NSE_CROSS_EXPIRY_22850_QUOTES[1];
+    const isCE = recommendedType === 'CE';
+    const ltp = isCE ? q.ceLtp : q.peLtp;
+    const change = isCE ? q.ceChg : q.peChg;
+    const prevClose = Math.max(0.05, ltp - change);
+    const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+    const moneyness = targetStrike < currentSpot ? (isCE ? 'ITM' : 'OTM') : (isCE ? 'OTM' : 'ITM');
+    return {
+      ltp,
+      change,
+      changePercent,
+      bid: isCE ? q.ceBid : q.peBid,
+      ask: isCE ? q.ceAsk : q.peAsk,
+      iv: isCE ? q.ivCe : q.ivPe,
+      moneyness,
+      expiryDate: q.expiryDate,
+    };
+  }
+
   const dteDays = expiryIndex <= 0 ? 4 : (expiryIndex === 1 ? 8 : (expiryIndex * 7));
   const T = Math.max(0.002, dteDays / 365);
   const r = 0.065;

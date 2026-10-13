@@ -909,8 +909,8 @@ async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
     return { symbol: 'INDIAVIX', price: 14.8, spotPrice: 14.8, regularPrice: 14.8, change: 0.1, changePercent: 0.7, prevClose: 14.7, source: 'Default VIX' };
   }
 
-  // Fast-track quote caching: 800ms micro-cache during active operations for ultra-fast sub-second live streaming
-  if (!forceRefresh && cached && now - cached.timestamp < 800) {
+  // Fast-track quote caching: 150ms micro-cache during active operations for ultra-fast real-time live streaming
+  if (!forceRefresh && cached && now - cached.timestamp < 150) {
     return cached.quote;
   }
 
@@ -2571,7 +2571,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               source: 'NSE Live Option Chain (Real Exchange NFO Market Depth)',
               rows: rows,
             };
-            optionChainCache.set(cacheKey, { data: payload, expiry: Date.now() + 800 });
+            optionChainCache.set(cacheKey, { data: payload, expiry: Date.now() + 200 });
             return res.json(payload);
           }
         }
@@ -2747,7 +2747,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       source: 'Black-Scholes Estimated Option Chain (Live NFO Market Depth Offline)',
       rows,
     };
-    optionChainCache.set(cacheKey, { data: fallbackPayload, expiry: Date.now() + 1200 });
+    optionChainCache.set(cacheKey, { data: fallbackPayload, expiry: Date.now() + 250 });
     return res.json(fallbackPayload);
 
   } catch (err: unknown) {
