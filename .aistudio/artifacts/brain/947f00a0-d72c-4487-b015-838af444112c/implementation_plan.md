@@ -11,6 +11,9 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 >   1. Market Microstructure Delta Imbalance & Institutional GEX Support Walls.
 >   2. Sectors & Heavyweight Relative Strength Lead-Lag Ratios.
 >   3. Multi-Timeframe EMA Alignment & Volatility Compression Squeeze.
+> - **Stop-Loss / Entry Query Resolution ("Entry is 61 but how stop loss is 73?")**:
+>   - **Root Cause Identified**: When an active trade achieves Target 1 (e.g., premium surges from ₹61 to ₹85+), the engine automatically trails the Stop Loss upwards to lock in profits (e.g., ₹73.25). When live price subsequently pulls back to ₹61, the Stop Loss remains displayed at the locked-in trailed level (₹73.25).
+>   - **Enhancement Action**: Update `AdvanceTradeCard.tsx` and `SignalCard.tsx` to explicitly display `🔒 Profit Lock SL: ₹73.25` when trailed, and enforce a strict safety clamp for fresh entries (`stopLoss <= premium * 0.85`).
 
 - **Confirmed Choice**: Build an integrated 15-Pillar Pipeline Diagnostic Panel directly inside the HTF Predictions Workstation / Signal Overview so traders can audit every pillar's raw value, weight, contribution, and anti-bias guard rails in real-time.
 - **Recommended Default**: Enforce strict stand-aside (`WAIT_NEUTRAL`) whenever conflicting signals exist between spot price action, options order flow, derivative heavyweights, and global futures drift.
@@ -22,7 +25,7 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 ### What It Does
 1. **Audits the Entire 15-Pillar Prediction Pipeline**: Evaluates all 15 institutional prediction factors (from Option Open Interest Velocity to Heavyweight Lead-Lag, Order Flow CVD Delta, Volatility Compression, Liquidity Sweeps, GIFT Nifty Futures, Sectoral Breadth, RSI Divergence, MACD Velocity, GEX Walls, VIX Velocity, Volume Analytics, HTF Confluence, After-Market Gap Projection, and Anti-Whipsaw Hysteresis).
 2. **Eliminates Algorithmic Bias**: Prevents bullish overrides (such as false `BUY_CE` calls) when underlying derivative indicators, PCR, or candlestick patterns are bearish.
-3. **Harmonizes Stop-Loss & Target Calculations**: Standardizes option premium and spot invalidation levels across all assets (Nifty 50, Bank Nifty, Stock Options, USD tickers).
+3. **Harmonizes Stop-Loss & Target Calculations**: Standardizes option premium and spot invalidation levels across all assets (Nifty 50, Bank Nifty, Stock Options, USD tickers). Clamps fresh option Stop Loss strictly below entry cost (max 15-20% risk) while visually identifying trailed profit-lock levels.
 4. **Delivers a Live 15-Pillar Diagnostic Panel**: Renders an interactive diagnostic workstation view allowing traders to expand and inspect each of the 15 pillars with live metrics, confidence scores, and guard rail states.
 
 ---
@@ -31,6 +34,7 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 
 ### Key User Flows
 - **Real-Time Signal Audit**: Traders view the main Trade Recommendation Card and can toggle open the **15-Pillar Pipeline Diagnostic Panel** to see exact weights, inputs, and bias checks.
+- **Trailed Profit Lock Visual Badge**: When Stop Loss is trailed above entry (e.g. SL = ₹73.25 when Entry = ₹61), the UI displays a distinctive badge: `🔒 Trailed Profit Lock SL: ₹73.25 (+50% T1 Gains Locked)` so traders immediately recognize it as a profit lock rather than an inverted initial risk.
 - **Bias Alert Indicators**: Clear visual indicators show when Capital Protection Guard Rails override a trade or force a stand-aside (`WAIT_NEUTRAL`) due to contradictory signals (e.g. PCR oversold vs. Call Wall resistance).
 - **Interactive Pillar Deep-Dive**: Clicking any pillar reveals raw mathematical inputs (e.g., net heavyweight impact points, cumulative volume delta imbalance %, GEX strike distance, 5m RSI divergence velocity).
 
@@ -48,9 +52,9 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 - **Why**: Prevents false positive signals during market chop, late-session profit taking, or oversold/overbought extremes.
 - **Alternatives Considered**: Simple weighted sum without guard rails (rejected because raw sums ignore non-linear risks like major Call/Put Walls or closing hour theta decay).
 
-### Decision 2: Integrated Diagnostic Panel UI vs. Separate Modal
-- **Chosen Approach**: Render the 15-Pillar Pipeline Audit Panel directly beneath the Leading Predictors Radar in `AdvanceTradeCard.tsx` and inside `PredictionValidationCard.tsx`.
-- **Why**: Keeps all diagnostic data in context without modal popup friction or viewport context switching.
+### Decision 2: Stop Loss & Trailing Profit Lock Labeling
+- **Chosen Approach**: Explicitly differentiate between *Initial Risk Stop Loss* (strictly < Entry Premium) and *Trailed Profit Lock Stop Loss* (which trails > Entry Premium after Target 1 is hit).
+- **Why**: Eliminates user confusion when observing a current market pullback (LTP ₹61) on a trade that previously hit Target 1 and locked in a higher stop loss (₹73.25).
 
 ---
 
@@ -102,7 +106,8 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 │                     FINAL SYNCHRONIZED SIGNAL OUTPUT                    │
 │      Action: BUY_CE | BUY_PE | WAIT_NEUTRAL                             │
 │      Strike, Moneyness, Option Entry Range, Stop-Loss, Targets, R:R     │
-└─────────────────────────────────────┬───────────────────────────────────┘
+│      Initial SL (< Entry) vs Trailed Profit Lock SL (> Entry)           │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### The 15 Prediction Pillars & Mathematical Roles
@@ -127,17 +132,14 @@ A complete architectural audit, recalibration, and visual diagnostic system for 
 
 ### Implementation File Action Plan
 
-1. **`src/utils/advanceTradeEngine.ts`**:
+1. **`src/utils/advanceTradeEngine.ts` & `src/utils/signalEngine.ts`**:
    - Verify all 15 factor scores inside `computeAdvanceTradeSetup`.
-   - Update `leadingPredictorFactors` array to explicitly expose all 15 pillars in structured format with name, state, category, lead time, value description, and confidence score.
-   - Enforce non-biased score synthesis and directionally accurate spot stop loss calculation.
+   - Update `leadingPredictorFactors` array to explicitly expose all 15 pillars in structured format.
+   - Clamp fresh entry option stop losses (`stopLoss = Math.min(stopLoss, roundToTick(premium * 0.85))`).
 
-2. **`src/components/AdvanceTradeCard.tsx`**:
-   - Enhance the **Leading Predictors Radar** section to showcase all 15 factors when expanded, grouped into 3 clean categories:
-     - *Derivatives & Microstructure* (OI Velocity, Heavyweight Lead-Lag, Order Flow Delta, PCR Delta, GEX Support Walls)
-     - *Price Action & Momentum* (Volatility Squeeze, Liquidity Sweeps, RSI Divergence, MACD Velocity, EMA Alignment)
-     - *Macro & Multi-Timeframe* (GIFT Nifty Drift, Global Telemetry, Sectoral Breadth, VIX Velocity, HTF Alignment)
-   - Add real-time Capital Protection Guard Rail status badge when a guard rail is active.
+2. **`src/components/AdvanceTradeCard.tsx` & `src/components/SignalCard.tsx`**:
+   - Enhance the **Leading Predictors Radar** section to showcase all 15 factors when expanded.
+   - Add explicit UI distinction for `🔒 Trailed Profit Lock SL: ₹73.25` vs `Initial Risk SL: ₹48.80`.
 
 3. **`src/components/PredictionValidationCard.tsx`**:
    - Display a 15-Pillar Audit Health Summary table showing real-time accuracy, weight contribution, and bias status.

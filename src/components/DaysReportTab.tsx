@@ -157,19 +157,21 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
   }, [ticker.symbol]);
 
   // Sync / update report when chain changes or ticker spot ticks
+  // Sync / update report when chain changes or ticker spot ticks
   useEffect(() => {
-    setTrades(prev => deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain)));
+    setTrades(prev => deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain), ticker));
   }, [chain, ticker.spotPrice]);
 
-  // Automatically record live predictions from the engine in real-time when a valid trade signal triggers
+  // Automatically record live predictions from the engine in real-time strictly during active market hours
   useEffect(() => {
-    if (signal && signal.recommendedStrike && signal.action !== 'WAIT_NEUTRAL') {
+    const marketStatus = isMarketAutoRefreshActive(ticker);
+    if (marketStatus.isActive && signal && signal.recommendedStrike && signal.action !== 'WAIT_NEUTRAL') {
       setTrades(prev => {
         const updated = addLiveSignalToReport(prev, signal, ticker);
         return updated;
       });
     }
-  }, [signal.recommendedStrike, signal.action, ticker.symbol]);
+  }, [signal.recommendedStrike, signal.action, ticker.symbol, ticker]);
 
   // Active Market Session Auto-Refresh Loop
   useEffect(() => {
@@ -182,7 +184,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           onSyncLiveExchange();
         }
         setTrades(prev => {
-          const updated = deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain));
+          const updated = deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain), ticker);
           saveDaysReport(ticker.symbol, updated);
           return updated;
         });
@@ -221,8 +223,15 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
   // Add current active live signal
   const handleLogCurrentSignal = () => {
-    const dateKey = getTradeDateKey(Date.now());
-    if (!isOfficialTradingDay(dateKey)) {
+    const marketStatus = isMarketAutoRefreshActive(ticker);
+    if (!marketStatus.isActive && !forceAutoRefresh) {
+      showFeedback('Market is currently closed. Live signal audit logging is active during official exchange trading hours (09:15 AM - 03:30 PM IST).');
+      return;
+    }
+
+    const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY') || ticker.symbol.includes('BANK') || ticker.symbol.includes('SENSEX');
+    const dateKey = getTradeDateKey(Date.now(), isIndian);
+    if (!isOfficialTradingDay(dateKey, isIndian)) {
       showFeedback('Market is currently closed for weekend/holiday. Live signal logging is active on official trading sessions.');
       return;
     }
@@ -242,7 +251,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     if (onSyncLiveExchange) {
       onSyncLiveExchange();
     }
-    const updated = deduplicateTrades(updateDaysReportWithLiveTicks(trades, ticker, chain));
+    const updated = deduplicateTrades(updateDaysReportWithLiveTicks(trades, ticker, chain), ticker);
     setTrades(updated);
     saveDaysReport(ticker.symbol, updated);
     showFeedback('Audit report refreshed against live exchange spot & option chain ticks!');
@@ -250,6 +259,12 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
   // Reset Session
   const handleResetReport = () => {
+    try {
+      localStorage.removeItem(`optipulse_days_report_v5_${ticker.symbol}`);
+      localStorage.removeItem(`optipulse_days_report_v6_${ticker.symbol}`);
+    } catch {
+      // ignore
+    }
     const seeded = generateSeedDaysReport(ticker, chain);
     setTrades(seeded);
     saveDaysReport(ticker.symbol, seeded);
@@ -331,7 +346,8 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     return sortedKeys.map(dateKey => {
       const groupTrades = map.get(dateKey)!;
       const firstTrade = groupTrades[0];
-      const dateInfo = formatTradeDateDisplay(firstTrade.timestamp);
+      const isIndian = !ticker.symbol.includes('SPY') && !ticker.symbol.includes('QQQ') && !ticker.symbol.includes('AAPL') && !ticker.symbol.includes('NVDA');
+      const dateInfo = formatTradeDateDisplay(firstTrade.timestamp, isIndian);
 
       const ceCount = groupTrades.filter(t => t.optionType === 'CE').length;
       const peCount = groupTrades.filter(t => t.optionType === 'PE').length;

@@ -540,28 +540,74 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           );
         }
 
-        // Default: FRESH_ENTRY
+        if (isNeutral) {
+          return (
+            <div className="mt-3 p-3 rounded-lg bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
+              <div className="p-1.5 rounded bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <div className="space-y-1 w-full">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                      <span>⏸️ Capital Preservation Mandate · Stand Aside</span>
+                    </span>
+                    <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold uppercase">
+                    Wait Neutral
+                  </span>
+                </div>
+                <p className="text-amber-200/90 text-xs leading-relaxed">
+                  <strong>Pillar Confluence Verdict:</strong> {signal.summaryNote || `Market is currently in an equilibrium consolidation zone between Support (${ticker.currency}${metrics.majorSupportStrike.toLocaleString()}) and Resistance (${ticker.currency}${metrics.majorResistanceStrike.toLocaleString()}). Zero directional bias confirmed; stand aside until a verified breakout develops.`}
+                </p>
+                <div className="pt-1 text-[11px] text-amber-300/80 border-t border-amber-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+                  <span>Pillar: Multi-factor consolidation filter active</span>
+                  <span>Discipline: Capital preservation mode</span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        const isBearAction = signal.action === 'BUY_PE';
+
+        // Directional Entry Signal
         return (
-          <div className="mt-3 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs flex items-start gap-2.5">
-            <div className="p-1.5 rounded bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+          <div className={`mt-3 p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
+            isBearAction 
+              ? 'bg-rose-950/30 border-rose-500/30 text-rose-200' 
+              : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+          }`}>
+            <div className={`p-1.5 rounded shrink-0 mt-0.5 ${
+              isBearAction ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
+            }`}>
               <Zap className="w-4 h-4" />
             </div>
             <div className="space-y-1 w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
-                    <span>⚡ Active Entry Signal</span>
+                  <span className={`font-bold text-xs flex items-center gap-1.5 ${
+                    isBearAction ? 'text-rose-300' : 'text-emerald-300'
+                  }`}>
+                    <span>⚡ Active {isBearAction ? 'Put (PE)' : 'Call (CE)'} Entry Signal</span>
                   </span>
                   <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
                 </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold border ${
+                  isBearAction 
+                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' 
+                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                }`}>
                   R:R {signal.riskRewardRatio}
                 </span>
               </div>
-              <p className="text-emerald-200/90 text-xs leading-relaxed">
+              <p className={`${isBearAction ? 'text-rose-200/90' : 'text-emerald-200/90'} text-xs leading-relaxed`}>
                 <strong>Catalyst & Confluence:</strong> {signal.candleAnalysis?.confluencePattern || 'Multi-timeframe 2m/5m/15m momentum alignment'} · {signal.realtimeIndicators?.orderFlow?.sentiment?.replace(/_/g, ' ') || 'Order Flow Dominance'}.
               </p>
-              <div className="pt-1 text-[11px] text-emerald-300/80 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 font-mono">
+              <div className={`pt-1 text-[11px] border-t flex flex-wrap items-center justify-between gap-2 font-mono ${
+                isBearAction ? 'text-rose-300/80 border-rose-500/20' : 'text-emerald-300/80 border-emerald-500/20'
+              }`}>
                 <span>Rule: Enter on 5m candle close confirmation · Max 1-2% risk</span>
                 <span>Action: Scale 50% at Target 1 · Trail SL to Cost</span>
               </div>
@@ -570,74 +616,47 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         );
       })()}
 
-      {/* Guidance for Previous Positions (Shown only after 3:40PM to 9:15AM when market is closed or on holidays) */}
+      {/* Single Decisive Position Directive (Shown when market is closed or on holidays) */}
       {(() => {
         const conf = signal.confidence || 75;
-        const ceChance = signal.action === 'BUY_CE' ? conf : signal.action === 'BUY_PE' ? Math.max(15, 100 - conf) : 52;
-        const peChance = signal.action === 'BUY_PE' ? conf : signal.action === 'BUY_CE' ? Math.max(15, 100 - conf) : 48;
         const showCard = !marketStatus?.isOpen || marketStatus?.isHoliday;
         if (!showCard) return null;
+
+        const isBullish = signal.action === 'BUY_CE';
+        const isBearish = signal.action === 'BUY_PE';
 
         return (
           <div className="mt-3.5 bg-slate-950 p-3.5 rounded-xl border border-purple-500/30 space-y-2.5 font-mono">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
-                Position Advice
+                Primary Position Directive ({conf}% Confluence)
               </h4>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                Action Plan
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                isBullish ? 'bg-emerald-950 text-emerald-300 border-emerald-800' :
+                isBearish ? 'bg-rose-950 text-rose-300 border-rose-800' :
+                'bg-amber-950 text-amber-300 border-amber-800'
+              }`}>
+                {isBullish ? 'BULLISH CALL DIRECTIVE' : isBearish ? 'BEARISH PUT DIRECTIVE' : 'NEUTRAL STAND ASIDE'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-              {/* Previous CE Entries */}
-              <div className={`p-2.5 rounded-lg border ${
-                signal.action === 'BUY_CE' 
-                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
-                  : signal.action === 'BUY_PE'
-                  ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                  : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-              }`}>
-                <div className="font-bold flex items-center justify-between mb-1">
-                  <span>Existing Calls (CE)</span>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900 flex items-center gap-1.5">
-                    <span>{signal.action === 'BUY_CE' ? 'HOLD / TRAIL' : signal.action === 'BUY_PE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}</span>
-                    <span className="text-purple-300 font-mono font-semibold">({ceChance}%)</span>
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300 font-sans leading-normal">
-                  {signal.action === 'BUY_CE' 
-                    ? 'Bullish active. Hold calls, move stop to entry, trail targets.'
-                    : signal.action === 'BUY_PE'
-                    ? 'Bearish active. Cut calls immediately to prevent loss.'
-                    : 'Neutral chop. Book partials on calls and keep tight stops.'}
-                </p>
+            <div className={`p-3 rounded-lg border text-xs ${
+              isBullish ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200' :
+              isBearish ? 'bg-rose-950/30 border-rose-500/40 text-rose-200' :
+              'bg-amber-950/30 border-amber-500/40 text-amber-200'
+            }`}>
+              <div className="font-bold flex items-center justify-between mb-1">
+                <span>Dominant Direction: {isBullish ? `BUY ${signal.recommendedStrike} CE` : isBearish ? `BUY ${signal.recommendedStrike} PE` : 'STAND ASIDE (ORB RANGE)'}</span>
+                <span className="text-purple-300 font-mono font-bold">{conf}% Signal Strength</span>
               </div>
-
-              {/* Previous PE Entries */}
-              <div className={`p-2.5 rounded-lg border ${
-                signal.action === 'BUY_PE' 
-                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
-                  : signal.action === 'BUY_CE'
-                  ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                  : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-              }`}>
-                <div className="font-bold flex items-center justify-between mb-1">
-                  <span>Existing Puts (PE)</span>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-900 flex items-center gap-1.5">
-                    <span>{signal.action === 'BUY_PE' ? 'HOLD / TRAIL' : signal.action === 'BUY_CE' ? 'EXIT / CUT' : 'SECURE PARTIALS'}</span>
-                    <span className="text-purple-300 font-mono font-semibold">({peChance}%)</span>
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300 font-sans leading-normal">
-                  {signal.action === 'BUY_PE' 
-                    ? 'Bearish active. Hold puts and trail stop losses.'
-                    : signal.action === 'BUY_CE'
-                    ? 'Bullish active. Cut puts immediately to avoid loss.'
-                    : 'Neutral chop. Book partials on puts and avoid fresh shorts.'}
-                </p>
-              </div>
+              <p className="text-[11px] text-slate-300 font-sans leading-relaxed">
+                {isBullish
+                  ? `Decisive Bullish Bias: 15-Pillar model confirms upward order flow. Maintain Call positions, align stop loss at ${ticker.currency}${signal.stopLoss}, and target ${ticker.currency}${signal.target1}.`
+                  : isBearish
+                  ? `Decisive Bearish Bias: 15-Pillar model confirms persistent institutional selling. Maintain Put positions, align stop loss at ${ticker.currency}${signal.stopLoss}, and target ${ticker.currency}${signal.target1}.`
+                  : `Balanced / Neutral Market: No directional breakout confirmed. Stand aside for the 15-Minute Opening Range to establish clear momentum.`}
+              </p>
             </div>
           </div>
         );

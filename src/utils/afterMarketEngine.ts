@@ -186,7 +186,7 @@ export function computeAfterMarketOpeningAnalytics(
 
   // 5. DETERMINE THE PRECISE STRIKE THAT WILL HIT TOMORROW ONCE THE MARKET OPENS
   const step = ticker.strikeStep;
-  let tomorrowAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M' = 'BUY_CE';
+  let tomorrowAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_FIRST_15M' = 'WAIT_FIRST_15M';
   let tomorrowType: 'CE' | 'PE' = 'CE';
   let tomorrowStrike = Math.round(predictedOpeningSpot / step) * step;
   let projectedSpotAtHit = predictedOpeningSpot;
@@ -195,33 +195,47 @@ export function computeAfterMarketOpeningAnalytics(
   const supFloor = metrics?.majorSupportStrike || (spotClose - step);
   const resWall = metrics?.majorResistanceStrike || (spotClose + step);
 
-  // A flat opening occurs when gap percentage is within ±0.15% OR points change is negligible (< 25 pts Nifty, < 60 pts BankNifty, < $1 USD)
+  // Determine directional bias from candlestick confluence, GIFT Nifty, VWAP alignment & PCR
+  const isBearishSkew = (
+    candlePatterns?.confluenceBias === 'BEARISH' || 
+    (candlePatterns?.confluenceScore ?? 0) < -0.8 || 
+    rawGiftNiftyChange < 0 || 
+    openMomentumScore < -0.3 ||
+    (metrics?.pcrTotalOI ?? 1.0) < 0.92
+  );
+
+  const isBullishSkew = (
+    candlePatterns?.confluenceBias === 'BULLISH' ||
+    (candlePatterns?.confluenceScore ?? 0) > 0.8 ||
+    rawGiftNiftyChange > 0 ||
+    openMomentumScore > 0.3 ||
+    (metrics?.pcrTotalOI ?? 1.0) > 1.08
+  );
+
   const isFlatOpening = predictedOpeningType === 'FLAT_OPENING' || 
     Math.abs(predictedOpeningGapPercent) < 0.15 || 
     Math.abs(predictedOpeningGapPoints) < (isBankNifty ? 60 : (ticker.currency === '$' ? 1.0 : 25));
 
   if (isFlatOpening) {
-    // Neutral / Flat Opening: Capital Protection First!
-    // Never suggest aggressive option buying at 09:15 AM open when gap is flat (IV crush & whipsaw trap)
-    tomorrowAction = 'WAIT_FIRST_15M';
-    
-    // When opening is flat, check if candlestick momentum or overnight futures have directional skew:
-    const isBearishSkew = (
-      candlePatterns?.confluenceBias === 'BEARISH' || 
-      (candlePatterns?.confluenceScore ?? 0) < -1.5 || 
-      rawGiftNiftyChange < 0 || 
-      openMomentumScore < 0
-    );
-    tomorrowType = isBearishSkew ? 'PE' : 'CE';
+    if (isBearishSkew && !isBullishSkew) {
+      tomorrowAction = 'BUY_PE';
+      tomorrowType = 'PE';
+    } else if (isBullishSkew && !isBearishSkew) {
+      tomorrowAction = 'BUY_CE';
+      tomorrowType = 'CE';
+    } else {
+      tomorrowAction = 'WAIT_FIRST_15M';
+      tomorrowType = spotClose >= (metrics?.realtimeIndicators?.vwap?.value || spotClose) ? 'CE' : 'PE';
+    }
     tomorrowStrike = Math.round(spotClose / step) * step;
     projectedSpotAtHit = predictedOpeningSpot;
 
     const candleContext = candlePatterns?.confluenceBias === 'BEARISH'
-      ? `Even though the daily candle was positive (+${(ticker.change || 0).toFixed(1)} pts), late session 2m/5m/15m candlesticks indicate BEARISH MOMENTUM (${candlePatterns.confluencePattern || 'selling pressure off session highs'}).`
+      ? `Late session 2m/5m/15m candlesticks indicate BEARISH MOMENTUM (${candlePatterns.confluencePattern || 'selling pressure off session highs'}).`
       : `Daily closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}).`;
 
-    hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} However, a flat opening offers zero gap impulse at 09:15 AM. Buying naked options (CE or PE) at market open on a flat gap carries severe risk of rapid Theta decay and instant opening IV crush. CAPITAL PRESERVATION PROTOCOL: STAND ASIDE in WAIT for the first 15 minutes (09:15 - 09:30 AM). Allow the market to print its 15-Minute Opening Range (ORB); monitor reference contract ${tomorrowStrike} ${tomorrowType} for entry ONLY if spot decisively breaks down below the 15-Minute Range Low / Support (${ticker.currency}${supFloor.toLocaleString()}) after 09:30 AM. If spot reverses and breaks out above ${ticker.currency}${resWall.toLocaleString()}, switch to Call setup.`;
-  } else if ((openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING') && candlePatterns?.confluenceBias !== 'BEARISH' && (metrics?.pcrTotalOI ?? 1.0) > 0.88) {
+    hitReason = `Mild/Flat opening projected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} Directive: ${tomorrowAction === 'WAIT_FIRST_15M' ? 'Stand aside for 15m Opening Range (ORB) breakout' : `Active trade recommendation: ${tomorrowAction} at ${tomorrowStrike} ${tomorrowType}`}.`;
+  } else if ((openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING' || isBullishSkew) && !isBearishSkew) {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';
     tomorrowType = 'CE';
@@ -297,19 +311,19 @@ export function computeAfterMarketOpeningAnalytics(
     : `${closeVsVwapPoints} pts (${closeVsVwapPercent}%) below VWAP`;
 
   let openingBias: AfterMarketOpeningAnalytics['openingStrategyPlaybook']['openingBias'] = 
-    tomorrowAction === 'WAIT_FIRST_15M' 
+    (tomorrowAction as string) === 'WAIT_FIRST_15M' 
       ? 'RANGE_ORB_BREAKOUT' 
       : tomorrowAction === 'BUY_CE' 
       ? 'BULLISH_GAP_MOMENTUM' 
       : 'BEARISH_GAP_BREAKDOWN';
-  let strategyTitle = tomorrowAction === 'WAIT_FIRST_15M'
+  let strategyTitle = (tomorrowAction as string) === 'WAIT_FIRST_15M'
     ? `Flat Open (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts): Wait for 15-Minute Range Breakout (Reference ${tomorrowStrike} ${tomorrowType})`
     : tomorrowAction === 'BUY_CE' 
     ? `Bullish Open: Target Strike ${tomorrowStrike} CE` 
     : `Bearish Open: Target Strike ${tomorrowStrike} PE`;
   let playbookDescription = hitReason;
 
-  const openingExecutionTrigger = tomorrowAction === 'WAIT_FIRST_15M'
+  const openingExecutionTrigger = (tomorrowAction as string) === 'WAIT_FIRST_15M'
     ? `STAND ASIDE at 09:15 AM open (Capital Preservation: High risk of IV crush & chop on flat open). Watch ${tomorrowStrike} ${tomorrowType} for entry ONLY upon a confirmed 09:30 AM 15-Minute Opening Range Breakout below ${ticker.currency}${supFloor.toLocaleString()}.`
     : `Buy ${tomorrowStrike} ${tomorrowType} at 09:15 AM open with target ${ticker.currency}${target1} and SL ${ticker.currency}${stopLoss}.`;
 

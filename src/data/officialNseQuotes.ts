@@ -62,7 +62,7 @@ export function resolveNextExpiryContractQuote(
   targetStrike: number,
   recommendedType: 'CE' | 'PE',
   expiryIndex: number = 0,
-  currentSpot: number = 22520.45
+  currentSpot: number = 22363.35
 ): { ltp: number; change: number; changePercent: number; bid: number; ask: number; iv: number; moneyness: 'ITM' | 'ATM' | 'OTM'; expiryDate: string } {
   const dteDays = expiryIndex <= 0 ? 4 : (expiryIndex === 1 ? 8 : (expiryIndex * 7));
   const T = Math.max(0.002, dteDays / 365);

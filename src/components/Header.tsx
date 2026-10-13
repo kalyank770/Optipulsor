@@ -207,11 +207,11 @@ export const Header: React.FC<HeaderProps> = ({
             <RefreshCw className={`w-4 h-4 text-emerald-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* Auto 1-second refresh status */}
+          {/* Auto 0.5-second sub-second live stream status */}
           <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-mono font-semibold rounded bg-slate-900 border border-slate-800 text-slate-300 min-h-[36px]">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="hidden xs:inline">1s Auto</span>
-            <span className="xs:hidden">1s</span>
+            <span className="hidden xs:inline">0.5s Stream</span>
+            <span className="xs:hidden">0.5s</span>
           </div>
         </div>
       </div>

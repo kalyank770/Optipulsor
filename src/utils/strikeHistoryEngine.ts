@@ -11,6 +11,7 @@ import {
   OptionType,
   TradeLifecycleStage
 } from '../types/options';
+import { getMarketHoursStatus } from './marketHours';
 
 const STORAGE_KEY_PREFIX = 'optipulse_strike_history_v1_';
 
@@ -292,6 +293,14 @@ export function recordSignalInHistory(
     latest.type === signal.recommendedType &&
     latest.action === signal.action;
 
+  if (!isSameOngoingTrade) {
+    const marketStatus = getMarketHoursStatus(ticker);
+    if (!marketStatus.isOpen) {
+      // Market is CLOSED! Refuse to log new live signal history items outside trading hours.
+      return history;
+    }
+  }
+
   if (isSameOngoingTrade) {
     const liveLtp = signal.recommendedContractLTP;
     const entry = latest.entryPrice;
@@ -461,7 +470,11 @@ export function computeCumulativeActionTrend(
   const totalCalls = callSignals.length;
   const totalPuts = putSignals.length;
 
-  const dominantAction = totalCalls >= totalPuts ? 'BULLISH_CE' : 'BEARISH_PE';
+  const dominantAction = totalCalls > totalPuts 
+    ? 'BULLISH_CE' 
+    : totalPuts > totalCalls 
+      ? 'BEARISH_PE' 
+      : 'NEUTRAL';
   const bullishRatio = total > 0 ? Number(((totalCalls / total) * 100).toFixed(1)) : 50;
 
   // Outcomes

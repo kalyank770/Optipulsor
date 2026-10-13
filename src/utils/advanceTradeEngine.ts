@@ -735,29 +735,44 @@ export function computeAdvanceTradeSetup(
     };
   }
 
+  // Pillar 3: Single Source of Truth & Stand-Aside Primacy:
+  const isDerivativesOrCandleBearish = (
+    metrics.pcrTotalOI <= 0.90 ||
+    rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ||
+    candlePatterns.confluenceBias === 'BEARISH' ||
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -8)
+  );
+
+  const isDerivativesOrCandleBullish = (
+    metrics.pcrTotalOI >= 1.15 ||
+    rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ||
+    candlePatterns.confluenceBias === 'BULLISH' ||
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 8)
+  );
+
   // --- 15. FACTOR 15: ANTI-WHIPSAW HYSTERESIS STATE ---
   let hysteresisFactor: LeadingPredictorFactor;
   let hystBullScore = 0;
   let hystBearScore = 0;
-  if (currentSignalAction === 'BUY_CE') {
-    hystBullScore = 0.8;
+  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish) {
+    hystBullScore = 0.3;
     hysteresisFactor = {
       name: 'Anti-Whipsaw Momentum Lock (CE Active)',
       category: 'HYSTERESIS_STATE',
       state: 'MODERATE_BULLISH',
-      leadTimeMinutes: 2.0,
-      valueDescription: `Long position locked with deadband momentum buffer zone`,
-      confidenceScore: 80
+      leadTimeMinutes: 1.5,
+      valueDescription: `Long position persistence filter active with deadband momentum buffer`,
+      confidenceScore: 75
     };
-  } else if (currentSignalAction === 'BUY_PE') {
-    hystBearScore = 0.8;
+  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish) {
+    hystBearScore = 0.3;
     hysteresisFactor = {
       name: 'Anti-Whipsaw Momentum Lock (PE Active)',
       category: 'HYSTERESIS_STATE',
       state: 'MODERATE_BEARISH',
-      leadTimeMinutes: 2.0,
-      valueDescription: `Short position locked with deadband momentum buffer zone`,
-      confidenceScore: 80
+      leadTimeMinutes: 1.5,
+      valueDescription: `Short position persistence filter active with deadband momentum buffer`,
+      confidenceScore: 75
     };
   } else {
     hysteresisFactor = {
@@ -765,7 +780,7 @@ export function computeAdvanceTradeSetup(
       category: 'HYSTERESIS_STATE',
       state: 'NEUTRAL',
       leadTimeMinutes: 1.0,
-      valueDescription: `Fresh entry filter active; awaiting minimum 3-factor confluence before risking capital`,
+      valueDescription: `Zero-bias stand-aside state; awaiting clear multi-factor confluence`,
       confidenceScore: 60
     };
   }
@@ -798,29 +813,7 @@ export function computeAdvanceTradeSetup(
   let probabilityScore = 55;
   let leadTimeAdvantageMinutes = 3.0;
 
-  // Pillar 3: Single Source of Truth & Stand-Aside Primacy:
-  // If the primary institutional signal engine has evaluated consolidation, chop, or unfavorable R:R (WAIT_NEUTRAL),
-  // the advance engine MUST NOT override it with speculative BUY calls or put entries.
-  const isDerivativesOrCandleBearish = (
-    metrics.pcrTotalOI <= 0.90 ||
-    rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ||
-    candlePatterns.confluenceBias === 'BEARISH' ||
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -8)
-  );
-
-  const isDerivativesOrCandleBullish = (
-    metrics.pcrTotalOI >= 1.15 ||
-    rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ||
-    candlePatterns.confluenceBias === 'BULLISH' ||
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 8)
-  );
-
-  if (currentSignalAction === 'WAIT_NEUTRAL') {
-    anticipatedAction = 'WAIT_NEUTRAL';
-    setupType = 'EQUILIBRIUM_WAIT';
-    probabilityScore = Math.min(76, Math.max(48, Math.round(48 + (avgFactorConf - 50) * 0.4)));
-    leadTimeAdvantageMinutes = 1.0;
-  } else if (totalBearScore >= 1.8 && (totalBearScore > totalBullScore + 0.4 || isDerivativesOrCandleBearish)) {
+  if (totalBearScore >= 1.6 && totalBearScore > totalBullScore + 0.4 && !isDerivativesOrCandleBullish) {
     anticipatedAction = 'BUY_PE';
     probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
@@ -834,7 +827,7 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
-  } else if (totalBullScore >= 1.8 && totalBullScore > totalBearScore + 0.4 && !isDerivativesOrCandleBearish) {
+  } else if (totalBullScore >= 1.6 && totalBullScore > totalBearScore + 0.4 && !isDerivativesOrCandleBearish) {
     anticipatedAction = 'BUY_CE';
     probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBullScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
@@ -849,23 +842,11 @@ export function computeAdvanceTradeSetup(
       setupType = 'PRE_BREAKOUT_COILING_CE';
     }
   } else {
-    // Dynamic alignment: if lagging system suggested an action, verify it against radar factor balance
-    if (currentSignalAction === 'BUY_PE' || (isDerivativesOrCandleBearish && totalBearScore >= totalBullScore)) {
-      anticipatedAction = 'BUY_PE';
-      setupType = 'PRE_BREAKDOWN_COILING_PE';
-      probabilityScore = Math.min(94, Math.max(68, Math.round(72 + totalBearScore * 3.5 + (avgFactorConf - 60) * 0.2)));
-      leadTimeAdvantageMinutes = 2.0;
-    } else if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && totalBullScore >= totalBearScore) {
-      anticipatedAction = 'BUY_CE';
-      setupType = 'PRE_BREAKOUT_COILING_CE';
-      probabilityScore = Math.min(94, Math.max(68, Math.round(72 + totalBullScore * 3.5 + (avgFactorConf - 60) * 0.2)));
-      leadTimeAdvantageMinutes = 2.0;
-    } else {
-      anticipatedAction = 'WAIT_NEUTRAL';
-      setupType = 'EQUILIBRIUM_WAIT';
-      probabilityScore = Math.min(74, Math.max(48, Math.round(50 + (avgFactorConf - 50) * 0.3)));
-      leadTimeAdvantageMinutes = 1.0;
-    }
+    // True Stand-Aside / Capital Preservation Equilibrium
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'EQUILIBRIUM_WAIT';
+    probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
+    leadTimeAdvantageMinutes = 1.0;
   }
 
   // --- STRIKE, ZONE & OPTION TARGET CALCULATIONS ---

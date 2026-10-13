@@ -8,6 +8,7 @@ import {
 } from '../types/options';
 import { INDIAN_MARKET_HOLIDAYS, US_MARKET_HOLIDAYS } from './marketHolidays';
 import { diagnoseTradeDiscrepancy } from './selfHealingEngine';
+import { getMarketHoursStatus } from './marketHours';
 
 export interface DayReportTrade {
   id: string;
@@ -91,17 +92,21 @@ export interface DayReportSummary {
   selfHealingSummary: string;
 }
 
-const STORAGE_PREFIX = 'optipulse_days_report_v5_';
+const STORAGE_PREFIX = 'optipulse_days_report_v6_';
 
 /**
- * Returns ISO date string YYYY-MM-DD for a given epoch timestamp
+ * Returns ISO date string YYYY-MM-DD for a given epoch timestamp in exchange timezone (Asia/Kolkata for India, America/New_York for US)
  */
-export function getTradeDateKey(timestamp: number): string {
-  const d = new Date(timestamp);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+export function getTradeDateKey(timestamp: number, isIndian: boolean = true): string {
+  const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).formatToParts(new Date(timestamp));
+  let y = '', m = '', d = '';
+  for (const p of parts) {
+    if (p.type === 'year') y = p.value;
+    if (p.type === 'month') m = p.value;
+    if (p.type === 'day') d = p.value;
+  }
+  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -126,7 +131,58 @@ export function isOfficialTradingDay(dateStr: string, isIndian: boolean = true):
 }
 
 /**
- * Generates an array of the latest official trading dates (strictly no weekends or holidays)
+ * Verifies if a given timestamp occurred strictly within official live market trading hours
+ */
+export function isTimestampInLiveMarketHours(timestamp: number, isIndian: boolean = true): boolean {
+  if (!timestamp || timestamp <= 0) return false;
+
+  const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+
+  const parts = formatter.formatToParts(new Date(timestamp));
+  let hour = 12;
+  let minute = 0;
+  let weekday = 'Mon';
+  let year = '2026';
+  let month = '01';
+  let day = '01';
+
+  for (const p of parts) {
+    if (p.type === 'hour') hour = parseInt(p.value, 10);
+    if (p.type === 'minute') minute = parseInt(p.value, 10);
+    if (p.type === 'weekday') weekday = p.value;
+    if (p.type === 'year') year = p.value;
+    if (p.type === 'month') month = p.value;
+    if (p.type === 'day') day = p.value;
+  }
+
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+
+  const dateStr = `${year}-${month}-${day}`;
+  if (!isOfficialTradingDay(dateStr, isIndian)) return false;
+
+  const totalMinutes = hour * 60 + minute;
+  if (isIndian) {
+    // 09:15 AM (555 mins) to 03:30 PM (930 mins) IST
+    return totalMinutes >= 555 && totalMinutes <= 930;
+  } else {
+    // 09:30 AM (570 mins) to 04:00 PM (960 mins) ET
+    return totalMinutes >= 570 && totalMinutes <= 960;
+  }
+}
+
+/**
+ * Generates an array of the latest completed official trading dates in exchange timezone.
+ * Strictly guarantees past completed sessions unless today's market session has already closed.
  */
 export function getRecentOfficialTradingDates(count: number = 5, isIndian: boolean = true): {
   dateStr: string;
@@ -146,39 +202,66 @@ export function getRecentOfficialTradingDates(count: number = 5, isIndian: boole
   }[] = [];
 
   const now = new Date();
-  let cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+  const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
 
-  // If today is a weekend or holiday, step back to find the last active trading day
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false
+  }).formatToParts(now);
+
+  let y = 2026, m = 10, d = 12, hour = 12, minute = 0;
+  for (const p of parts) {
+    if (p.type === 'year') y = parseInt(p.value, 10);
+    if (p.type === 'month') m = parseInt(p.value, 10);
+    if (p.type === 'day') d = parseInt(p.value, 10);
+    if (p.type === 'hour') hour = parseInt(p.value, 10);
+    if (p.type === 'minute') minute = parseInt(p.value, 10);
+  }
+
+  const exchangeDateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const marketCloseMinutes = isIndian ? 15 * 60 + 30 : 16 * 60; // 03:30 PM IST / 04:00 PM ET
+  const totalMinutes = hour * 60 + minute;
+  const isTodaySessionCompleted = isOfficialTradingDay(exchangeDateStr, isIndian) && totalMinutes >= marketCloseMinutes;
+
+  // Benchmark seed dates strictly start from YESTERDAY unless today's trading session has completed
+  let cursor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  if (!isTodaySessionCompleted) {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+
   while (results.length < count) {
-    const y = cursor.getFullYear();
-    const m = String(cursor.getMonth() + 1).padStart(2, '0');
-    const d = String(cursor.getDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${d}`;
+    const curY = cursor.getUTCFullYear();
+    const curM = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+    const curD = String(cursor.getUTCDate()).padStart(2, '0');
+    const dateStr = `${curY}-${curM}-${curD}`;
 
     if (isOfficialTradingDay(dateStr, isIndian)) {
-      const formatted = cursor.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      const weekday = cursor.toLocaleDateString('en-US', { weekday: 'short' });
+      const dt = new Date(Date.UTC(curY, cursor.getUTCMonth(), cursor.getUTCDate(), 12, 0, 0));
+      const formatted = dt.toLocaleDateString('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' });
+      const weekday = dt.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' });
       
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       let relative = weekday;
-      if (dateStr === todayStr) {
-        relative = 'Today';
-      } else if (results.length === 0) {
+      if (results.length === 0) {
         relative = 'Latest Session';
       }
 
       results.push({
         dateStr,
-        year: y,
-        month: cursor.getMonth(),
-        day: cursor.getDate(),
+        year: curY,
+        month: cursor.getUTCMonth(),
+        day: cursor.getUTCDate(),
         label: `${formatted} (${weekday})`,
         relative
       });
     }
 
-    // Step back 1 day
-    cursor.setDate(cursor.getDate() - 1);
+    // Step back 1 day in UTC
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
 
   return results;
@@ -187,15 +270,16 @@ export function getRecentOfficialTradingDates(count: number = 5, isIndian: boole
 /**
  * Formats a timestamp into human-readable display string, relative day label, and standard dateKey
  */
-export function formatTradeDateDisplay(timestamp: number): { display: string; relative: string; dateKey: string } {
+export function formatTradeDateDisplay(timestamp: number, isIndian: boolean = true): { display: string; relative: string; dateKey: string } {
+  const tz = isIndian ? 'Asia/Kolkata' : 'America/New_York';
+  const now = Date.now();
+  
+  const todayKey = getTradeDateKey(now, isIndian);
+  const dateKey = getTradeDateKey(timestamp, isIndian);
+  
   const d = new Date(timestamp);
-  const now = new Date();
-  
-  const todayKey = getTradeDateKey(now.getTime());
-  const dateKey = getTradeDateKey(timestamp);
-  
-  const formatted = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const formatted = d.toLocaleDateString('en-GB', { timeZone: tz, day: '2-digit', month: 'short', year: 'numeric' });
+  const weekday = d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
 
   if (dateKey === todayKey) {
     return { display: `Today · ${formatted} (${weekday})`, relative: 'Today', dateKey };
@@ -849,21 +933,43 @@ export function generateSeedDaysReport(ticker: TickerConfig, chain: OptionChainR
 }
 
 /**
- * Deduplicates trades by ID and signature, strictly filtering out any corrupted holiday/weekend dates
+ * Deduplicates trades by ID and signature, strictly filtering out any corrupted holiday/weekend dates or off-market live logs
  */
-export function deduplicateTrades(trades: DayReportTrade[]): DayReportTrade[] {
+export function deduplicateTrades(trades: DayReportTrade[], ticker?: TickerConfig): DayReportTrade[] {
   const seenIds = new Set<string>();
   const seenSignatures = new Set<string>();
   const result: DayReportTrade[] = [];
 
+  const sym = ticker?.symbol || '';
+  const isIndian = !sym.includes('SPY') && !sym.includes('QQQ') && !sym.includes('AAPL') && !sym.includes('NVDA');
+  const now = Date.now();
+  const todayKey = getTradeDateKey(now, isIndian);
+  const isMarketOpenNow = ticker ? getMarketHoursStatus(ticker).isOpen : false;
+
   for (const t of trades) {
     if (!t) continue;
     
-    const dKey = t.dateKey || getTradeDateKey(t.timestamp);
+    const dKey = t.dateKey || getTradeDateKey(t.timestamp, isIndian);
 
-    // Strictly purge any date that falls on a weekend or market holiday
-    if (!isOfficialTradingDay(dKey)) {
+    // 1. Strictly purge any date that falls on a weekend or market holiday
+    if (!isOfficialTradingDay(dKey, isIndian)) {
       continue; // Exclude non-trading day!
+    }
+
+    // 2. Filter out off-market-hours synthetic or invalid live trades
+    if (t.id.startsWith('live-') && !isTimestampInLiveMarketHours(t.timestamp, isIndian)) {
+      continue;
+    }
+
+    // 3. If today's market is NOT currently open, purge ANY trade recorded for today unless timestamp occurred during live market hours
+    if (dKey === todayKey) {
+      if (!isMarketOpenNow && !isTimestampInLiveMarketHours(t.timestamp, isIndian)) {
+        continue;
+      }
+      // Purge seed trades (rep-s...) that mistakenly have today's dateKey when market is closed
+      if (!isMarketOpenNow && t.id.startsWith('rep-')) {
+        continue;
+      }
     }
 
     const signature = `${dKey}_${t.timeFormatted}_${t.strike}_${t.action}`;
@@ -877,7 +983,7 @@ export function deduplicateTrades(trades: DayReportTrade[]): DayReportTrade[] {
     result.push({
       ...t,
       dateKey: dKey,
-      dateFormatted: t.dateFormatted || formatTradeDateDisplay(t.timestamp).display
+      dateFormatted: t.dateFormatted || formatTradeDateDisplay(t.timestamp, isIndian).display
     });
   }
 
@@ -885,15 +991,15 @@ export function deduplicateTrades(trades: DayReportTrade[]): DayReportTrade[] {
 }
 
 /**
- * Loads day report trades from LocalStorage with seed fallback and automatic holiday purge
+ * Loads day report trades from LocalStorage with seed fallback and automatic holiday/off-hours purge
  */
 export function loadDaysReport(ticker: TickerConfig, chain: OptionChainRow[]): DayReportTrade[] {
   try {
-    const rawV5 = localStorage.getItem(`${STORAGE_PREFIX}${ticker.symbol}`);
-    if (rawV5) {
-      const parsed: DayReportTrade[] = JSON.parse(rawV5);
+    const rawV6 = localStorage.getItem(`${STORAGE_PREFIX}${ticker.symbol}`);
+    if (rawV6) {
+      const parsed: DayReportTrade[] = JSON.parse(rawV6);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const clean = deduplicateTrades(parsed);
+        const clean = deduplicateTrades(parsed, ticker);
         if (clean.length > 0) {
           saveDaysReport(ticker.symbol, clean);
           return clean;
@@ -990,7 +1096,7 @@ export function updateDaysReportWithLiveTicks(
     };
   });
 
-  return deduplicateTrades(updated);
+  return deduplicateTrades(updated, ticker);
 }
 
 /**
@@ -1002,6 +1108,13 @@ export function addLiveSignalToReport(
   ticker: TickerConfig
 ): DayReportTrade[] {
   if (!signal.recommendedStrike || signal.action === 'WAIT_NEUTRAL') {
+    return existingTrades;
+  }
+
+  // Strictly check if market is currently open for live trading session!
+  const marketStatus = getMarketHoursStatus(ticker);
+  if (!marketStatus.isOpen) {
+    // Market is CLOSED! Refuse to log live trade snapshots outside live trading hours
     return existingTrades;
   }
 

@@ -35,6 +35,7 @@ import {
 } from '../utils/strikeHistoryEngine';
 import { getMarketHoursStatus, MarketHoursStatus } from '../utils/marketHours';
 import { setGlobalRealCandles } from '../utils/candlestickEngine';
+import { recordPredictionSnapshot, validatePredictionAgainstLiveOpen } from '../utils/predictionValidationStore';
 
 // Generates baseline option chain calibrated to exchange quotes and official expiry
 export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): OptionChainRow[] {
@@ -521,9 +522,14 @@ export function useLiveOptionChain() {
       };
     }
 
-    // Case 3: While an active directional trade is locked (1-2 min validity window):
-    // Minor tick fluctuations CANNOT flip the recommendation!
-    if (isLocked && !bypassDebounce) {
+    // Case 3: While an active directional trade is locked:
+    // Minor tick fluctuations in the same direction cannot flip the strike.
+    // However, if the market reverses direction (BUY_PE vs BUY_CE) with confirmed confidence,
+    // or transitions to WAIT_NEUTRAL / Capital Preservation, release the directional lock.
+    const isDirectionalReversal = isLocked && proposedSignal.action !== 'WAIT_NEUTRAL' && proposedSignal.action !== lock.action && (proposedSignal.confidence >= 75 || bypassDebounce);
+    const isStandAsideTransition = isLocked && proposedSignal.action === 'WAIT_NEUTRAL' && (secondsRemaining <= 60 || bypassDebounce);
+
+    if (isLocked && !bypassDebounce && !isDirectionalReversal && !isStandAsideTransition) {
       const lockedAction = lock.action;
       const lockedStrike = lock.strike;
       const lockedType = lock.optionType;
@@ -540,7 +546,7 @@ export function useLiveOptionChain() {
           lockedAtTimestamp: lock.lockedAt,
           expiresAtTimestamp: lock.expiresAt,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: `⏱️ 2-Min Institutional Stability Lock (${secondsRemaining}s remaining) · Zero-Noise Filter Active`,
+          lockHeadline: `⏱️ 2-Min Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
         },
       };
       return lockedSignal;
@@ -664,6 +670,11 @@ export function useLiveOptionChain() {
     return () => clearInterval(interval);
   }, [selectedTicker, fetchMarketStatusFromBackend]);
 
+  // Performance memoization refs for multi-expiry signal computation
+  const lastAllExpiriesComputeTimeRef = useRef<number>(0);
+  const lastAllExpiriesSpotRef = useRef<number>(0);
+  const lastAllExpiriesResultRef = useRef<ExpirySignalSummary[]>([]);
+
   // Audio tone context for signals
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -706,7 +717,7 @@ export function useLiveOptionChain() {
     const activeUsePre = usePreMarketRef.current;
 
     if (isPollingInFlightRef.current && !isManual) {
-      if (performance.now() - lastPollStartRef.current > 2500) {
+      if (performance.now() - lastPollStartRef.current > 400) {
         isPollingInFlightRef.current = false;
       } else {
         return;
@@ -761,23 +772,28 @@ export function useLiveOptionChain() {
           isCasSession: Boolean(hoursStatus.isCasSession || data.isCasSession),
         }));
         
-        // Active pre-market mode ONLY when user explicitly enables usePreMarket OR during 09:00 AM IST pre-open window
-        const activePreMarket = !isHoliday && (activeUsePre || currentSession === 'PRE_MARKET');
-        if (activeUsePre && isMarketOpen) {
-          setUsePreMarket(false);
+        // Pre-market discovery is AUTOMATIC when session is PRE_MARKET or exchange is outside regular hours
+        const activePreMarket = currentSession === 'PRE_MARKET' || (!isMarketOpen && !isHoliday);
+
+        if (!prePrice && activePreMarket) {
+          prePrice = regularPrice || data.prevClose || activeTicker.prevClose;
         }
 
-        // Authentic active spot: strictly authentic live exchange spot price
+        // Active spot price dynamically uses pre-market price during pre-market/off-market hours
         let activeSpot = (activePreMarket && prePrice && prePrice > 0 ? prePrice : regularPrice);
 
         const step = activeTicker.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (activeTicker.prevClose || activeSpot)).toFixed(2));
-        const activeChangePct = data.changePercent !== undefined ? Number(data.changePercent.toFixed(2)) : (activeTicker.prevClose ? Number(((activeChange / activeTicker.prevClose) * 100).toFixed(2)) : 0);
-        const basePrevClose = activePreMarket 
-          ? regularPrice 
-          : (data.prevClose || Number((activeSpot - activeChange).toFixed(2)));
+        const activeChange = activePreMarket && prePrice
+          ? Number((prePrice - (data.prevClose || activeTicker.prevClose || regularPrice)).toFixed(2))
+          : (data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (activeTicker.prevClose || activeSpot)).toFixed(2)));
+          
+        const activeChangePct = data.prevClose || activeTicker.prevClose
+          ? Number(((activeChange / (data.prevClose || activeTicker.prevClose)) * 100).toFixed(2))
+          : 0;
+
+        const basePrevClose = data.prevClose || activeTicker.prevClose || Number((activeSpot - activeChange).toFixed(2));
 
         const updatedTicker: TickerConfig = {
           ...activeTicker,
@@ -793,7 +809,7 @@ export function useLiveOptionChain() {
           vix: data.vix !== undefined ? data.vix : activeTicker.vix,
           vixChange: data.vixChange !== undefined ? data.vixChange : activeTicker.vixChange,
           asOnTime: activePreMarket 
-            ? `Pre-Market (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
+            ? `Pre-Market Auto Discovery (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
             : data.asOnTime,
           marketState: currentSession,
           isHoliday,
@@ -836,7 +852,15 @@ export function useLiveOptionChain() {
           liveGlobalMacroRef.current
         );
         const resolvedSignal = applySignalWithDebounce(rawSignal, isManual);
-        resolvedSignal.allExpiriesSignals = computeAllExpiriesSignals(updatedTicker, newsFeedRef.current, activeExpIndex, resolvedSignal);
+
+        const nowPerf = performance.now();
+        const spotDiff = Math.abs((lastAllExpiriesSpotRef.current || 0) - updatedTicker.spotPrice);
+        if (!lastAllExpiriesResultRef.current.length || spotDiff > 5.0 || (nowPerf - lastAllExpiriesComputeTimeRef.current) > 3000 || isManual) {
+          lastAllExpiriesResultRef.current = computeAllExpiriesSignals(updatedTicker, newsFeedRef.current, activeExpIndex, resolvedSignal);
+          lastAllExpiriesComputeTimeRef.current = nowPerf;
+          lastAllExpiriesSpotRef.current = updatedTicker.spotPrice;
+        }
+        resolvedSignal.allExpiriesSignals = lastAllExpiriesResultRef.current;
 
         setSelectedTicker(updatedTicker);
         setChain(activeChain);
@@ -844,6 +868,15 @@ export function useLiveOptionChain() {
         setSignal(resolvedSignal);
         setExpiryTimestamps(data.expiryTimestamps || []);
         setDataSourceNote(data.source || 'Live Exchange Feed');
+
+        try {
+          if (resolvedSignal.afterMarketAnalytics) {
+            recordPredictionSnapshot(updatedTicker, resolvedSignal.afterMarketAnalytics, resolvedSignal, hoursStatus);
+          }
+          validatePredictionAgainstLiveOpen(updatedTicker, activeMetrics, activeChain, resolvedSignal, hoursStatus);
+        } catch {
+          // Silent fallback
+        }
 
         consecutiveFailuresRef.current = 0;
         setLastUpdated(new Date());
@@ -1184,14 +1217,14 @@ export function useLiveOptionChain() {
         if (!isMounted) return;
         const currentMkt = marketStatusRef.current;
         const isMarketActive = currentMkt.isOpen || currentMkt.session === 'REGULAR' || currentMkt.session === 'PRE_MARKET';
-        const nextInterval = isMarketActive ? 1000 : 2000;
+        const nextInterval = isMarketActive ? 250 : 500;
         timer = setTimeout(poll, nextInterval);
       }
     };
 
     const initialMkt = marketStatusRef.current;
     const isMarketActive = initialMkt.isOpen || initialMkt.session === 'REGULAR' || initialMkt.session === 'PRE_MARKET';
-    const initialInterval = isMarketActive ? 1000 : 2000;
+    const initialInterval = isMarketActive ? 250 : 500;
     timer = setTimeout(poll, initialInterval);
 
     return () => {
@@ -1234,8 +1267,7 @@ export function useLiveOptionChain() {
     let prePrice = selectedTicker.preMarketPrice || selectedTicker.extendedHours?.price;
 
     if (nextVal && (!prePrice || Math.abs(prePrice - regular) < 0.1)) {
-      const defaultGap = selectedTicker.symbol.includes('BANK') ? 142.50 : 58.20;
-      prePrice = Number(((selectedTicker.prevClose || regular) + defaultGap).toFixed(2));
+      prePrice = regular;
     }
 
     const targetSpot = nextVal && prePrice ? prePrice : regular;
@@ -1282,6 +1314,15 @@ export function useLiveOptionChain() {
   const handleForceRefresh = () => {
     setIsSyncing(true);
     tempExpiryChainCache.clear();
+    signalLockRef.current = {
+      symbol: selectedTickerRef.current.symbol,
+      action: 'WAIT_NEUTRAL',
+      strike: selectedTickerRef.current.atmStrike,
+      optionType: 'CE',
+      lockedAt: Date.now(),
+      expiresAt: 0,
+      durationSeconds: 0,
+    };
     fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
     fetchRealNews(selectedTickerRef.current.symbol, true);
     fetchHeavyweights(selectedTickerRef.current.symbol);

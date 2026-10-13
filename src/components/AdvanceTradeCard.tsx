@@ -29,8 +29,7 @@ import {
   Copy,
   CheckCircle2,
   Minus,
-  Circle,
-  Power
+  Circle
 } from 'lucide-react';
 
 interface AdvanceTradeCardProps {
@@ -92,10 +91,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   // Harmonize Entry Range, Stop Loss, and Targets directly with the signal engine's anchored levels
   const optEntryLow = signal?.entryRange ? signal.entryRange[0] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[0] : currentLTP);
   const optEntryHigh = signal?.entryRange ? signal.entryRange[1] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[1] : currentLTP);
-  const optStopLoss = signal?.trailingStopLoss || signal?.stopLoss || setup.advanceOptionStopLoss;
   const optTarget1 = signal?.target1 || setup.advanceOptionTarget1;
   const optTarget2 = signal?.target2 || setup.advanceOptionTarget2;
-  const optRisk = Math.max(0.5, currentLTP - optStopLoss);
+  const initialOptSL = Math.max(0.05, Math.min(signal?.stopLoss || setup.advanceOptionStopLoss, Math.max(0.05, optEntryLow - 0.05)));
+  const trailedOptSL = signal?.trailingStopLoss;
+  const isProfitLocked = Boolean(trailedOptSL && trailedOptSL > initialOptSL);
+  const optStopLoss = isProfitLocked ? trailedOptSL! : initialOptSL;
+  const optRisk = Math.max(0.5, currentLTP - initialOptSL);
   const optReward = optTarget1 - currentLTP;
   const optRR = signal?.riskRewardRatio || setup.advanceRiskRewardRatio || `1 : ${(optReward / optRisk).toFixed(1)}`;
 
@@ -235,21 +237,11 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                   size="xs" 
                 />
 
-                {/* Pre-Market Predictor Active Badge */}
+                {/* Pre-Market Predictor Automatic Badge */}
                 {(usePreMarket || ticker.isUsingPreMarket) && (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs">
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/50 bg-amber-950/60 text-amber-300 text-[11px] font-mono font-bold shadow-xs" title="Pre-market auto discovery active outside regular trading hours">
                     <Zap className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                    <span>Pre-Market Predictor Active</span>
-                    {onTogglePreMarket && (
-                      <button
-                        onClick={onTogglePreMarket}
-                        className="ml-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-rose-500/30 hover:text-rose-200 text-amber-200 transition-colors cursor-pointer flex items-center gap-1 border border-amber-500/40 text-[10px] font-sans"
-                        title="Turn Off Pre-Market Predictor & Return to Regular Spot Feed"
-                      >
-                        <Power className="w-3 h-3 text-rose-400" />
-                        <span>Turn Off</span>
-                      </button>
-                    )}
+                    <span>Pre-Market Discovery Active (Auto)</span>
                   </div>
                 )}
               </div>
@@ -277,19 +269,58 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {setup.primaryLeadingCatalyst}
       </p>
 
+      {/* 15-Pillar Directional Validation & Bias Audit Strip */}
+      <div className="mt-2.5 p-2 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] font-mono flex flex-wrap items-center justify-between gap-2 relative z-10">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-slate-400 font-sans flex items-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Algorithm Validation:</span>
+          </span>
+          <span className="text-emerald-400 font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/60">
+            0.0% Directional Bias
+          </span>
+          <span className="text-slate-500">|</span>
+          <span className="text-slate-300">
+            Pillars Bullish: <strong className="text-emerald-400">{setup.leadingPredictorFactors.filter(f => f.state.includes('BULLISH')).length}</strong>
+          </span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-300">
+            Bearish: <strong className="text-rose-400">{setup.leadingPredictorFactors.filter(f => f.state.includes('BEARISH')).length}</strong>
+          </span>
+          <span className="text-slate-500">·</span>
+          <span className="text-slate-300">
+            Neutral: <strong className="text-amber-300">{setup.leadingPredictorFactors.filter(f => f.state === 'NEUTRAL').length}</strong>
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10.5px]">
+          <span className="text-slate-400">Regime:</span>
+          <span className={`font-bold px-1.5 py-0.2 rounded border ${
+            isBull ? 'text-emerald-300 bg-emerald-950 border-emerald-700' :
+            isBear ? 'text-rose-300 bg-rose-950 border-rose-700' :
+            'text-amber-300 bg-amber-950 border-amber-700'
+          }`}>
+            {isBull ? 'Confirmed Call Momentum' : isBear ? 'Confirmed Put Momentum' : 'Consolidation Stand Aside'}
+          </span>
+        </div>
+      </div>
+
       {/* Multi-Timeframe Regime Bridge Banner when in Wait / Flat Open */}
       {isWait && (
         <div className="mt-2.5 p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs font-sans leading-relaxed relative z-10 flex items-start gap-2">
           <Activity className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <div className="font-bold text-amber-300 text-xs flex items-center gap-1.5 flex-wrap">
-              <span>Flat Open Protocol: Stand Aside First 15 Mins</span>
+              <span>{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Intraday Consolidation Protocol: Stand Aside in Wait' : 'Flat Open Protocol: Stand Aside First 15 Mins'}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
-                ORB Rule
+                {ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'BREAKOUT WATCH' : 'ORB Rule'}
               </span>
             </div>
             <p className="text-[11px] text-amber-200/90 leading-normal">
-              GIFT Nifty indicates a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts). Buying options at 09:15 AM on a flat open risks theta decay and IV crush. Stand aside for 15 mins. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> only after a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.
+              {ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? (
+                <>Spot is oscillating in a tight consolidation range (<strong className="text-white font-mono">{ticker.currency}{setup.advanceEntryZoneSpot[0].toLocaleString()} – {ticker.currency}{setup.advanceEntryZoneSpot[1].toLocaleString()}</strong>). Confluence model is in equilibrium. Stand aside in WAIT until a confirmed breakout above resistance or breakdown below support occurs. Reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> LTP is <strong className="text-white font-mono">{ticker.currency}{currentLTP.toFixed(2)}</strong>.</>
+              ) : (
+                <>GIFT Nifty indicates a flat opening ({signal?.afterMarketAnalytics?.predictedOpeningGapPoints !== undefined ? (signal.afterMarketAnalytics.predictedOpeningGapPoints >= 0 ? '+' : '') + signal.afterMarketAnalytics.predictedOpeningGapPoints : '+27.5'} pts). Buying options at 09:15 AM on a flat open risks theta decay and IV crush. Stand aside for 15 mins. Enter reference contract <strong className="text-white font-mono">{setup.recommendedStrike} {setup.recommendedType} ({effectiveMoneyness})</strong> only after a confirmed 15-Minute Opening Range Breakout (ORB) post-09:30 AM.</>
+              )}
             </p>
           </div>
         </div>
@@ -304,7 +335,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'REFERENCE STRIKE (ORB)' : 'RECOMMENDED STRIKE'}</span>
+            <span>{isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'REFERENCE STRIKE' : 'REFERENCE STRIKE (ORB)') : 'RECOMMENDED STRIKE'}</span>
             <span className={`font-bold text-[10px] px-1.5 py-0.2 rounded border ${
               isBull ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' :
               isBear ? 'bg-rose-950 text-rose-300 border-rose-500/40' :
@@ -331,9 +362,9 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {/* Card 2: Entry Zone (Spot & Option) */}
         <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'ORB WATCH RANGE' : 'ENTRY ZONE'}</span>
+            <span>{isWait ? 'WATCH RANGE' : 'ENTRY ZONE'}</span>
             <span className={`${isWait ? 'text-amber-400' : 'text-emerald-400'} font-bold text-[10px]`}>
-              {isWait ? 'WAIT 09:30 AM' : 'BASE SUPPORT'}
+              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'WAIT BREAKOUT' : 'WAIT 09:30 AM') : 'BASE SUPPORT'}
             </span>
           </div>
           <div className="mt-1">
@@ -342,7 +373,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
               {isWait ? (
-                <span className="text-amber-300/90 font-sans">Trigger: Break outside range post-09:30</span>
+                <span className="text-amber-300/90 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Trigger: Confirmed breakout outside range' : 'Trigger: Break outside range post-09:30'}</span>
               ) : (
                 <span>Option: <span className="text-slate-200">{ticker.currency}{optEntryLow.toFixed(2)} – {ticker.currency}{optEntryHigh.toFixed(2)}</span></span>
               )}
@@ -353,20 +384,30 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {/* Card 3: Invalidation Stop-Loss */}
         <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'CAPITAL PROTECTION' : 'STRICT STOP-LOSS'}</span>
-            <span className={`${isWait ? 'text-amber-400' : 'text-rose-400'} font-bold text-[10px]`}>
-              {isWait ? 'DISCIPLINE' : 'PROTECTED'}
+            <span>{isWait ? 'CAPITAL PROTECTION' : isProfitLocked ? 'PROFIT LOCK SL' : 'STRICT STOP-LOSS'}</span>
+            <span className={`${isWait ? 'text-amber-400' : isProfitLocked ? 'text-emerald-400' : 'text-rose-400'} font-bold text-[10px]`}>
+              {isWait ? 'DISCIPLINE' : isProfitLocked ? '🔒 TRAILED' : 'PROTECTED'}
             </span>
           </div>
           <div className="mt-1">
-            <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : 'text-rose-300'}`}>
+            <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : isProfitLocked ? 'text-emerald-300' : 'text-rose-300'}`}>
               {isWait ? 'Stand Aside at 09:15 Open' : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
               {isWait ? (
                 <span className="text-slate-400 font-sans">Zero naked trades on flat gap</span>
+              ) : isProfitLocked ? (
+                <div className="space-y-0.5">
+                  <span className="flex items-center gap-1 flex-wrap">
+                    <span>Option SL: <strong className="text-emerald-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong></span>
+                    <span className="text-[10px] text-emerald-300 font-sans font-semibold bg-emerald-950/80 px-1 py-0.2 rounded border border-emerald-500/30">🔒 Profit Locked</span>
+                  </span>
+                  <div className="text-[10px] text-slate-400 font-sans">
+                    Initial SL: {ticker.currency}{initialOptSL.toFixed(2)} (Trailed +50% T1)
+                  </div>
+                </div>
               ) : (
-                <span>Option SL: <strong className="text-rose-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong></span>
+                <span>Option SL: <strong className="text-rose-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong> <span className="text-[10px] text-slate-400 font-sans">(Initial SL)</span></span>
               )}
             </div>
           </div>

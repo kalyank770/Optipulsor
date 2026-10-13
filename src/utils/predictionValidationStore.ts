@@ -434,9 +434,10 @@ export function recordPredictionSnapshot(
   const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY') || ticker.symbol.includes('BANK') || ticker.symbol.includes('SENSEX');
   const dateStr = getExchangeDateString(ticker.symbol);
 
-  // STRICT HOLIDAY & NON-TRADING DAY GUARD:
-  // Never create or record prediction snapshot records on market holidays or weekends
-  if (marketStatus?.isHoliday || ticker.isHoliday || !isOfficialTradingDay(dateStr, isIndian)) {
+  // STRICT HOLIDAY & NON-ACTIVE SESSION GUARD:
+  // Do NOT create or record live prediction snapshot records on holidays, weekends, or when market session is closed!
+  const isSessionActive = Boolean(marketStatus?.isOpen || marketStatus?.session === 'PRE_MARKET');
+  if (marketStatus?.isHoliday || ticker.isHoliday || !isOfficialTradingDay(dateStr, isIndian) || !isSessionActive) {
     return null;
   }
 
