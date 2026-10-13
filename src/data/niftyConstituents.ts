@@ -272,7 +272,8 @@ export const NIFTY_DERIVATIVE_COMPANIES: NiftyConstituent[] = [
  */
 export function analyzeNiftyConstituents(
   symbol: string,
-  constituents: NiftyConstituent[] = NIFTY_DERIVATIVE_COMPANIES
+  constituents: NiftyConstituent[] = NIFTY_DERIVATIVE_COMPANIES,
+  parentChangePercent?: number
 ): NiftyConstituentAnalysis {
   let advances = 0;
   let declines = 0;
@@ -288,35 +289,45 @@ export function analyzeNiftyConstituents(
 
   const isBankNifty = symbol.includes('BANK');
 
+  // If parentChangePercent is provided, shift constituent movements so they accurately track the parent index
+  // (base mock array has an average +0.15% bias; shifting aligns them with the live spot movement)
+  const deltaShift = typeof parentChangePercent === 'number' 
+    ? Number((parentChangePercent - (isBankNifty ? 0.45 : 0.15)).toFixed(2)) 
+    : 0;
+
   for (const c of constituents) {
     const weight = isBankNifty ? (c.bankNiftyWeight || 0) : c.niftyWeight;
     if (isBankNifty && (!c.bankNiftyWeight || c.bankNiftyWeight === 0)) {
       continue; // only banking stocks for BankNifty
     }
 
-    if (c.changePercent > 0.05) {
+    const effectiveChangePercent = Number((c.changePercent + deltaShift).toFixed(2));
+    const pointMultiplier = isBankNifty ? 5.43 : 2.269;
+    const effectivePoints = Number(((effectiveChangePercent * weight * pointMultiplier) / 10).toFixed(1));
+
+    if (effectiveChangePercent > 0.05) {
       advances++;
-      gainersList.push({ symbol: c.symbol, changePercent: c.changePercent, points: c.niftyContributionPoints });
-    } else if (c.changePercent < -0.05) {
+      gainersList.push({ symbol: c.symbol, changePercent: effectiveChangePercent, points: effectivePoints });
+    } else if (effectiveChangePercent < -0.05) {
       declines++;
-      draggersList.push({ symbol: c.symbol, changePercent: c.changePercent, points: c.niftyContributionPoints });
+      draggersList.push({ symbol: c.symbol, changePercent: effectiveChangePercent, points: effectivePoints });
     } else {
       unchanged++;
     }
 
-    const stockDelta = (weight / 100) * c.changePercent;
+    const stockDelta = (weight / 100) * effectiveChangePercent;
     totalWeightedDelta += stockDelta;
-    netPointsImpact += c.niftyContributionPoints;
+    netPointsImpact += effectivePoints;
 
     if (!sectorMap[c.sector]) {
-      sectorMap[c.sector] = { weight: 0, points: 0, deltaSum: 0, count: 0, leadingStock: c.symbol, maxChange: c.changePercent };
+      sectorMap[c.sector] = { weight: 0, points: 0, deltaSum: 0, count: 0, leadingStock: c.symbol, maxChange: effectiveChangePercent };
     }
     sectorMap[c.sector].weight += weight;
-    sectorMap[c.sector].points += c.niftyContributionPoints;
-    sectorMap[c.sector].deltaSum += c.changePercent;
+    sectorMap[c.sector].points += effectivePoints;
+    sectorMap[c.sector].deltaSum += effectiveChangePercent;
     sectorMap[c.sector].count += 1;
-    if (c.changePercent > sectorMap[c.sector].maxChange) {
-      sectorMap[c.sector].maxChange = c.changePercent;
+    if (effectiveChangePercent > sectorMap[c.sector].maxChange) {
+      sectorMap[c.sector].maxChange = effectiveChangePercent;
       sectorMap[c.sector].leadingStock = c.symbol;
     }
   }

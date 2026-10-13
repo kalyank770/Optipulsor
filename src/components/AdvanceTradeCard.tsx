@@ -229,7 +229,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                   </span>
                 </span>
 
-                {/* Pillar 4: Minimum 1-to-2 Minute Prediction Lock & Anti-Whipsaw Badge */}
+                {/* Pillar 4: 30-Second Prediction Stability Lock & Anti-Whipsaw Badge */}
                 <StabilityLockBadge 
                   stabilityLock={signal?.stabilityLock} 
                   action={signal?.action || setup.anticipatedAction} 

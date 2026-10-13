@@ -35,8 +35,8 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
   const [activeTab, setActiveTab] = useState<'directive' | 'allRules'>('directive');
 
   const isDirectional = action === 'BUY_CE' || action === 'BUY_PE';
-  const secondsRemaining = stabilityLock?.secondsRemaining ?? 60;
-  const totalSeconds = stabilityLock?.lockDurationSeconds ?? 60;
+  const secondsRemaining = stabilityLock?.secondsRemaining ?? 30;
+  const totalSeconds = stabilityLock?.lockDurationSeconds ?? 30;
 
   // Close modal on Escape key press & prevent background scroll
   useEffect(() => {
@@ -82,7 +82,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
               ? 'bg-indigo-950/90 border-indigo-500/60 text-indigo-200 hover:bg-indigo-900 hover:border-indigo-400 shadow-sm shadow-indigo-500/20'
               : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-500 shadow-sm'
           }`}
-          title="60-Second Prediction Stability Lock (Click for rule details)"
+          title="30-Second Prediction Stability Lock (Click for rule details)"
         >
           <span className="relative flex h-2 w-2 shrink-0">
             <span
@@ -111,7 +111,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
             ) : (
               <>
                 <span className="font-bold text-slate-200">Stability Lock:</span>
-                <span className="text-slate-300 ml-1 font-mono">{secondsRemaining}s/60s</span>
+                <span className="text-slate-300 ml-1 font-mono">{secondsRemaining}s/{totalSeconds}s</span>
               </>
             )}
           </span>
@@ -150,7 +150,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     </span>
                   </div>
                   <h3 id="pillar4-modal-title" className="font-bold text-white text-base sm:text-lg tracking-tight mt-0.5">
-                    60-Second Prediction Lock &amp; Anti-Whipsaw Filter
+                    30-Second Prediction Lock &amp; Anti-Whipsaw Filter
                   </h3>
                 </div>
               </div>
@@ -205,7 +205,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     &ldquo;Trade recommendation should not quickly change as per just live market is moving up/down. for this I don&apos;t need this application. I want this application should come up with prediction which should valid for atleast a min or 2 and also more accurate such that I can rely on this and will not loose any money.&rdquo;
                   </blockquote>
                   <p className="text-[11.5px] text-slate-300 leading-relaxed">
-                    This directive protects real trading capital by banning rapid 5–10 second signal flips caused by normal exchange tick flutter. Directional trade setups remain firmly stabilized for <strong className="text-emerald-400">60 seconds</strong> while real-time underlying market ticks continue updating without disturbance.
+                    This directive protects real trading capital by banning rapid 5–10 second signal flips caused by normal exchange tick flutter. Directional trade setups remain firmly stabilized for <strong className="text-emerald-400">30 seconds</strong> while real-time underlying market ticks continue updating without disturbance.
                   </p>
                 </div>
 
@@ -226,7 +226,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     <span className="text-sm font-bold text-white mt-0.5 block">
                       {totalSeconds} Seconds
                     </span>
-                    <span className="text-[9.5px] text-slate-400">60s Window</span>
+                    <span className="text-[9.5px] text-slate-400">30s Window</span>
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800">
@@ -255,7 +255,7 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                     <li className="flex items-start gap-2">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
                       <span>
-                        <strong className="text-emerald-300">60-Second Stability Lock:</strong> Once a high-confluence BUY CE or BUY PE entry is issued, the trade recommendation action, recommended strike, entry range, and profit targets are strictly locked for 60 seconds.
+                        <strong className="text-emerald-300">30-Second Stability Lock:</strong> Once a high-confluence BUY CE or BUY PE entry is issued, the trade recommendation action, recommended strike, entry range, and profit targets are strictly locked for 30 seconds.
                       </span>
                     </li>
                     <li className="flex items-start gap-2">
@@ -325,10 +325,10 @@ export const StabilityLockBadge: React.FC<StabilityLockBadgeProps> = ({
                   <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/50 space-y-1">
                     <span className="font-bold text-indigo-200 flex items-center gap-1.5">
                       <span className="w-4 h-4 rounded-full bg-indigo-500/30 text-indigo-300 text-[10px] flex items-center justify-center font-mono">4</span>
-                      60-Second Prediction Stability Lock (Current Badge)
+                      30-Second Prediction Stability Lock (Current Badge)
                     </span>
                     <p className="text-indigo-100">
-                      Trade recommendations do not quickly flip on 1-second price flutter. Predictions remain stable for 60 seconds, allowing disciplined execution without capital loss.
+                      Trade recommendations do not quickly flip on 1-second price flutter. Predictions remain stable for 30 seconds, allowing disciplined execution without capital loss.
                     </p>
                   </div>
 

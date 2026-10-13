@@ -93,8 +93,11 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     const ceVol = Math.round(ceOI * 0.42);
     const peVol = Math.round(peOI * 0.38);
 
-    const ceChgOI = Math.round((Math.sin(i * 1.5) * 0.08) * ceOI);
-    const peChgOI = Math.round((Math.cos(i * 1.2) * 0.09) * peOI);
+    const trendDir = (ticker.changePercent || 0) / 100;
+    const ceTrendFactor = 0.05 - trendDir * 2.5;
+    const peTrendFactor = 0.05 + trendDir * 2.5;
+    const ceChgOI = Math.round(Math.max(-0.15, Math.min(0.20, ceTrendFactor + Math.sin(i * 1.2) * 0.03)) * ceOI);
+    const peChgOI = Math.round(Math.max(-0.15, Math.min(0.20, peTrendFactor + Math.cos(i * 1.2) * 0.03)) * peOI);
 
     const ceMoneyness = K < S - step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
     const peMoneyness = K > S + step * 0.5 ? 'ITM' : isATM ? 'ATM' : 'OTM';
@@ -415,7 +418,7 @@ export function useLiveOptionChain() {
   );
   liveGlobalMacroRef.current = liveGlobalMacro;
   const [liveConstituentAnalysis, setLiveConstituentAnalysis] = useState<NiftyConstituentAnalysis | undefined>(() =>
-    POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined
+    POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].changePercent) : undefined
   );
   liveConstituentAnalysisRef.current = liveConstituentAnalysis;
 
@@ -444,7 +447,7 @@ export function useLiveOptionChain() {
 
   const [signal, setSignal] = useState<TradeSignal>(() => {
     const initMacro = getInterMarketTelemetry(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].spotPrice);
-    const initConstituents = POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol) : undefined;
+    const initConstituents = POPULAR_TICKERS[0].currency === '₹' ? analyzeNiftyConstituents(POPULAR_TICKERS[0].symbol, undefined, POPULAR_TICKERS[0].changePercent) : undefined;
     const s = generateTradeSignal(POPULAR_TICKERS[0], metrics, chain, INITIAL_NEWS_FEED, undefined, 0, initConstituents, initMacro);
     s.allExpiriesSignals = computeAllExpiriesSignals(POPULAR_TICKERS[0], INITIAL_NEWS_FEED, 0, s);
     return s;
@@ -454,7 +457,7 @@ export function useLiveOptionChain() {
   const signalRef = useRef<TradeSignal>(signal);
   signalRef.current = signal;
 
-  // Minimum 1-to-2 Minute Institutional Stability Lock & Persistence
+  // Strict 30-Second Institutional Stability Lock & Persistence
   const signalLockRef = useRef<{
     symbol: string;
     action: SignalAction;
@@ -469,11 +472,11 @@ export function useLiveOptionChain() {
     strike: signal.recommendedStrike,
     optionType: signal.recommendedType,
     lockedAt: Date.now(),
-    expiresAt: Date.now() + 60000,
-    durationSeconds: 60,
+    expiresAt: Date.now() + 30000,
+    durationSeconds: 30,
   });
 
-  // Strategic Signal Execution & Confirmation Engine (Enforces 60-Sec Stability & Capital Safety)
+  // Strategic Signal Execution & Confirmation Engine (Enforces 30-Sec Stability & Capital Safety)
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
     const now = Date.now();
     const lock = signalLockRef.current;
@@ -489,14 +492,14 @@ export function useLiveOptionChain() {
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 60000,
-        durationSeconds: 60,
+        expiresAt: now + 30000,
+        durationSeconds: 30,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 60,
+          lockDurationSeconds: 30,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -512,7 +515,7 @@ export function useLiveOptionChain() {
         ...proposedSignal,
         stabilityLock: {
           isActive: false,
-          lockDurationSeconds: 60,
+          lockDurationSeconds: 30,
           secondsRemaining: 0,
           lockedAtTimestamp: now,
           expiresAtTimestamp: now,
@@ -546,7 +549,7 @@ export function useLiveOptionChain() {
           lockedAtTimestamp: lock.lockedAt,
           expiresAtTimestamp: lock.expiresAt,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: `⏱️ 60s Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
+          lockHeadline: `⏱️ 30s Institutional Stability Lock (${secondsRemaining}s remaining) · Anti-Whipsaw Filter Active`,
         },
       };
       return lockedSignal;
@@ -560,19 +563,19 @@ export function useLiveOptionChain() {
         strike: proposedSignal.recommendedStrike,
         optionType: proposedSignal.recommendedType,
         lockedAt: now,
-        expiresAt: now + 60000, // 60 seconds
-        durationSeconds: 60,
+        expiresAt: now + 30000, // 30 seconds
+        durationSeconds: 30,
       };
       return {
         ...proposedSignal,
         stabilityLock: {
           isActive: true,
-          lockDurationSeconds: 60,
-          secondsRemaining: 60,
+          lockDurationSeconds: 30,
+          secondsRemaining: 30,
           lockedAtTimestamp: now,
-          expiresAtTimestamp: now + 60000,
+          expiresAtTimestamp: now + 30000,
           lockType: 'INSTITUTIONAL_PERSISTENCE',
-          lockHeadline: '⏱️ 60s Institutional Stability Lock (60s remaining) · Zero-Noise Filter Active',
+          lockHeadline: '⏱️ 30s Institutional Stability Lock (30s remaining) · Zero-Noise Filter Active',
         },
       };
     }
@@ -584,20 +587,20 @@ export function useLiveOptionChain() {
       strike: proposedSignal.recommendedStrike,
       optionType: proposedSignal.recommendedType,
       lockedAt: now,
-      expiresAt: now + 60000,
-      durationSeconds: 60,
+      expiresAt: now + 30000,
+      durationSeconds: 30,
     };
 
     return {
       ...proposedSignal,
       stabilityLock: {
         isActive: true,
-        lockDurationSeconds: 60,
+        lockDurationSeconds: 30,
         secondsRemaining: Math.max(0, Math.ceil((signalLockRef.current.expiresAt - now) / 1000)),
         lockedAtTimestamp: now,
         expiresAtTimestamp: signalLockRef.current.expiresAt,
         lockType: 'EQUILIBRIUM_PERSISTENCE',
-        lockHeadline: '🛡️ 60s Capital Protection Filter Active · Noise-Free Stand Aside',
+        lockHeadline: '🛡️ 30s Capital Protection Filter Active · Noise-Free Stand Aside',
       },
     };
   }, []);
@@ -1067,7 +1070,7 @@ export function useLiveOptionChain() {
     }));
 
     // 4. Synchronously initialize constituent analysis and global macro for the new ticker
-    const freshConstituents = newTicker.currency === '₹' ? analyzeNiftyConstituents(newTicker.symbol) : undefined;
+    const freshConstituents = newTicker.currency === '₹' ? analyzeNiftyConstituents(newTicker.symbol, undefined, newTicker.changePercent) : undefined;
     const freshMacro = getInterMarketTelemetry(newTicker.symbol, undefined, newTicker.spotPrice);
     setLiveConstituentAnalysis(freshConstituents);
     setLiveGlobalMacro(freshMacro);

@@ -182,7 +182,7 @@ export const AfterMarketOpeningCard: React.FC<AfterMarketOpeningCardProps> = ({
             <span className="flex items-center gap-1 text-slate-400">
               <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
               <span title="Premium/Discount vs Cash Spot & Implied Cash Open">
-                {ticker.symbol.includes('NIFTY') && !ticker.symbol.includes('BANK') 
+                {(ticker.symbol.toUpperCase() === 'NIFTY' || ticker.symbol.toUpperCase() === 'NIFTY 50' || ticker.symbol.toUpperCase() === 'NIFTY50') 
                   ? `${(giftNiftyPrice - ticker.spotPrice) >= 0 ? '+' : ''}${(giftNiftyPrice - ticker.spotPrice).toFixed(1)} pts vs Spot (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} implied gap)` 
                   : `Implied Gap: ${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts`}
               </span>

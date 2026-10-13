@@ -872,8 +872,9 @@ export function computeAdvanceTradeSetup(
     anticipatedAction === 'BUY_PE' ||
     (anticipatedAction === 'WAIT_NEUTRAL' && (
       candlePatterns.confluenceBias === 'BEARISH' ||
-      candlePatterns.confluenceScore < -1.5 ||
-      totalBearScore >= totalBullScore ||
+      candlePatterns.confluenceScore < -1.0 ||
+      totalBearScore > totalBullScore + 0.2 ||
+      (totalBearScore === totalBullScore && (ticker.spotPrice < ticker.prevClose || (ticker.changePercent || 0) < 0)) ||
       isDerivativesOrCandleBearish
     ))
   );

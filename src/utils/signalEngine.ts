@@ -349,8 +349,21 @@ export function generateTradeSignal(
   else if (pcrTotalOI <= 0.78) score -= 2.0;
   else if (pcrTotalOI <= 0.95) score -= 1.0;
 
-  if (nearbyPeOIChg > nearbyCeOIChg * 1.2) score += 1.2;
-  else if (nearbyCeOIChg > nearbyPeOIChg * 1.2) score -= 1.2;
+  // 4b. Nearby Strike Open Interest Buildup Velocity (Positive Expansion vs Unwinding)
+  // Put writing accumulation (positive PeOIChg) establishes floor support -> Bullish (+1.2)
+  // Call writing accumulation (positive CeOIChg) establishes overhead supply -> Bearish (-1.2)
+  // Put unwinding (negative PeOIChg) reveals cracking floor -> Bearish (-0.8)
+  // Call unwinding (negative CeOIChg) reveals short squeeze trap -> Bullish (+0.8)
+  const peOiExpanding = nearbyPeOIChg > 1500 && nearbyPeOIChg > Math.max(0, nearbyCeOIChg) * 1.15;
+  const ceOiExpanding = nearbyCeOIChg > 1500 && nearbyCeOIChg > Math.max(0, nearbyPeOIChg) * 1.15;
+  const peOiUnwinding = nearbyPeOIChg < -3000 && nearbyCeOIChg >= -1000;
+  const ceOiUnwinding = nearbyCeOIChg < -3000 && nearbyPeOIChg >= -1000;
+
+  if (peOiExpanding || ceOiUnwinding) {
+    score += peOiExpanding ? 1.2 : 0.8;
+  } else if (ceOiExpanding || peOiUnwinding) {
+    score -= ceOiExpanding ? 1.2 : 0.8;
+  }
 
   // 5. IV Rank / Volatility Environment adjustment
   if (ivRank > 65) {
@@ -382,7 +395,7 @@ export function generateTradeSignal(
     (isParentBank && liveConstituentAnalysis.symbol.includes('BANK'))
   ))
     ? liveConstituentAnalysis
-    : ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol) : undefined);
+    : ((ticker.currency === '₹') ? analyzeNiftyConstituents(ticker.symbol, undefined, ticker.changePercent) : undefined);
   if (constituentAnalysis) {
     score += (constituentAnalysis.breadthScore * 0.45);
     score += (constituentAnalysis.weightedConstituentDelta * 2.5);
@@ -647,7 +660,7 @@ export function generateTradeSignal(
   if (rt.vwap.bias === 'BULLISH' && isAboveVWAP) bullMatches++;
   if (rt.ema.alignment === 'BULLISH_STACK') bullMatches++;
   if (rt.rsi.value >= 54 || rt.macd.trend === 'BULLISH_EXPANSION' || rt.rsi.divergence === 'BULLISH_DIVERGENCE') bullMatches++;
-  if (pcrTotalOI >= 1.08 || rt.orderFlow.sentiment === 'BUYER_DOMINANCE' || nearbyPeOIChg > nearbyCeOIChg * 1.15) bullMatches++;
+  if (pcrTotalOI >= 1.08 || rt.orderFlow.sentiment === 'BUYER_DOMINANCE' || (nearbyPeOIChg > 0 && nearbyPeOIChg > nearbyCeOIChg * 1.15)) bullMatches++;
   if (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 6) bullMatches++;
 
   let bearMatches = 0;
@@ -656,7 +669,7 @@ export function generateTradeSignal(
   if (rt.vwap.bias === 'BEARISH' && isBelowVWAP) bearMatches++;
   if (rt.ema.alignment === 'BEARISH_STACK') bearMatches++;
   if (rt.rsi.value <= 46 || rt.macd.trend === 'BEARISH_EXPANSION' || rt.rsi.divergence === 'BEARISH_DIVERGENCE') bearMatches++;
-  if (pcrTotalOI <= 0.92 || rt.orderFlow.sentiment === 'SELLER_DOMINANCE' || nearbyCeOIChg > nearbyPeOIChg * 1.15) bearMatches++;
+  if (pcrTotalOI <= 0.92 || rt.orderFlow.sentiment === 'SELLER_DOMINANCE' || (nearbyCeOIChg > 0 && nearbyCeOIChg > nearbyPeOIChg * 1.15)) bearMatches++;
   if (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -6) bearMatches++;
 
   // =========================================================================

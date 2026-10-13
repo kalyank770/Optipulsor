@@ -547,7 +547,7 @@ export interface AdvanceTradeSetup {
 
 export interface SignalStabilityLock {
   isActive: boolean;
-  lockDurationSeconds: number; // Exactly 60 seconds
+  lockDurationSeconds: number; // Exactly 30 seconds
   secondsRemaining: number;
   lockedAtTimestamp: number;
   expiresAtTimestamp: number;
