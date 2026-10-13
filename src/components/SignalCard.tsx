@@ -10,7 +10,6 @@ import { PredictionValidationCard } from './PredictionValidationCard';
 import { MarketHoursStatus } from '../utils/marketHours';
 import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { AdvanceTradeCard } from './AdvanceTradeCard';
-import { StabilityLockBadge } from './StabilityLockBadge';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -644,7 +643,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                 <div className="font-bold text-slate-200 text-xs flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span>⏸️ Consolidation Phase · Stand Aside</span>
-                    <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
                   </div>
                   <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                     No Action
@@ -674,7 +672,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     <span className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
                       <span>⏸️ Capital Preservation Mandate · Stand Aside</span>
                     </span>
-                    <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
                   </div>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold uppercase">
                     Wait Neutral
@@ -714,7 +711,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   }`}>
                     <span>⚡ Active {isBearAction ? 'Put (PE)' : 'Call (CE)'} Entry Signal</span>
                   </span>
-                  <StabilityLockBadge stabilityLock={signal.stabilityLock} action={signal.action} size="xs" />
                 </div>
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold border ${
                   isBearAction 

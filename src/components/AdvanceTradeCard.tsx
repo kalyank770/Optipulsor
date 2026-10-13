@@ -9,7 +9,6 @@ import {
 } from '../types/options';
 import { MarketHoursStatus } from '../utils/marketHours';
 import { MoneynessBadge, getMoneyness } from './MoneynessBadge';
-import { StabilityLockBadge } from './StabilityLockBadge';
 import { 
   Zap, 
   ShieldCheck, 
@@ -228,13 +227,6 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                       : `SIDEWAYS (${signal?.sidewaysMarketAnalysis?.compressionPercentage || 64}% Chop)`}
                   </span>
                 </span>
-
-                {/* Pillar 4: 30-Second Prediction Stability Lock & Anti-Whipsaw Badge */}
-                <StabilityLockBadge 
-                  stabilityLock={signal?.stabilityLock} 
-                  action={signal?.action || setup.anticipatedAction} 
-                  size="xs" 
-                />
               </div>
             </div>
           </div>

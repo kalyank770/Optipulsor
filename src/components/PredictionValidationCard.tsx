@@ -310,6 +310,14 @@ export const PredictionValidationCard: React.FC<PredictionValidationCardProps> =
                   </span>
                 </div>
               </div>
+
+              {/* Explanatory note for Strike difference */}
+              <div className="px-2.5 py-1.5 rounded bg-slate-950/80 border border-slate-800 text-[10.5px] font-mono text-slate-300 flex items-center gap-2 mt-1">
+                <span className="text-sky-400 font-bold shrink-0">💡 Note:</span>
+                <span>
+                  <strong>Overnight Snapshot Strike ({activeRecord.parameters.predictedHitStrike} {activeRecord.parameters.predictedOptionType})</strong> reflects the pre-market AI opening model. <strong>Live Trade Recommendations</strong> dynamically switch strikes (e.g. 22700 / 22750 CE) based on actual live spot price (₹{ticker.spotPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}).
+                </span>
+              </div>
             </div>
           )}
 
