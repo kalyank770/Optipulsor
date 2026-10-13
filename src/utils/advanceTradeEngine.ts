@@ -34,11 +34,13 @@ export function computeAdvanceTradeSetup(
   constituentAnalysis?: NiftyConstituentAnalysis,
   interMarketTelemetry?: InterMarketTelemetry,
   currentSignalAction: SignalAction = 'WAIT_NEUTRAL',
-  expiryIndex: number = 0
+  expiryIndex: number = 0,
+  forcedStrike?: number,
+  forcedType?: OptionType
 ): AdvanceTradeSetup {
   const spotPrice = ticker.spotPrice;
   const step = ticker.strikeStep;
-  const atmStrike = ticker.atmStrike;
+  const atmStrike = metrics?.atmStrike || Math.round(spotPrice / step) * step;
   const isBankNifty = ticker.symbol.includes('BANK');
 
   // --- 1. FACTOR 1: OI SHIFT & UNWINDING VELOCITY ---
@@ -808,13 +810,15 @@ export function computeAdvanceTradeSetup(
   ];
   const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
-  let anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' = 'WAIT_NEUTRAL';
+  let anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' = currentSignalAction || 'WAIT_NEUTRAL';
   let setupType: AdvanceSetupType = 'EQUILIBRIUM_WAIT';
   let probabilityScore = 55;
   let leadTimeAdvantageMinutes = 3.0;
 
   if (totalBearScore >= 1.6 && totalBearScore > totalBullScore + 0.4 && !isDerivativesOrCandleBullish) {
-    anticipatedAction = 'BUY_PE';
+    if (currentSignalAction === 'BUY_PE' || currentSignalAction === 'WAIT_NEUTRAL') {
+      anticipatedAction = 'BUY_PE';
+    }
     probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
 
@@ -828,7 +832,9 @@ export function computeAdvanceTradeSetup(
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
   } else if (totalBullScore >= 1.6 && totalBullScore > totalBearScore + 0.4 && !isDerivativesOrCandleBearish) {
-    anticipatedAction = 'BUY_CE';
+    if (currentSignalAction === 'BUY_CE' || currentSignalAction === 'WAIT_NEUTRAL') {
+      anticipatedAction = 'BUY_CE';
+    }
     probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBullScore * 4.2 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
@@ -849,6 +855,15 @@ export function computeAdvanceTradeSetup(
     leadTimeAdvantageMinutes = 1.0;
   }
 
+  // Directional signal actions align with advance setups; if current signal action is WAIT_NEUTRAL, preserve advance leading pre-breakout/pre-breakdown setups
+  if (currentSignalAction === 'BUY_CE') {
+    anticipatedAction = 'BUY_CE';
+    if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
+  } else if (currentSignalAction === 'BUY_PE') {
+    anticipatedAction = 'BUY_PE';
+    if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKDOWN_COILING_PE';
+  }
+
   // --- STRIKE, ZONE & OPTION TARGET CALCULATIONS ---
   const isBearishSkew = (
     anticipatedAction === 'BUY_PE' ||
@@ -860,10 +875,10 @@ export function computeAdvanceTradeSetup(
     ))
   );
 
-  const recType: OptionType = isBearishSkew ? 'PE' : 'CE';
-  const recStrike = recType === 'PE'
+  const recType: OptionType = forcedType || (isBearishSkew ? 'PE' : 'CE');
+  const recStrike = forcedStrike || (recType === 'PE'
     ? (spotPrice <= atmStrike - step * 0.3 ? atmStrike - step : atmStrike)
-    : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike);
+    : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike));
 
   // Spot entry zone and breakout level
   let advanceEntryZoneSpot: [number, number];

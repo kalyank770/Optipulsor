@@ -17,7 +17,9 @@ import {
   ShieldAlert, 
   ShieldCheck,
   Copy, 
+  Check,
   CheckCircle2, 
+  PlayCircle,
   Maximize2,
   ArrowUpRight, 
   ArrowDownRight,
@@ -235,6 +237,120 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         </div>
       )}
 
+      {/* Position Sizing & Order Execution Panel */}
+      <div className={`mt-3 p-3.5 sm:p-4 rounded-xl border transition-all ${
+        isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-950/90 border-slate-800 text-slate-100'
+      }`}>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
+          <div className="flex items-center gap-2">
+            <Calculator className="w-4 h-4 text-emerald-400" />
+            <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">
+              Position Sizing &amp; Capital Allocation Desk
+            </h4>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+              Lot Size: {ticker.lotSize}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleCopy}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-semibold transition-all cursor-pointer border ${
+                copied 
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                  : 'bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-700'
+              }`}
+              title="Copy complete trade recommendation alert with entry, targets, SL & capital"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+              <span>{copied ? 'Copied Alert!' : 'Copy Alert'}</span>
+            </button>
+
+            <button
+              onClick={() => onSelectContractForSimulation(signal.recommendedStrike, signal.recommendedType)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition-all cursor-pointer shadow-sm shadow-emerald-500/20"
+              title="Simulate this contract in Paper Trading Desk"
+            >
+              <PlayCircle className="w-3.5 h-3.5 text-white" />
+              <span>Paper Trade</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Lot Selector & Capital Summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mt-2.5 text-xs font-mono">
+          {/* Lots Selector */}
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-[10px] text-slate-400 font-sans uppercase block">Order Quantity</span>
+            <div className="flex items-center gap-1 mt-1">
+              {quickLots.map(l => (
+                <button
+                  key={l}
+                  onClick={() => setLots(l)}
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-bold transition-colors cursor-pointer ${
+                    lots === l
+                      ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                      : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700'
+                  }`}
+                >
+                  {l}L
+                </button>
+              ))}
+              <span className="text-[11px] font-bold text-slate-300 ml-1">
+                ({totalQty} Qty)
+              </span>
+            </div>
+          </div>
+
+          {/* Capital Deployed */}
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+            <span className="text-[10px] text-slate-400 font-sans uppercase block">Capital Required</span>
+            <div className="text-sm font-bold text-white mt-1">
+              {ticker.currency}{totalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span className="text-[10px] text-slate-400">@ {ticker.currency}{currentLTP.toFixed(2)} LTP</span>
+          </div>
+
+          {/* Target 1 Projected Gain */}
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-emerald-500/30">
+            <div className="flex items-center justify-between text-[10px] font-sans uppercase">
+              <span className="text-slate-400">Target 1 Gain</span>
+              <span className="text-emerald-400 font-bold">+{t1ProfitPct}%</span>
+            </div>
+            <div className="text-sm font-bold text-emerald-400 mt-1">
+              +{ticker.currency}{t1ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span className="text-[10px] text-emerald-300/80 font-mono">T1 @ {ticker.currency}{target1.toFixed(2)}</span>
+          </div>
+
+          {/* Stop Loss Max Risk */}
+          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-rose-500/30">
+            <div className="flex items-center justify-between text-[10px] font-sans uppercase">
+              <span className="text-slate-400">Stop Loss Risk</span>
+              <span className="text-rose-400 font-bold">-{slLossPct}%</span>
+            </div>
+            <div className="text-sm font-bold text-rose-400 mt-1">
+              -{ticker.currency}{slLossTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span className="text-[10px] text-rose-300/80 font-mono">SL @ {ticker.currency}{stopLoss.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* Trade Parameters Corridor */}
+        <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-300">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span>R:R Ratio: <strong className="text-emerald-400">{signal.riskRewardRatio}</strong></span>
+            <span>·</span>
+            <span>Breakeven Spot: <strong className="text-white">{ticker.currency}{breakevenSpot.toFixed(2)}</strong></span>
+            <span>·</span>
+            <span>Target 2: <strong className="text-emerald-400">+{ticker.currency}{t2ProfitTotal.toLocaleString()} (+{t2ProfitPct}%) @ {ticker.currency}{target2.toFixed(2)}</strong></span>
+          </div>
+          <span className="text-[10.5px] text-slate-400">
+            Contract: <strong className="text-slate-200">{signal.recommendedStrike} {signal.recommendedType} ({signal.moneyness})</strong>
+          </span>
+        </div>
+      </div>
+
       {/* Closing Auction (CAS · 3:30 - 3:40 PM) Notice */}
       {marketStatus?.isCasSession && (
         <div className="mt-3 px-3.5 py-2.5 rounded-lg bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-3 flex-wrap font-sans">
@@ -395,13 +511,19 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                     </div>
                     <div>
                       <div className="font-bold text-amber-300 text-xs sm:text-sm flex items-center gap-2 flex-wrap">
-                        <span>⏸️ Active Scenario: Sideways Range-Bound Equilibrium</span>
+                        <span>
+                          {signal.advanceTradeSetup && signal.advanceTradeSetup.anticipatedAction !== 'WAIT_NEUTRAL'
+                            ? `⚡ Pre-Breakout Coiling: ${signal.advanceTradeSetup.recommendedStrike} ${signal.advanceTradeSetup.recommendedType} Watch`
+                            : '⏸️ Active Scenario: Sideways Range-Bound Equilibrium'}
+                        </span>
                         <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-normal">
                           {sw.regimeType.replace(/_/g, ' ')}
                         </span>
                       </div>
                       <span className="text-[11px] text-amber-200/80 font-mono">
-                        Theta Decay Market · Both CE & PE Option Buying Strictly Prohibited
+                        {signal.advanceTradeSetup && signal.advanceTradeSetup.anticipatedAction !== 'WAIT_NEUTRAL'
+                          ? `Consolidation Deadband · Awaiting Breakout Trigger (${ticker.currency}${signal.advanceTradeSetup.breakoutConfirmationSpot}) before entry`
+                          : 'Theta Decay Market · Stand Aside in Cash Until Range Breakout'}
                       </span>
                     </div>
                   </div>

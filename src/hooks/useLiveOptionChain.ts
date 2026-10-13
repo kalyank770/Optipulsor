@@ -932,6 +932,7 @@ export function useLiveOptionChain() {
         if (data.analysis) {
           const analysisObj: NiftyConstituentAnalysis = {
             ...data.analysis,
+            symbol: sym,
             constituents: data.constituents,
             asOnTime: data.asOnTime,
             isLiveSynced: true,

@@ -69,11 +69,10 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
 
   const isSignalWait = signal?.action === 'WAIT_NEUTRAL';
   const isSetupWait = setup.anticipatedAction === 'WAIT_NEUTRAL';
-  const isWait = isSignalWait || isSetupWait;
-
-  const isBull = !isWait && (signal?.action === 'BUY_CE' || setup.anticipatedAction === 'BUY_CE');
-  const isBear = !isWait && (signal?.action === 'BUY_PE' || setup.anticipatedAction === 'BUY_PE');
-  const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways);
+  const isBull = signal?.action === 'BUY_CE' || (signal?.action !== 'BUY_PE' && setup.anticipatedAction === 'BUY_CE');
+  const isBear = signal?.action === 'BUY_PE' || (signal?.action !== 'BUY_CE' && setup.anticipatedAction === 'BUY_PE');
+  const isWait = !isBull && !isBear;
+  const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways && isWait);
 
   // Spot buffer for invalidation
   const spotBuffer = ticker.currency === '$' ? 1.5 : (ticker.symbol.includes('BANK') ? 60 : 25);
@@ -335,7 +334,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           'bg-slate-900/80 border-slate-800'
         }`}>
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'REFERENCE STRIKE' : 'REFERENCE STRIKE (ORB)') : 'RECOMMENDED STRIKE'}</span>
+            <span>{isWait ? 'REFERENCE WATCH CONTRACT' : 'RECOMMENDED STRIKE'}</span>
             <span className={`font-bold text-[10px] px-1.5 py-0.2 rounded border ${
               isBull ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' :
               isBear ? 'bg-rose-950 text-rose-300 border-rose-500/40' :
@@ -391,11 +390,11 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           </div>
           <div className="mt-1">
             <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : isProfitLocked ? 'text-emerald-300' : 'text-rose-300'}`}>
-              {isWait ? 'Stand Aside at 09:15 Open' : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
+              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Stand Aside (Capital Preservation)' : 'Stand Aside at 09:15 Open') : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
               {isWait ? (
-                <span className="text-slate-400 font-sans">Zero naked trades on flat gap</span>
+                <span className="text-slate-400 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Zero naked trades in chop deadband' : 'Zero naked trades on flat gap'}</span>
               ) : isProfitLocked ? (
                 <div className="space-y-0.5">
                   <span className="flex items-center gap-1 flex-wrap">
