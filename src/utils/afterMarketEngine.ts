@@ -123,12 +123,16 @@ export function computeAfterMarketOpeningAnalytics(
   // Integrate real candlestick confluence & late-session price action
   if (candlePatterns) {
     openMomentumScore += (candlePatterns.confluenceScore * 0.45);
-    if (candlePatterns.confluenceBias === 'BEARISH' && dayStructureVerdict === 'BULLISH_ACCUMULATION') {
-      // Counterbalance: Daily bar was green, but late session printed sharp profit-booking breakdown
-      openMomentumScore -= 2.2;
-    } else if (candlePatterns.confluenceBias === 'BULLISH' && dayStructureVerdict === 'BEARISH_DISTRIBUTION') {
-      openMomentumScore += 2.2;
+    if (candlePatterns.confluenceBias === 'BEARISH') {
+      openMomentumScore -= 3.5;
+    } else if (candlePatterns.confluenceBias === 'BULLISH') {
+      openMomentumScore += 3.5;
     }
+  }
+
+  if (metrics) {
+    if (metrics.pcrTotalOI <= 0.90) openMomentumScore -= 2.5;
+    else if (metrics.pcrTotalOI >= 1.15) openMomentumScore += 2.5;
   }
 
   let predictedOpeningSpot = spotClose;
@@ -217,7 +221,7 @@ export function computeAfterMarketOpeningAnalytics(
       : `Daily closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}).`;
 
     hitReason = `Flat / Neutral opening expected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} However, a flat opening offers zero gap impulse at 09:15 AM. Buying naked options (CE or PE) at market open on a flat gap carries severe risk of rapid Theta decay and instant opening IV crush. CAPITAL PRESERVATION PROTOCOL: STAND ASIDE in WAIT for the first 15 minutes (09:15 - 09:30 AM). Allow the market to print its 15-Minute Opening Range (ORB); monitor reference contract ${tomorrowStrike} ${tomorrowType} for entry ONLY if spot decisively breaks down below the 15-Minute Range Low / Support (${ticker.currency}${supFloor.toLocaleString()}) after 09:30 AM. If spot reverses and breaks out above ${ticker.currency}${resWall.toLocaleString()}, switch to Call setup.`;
-  } else if (openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING') {
+  } else if ((openMomentumScore > 0 || predictedOpeningType === 'GAP_UP_OPENING') && candlePatterns?.confluenceBias !== 'BEARISH' && (metrics?.pcrTotalOI ?? 1.0) > 0.88) {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';
     tomorrowType = 'CE';

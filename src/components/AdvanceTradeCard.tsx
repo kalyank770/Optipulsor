@@ -66,12 +66,21 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   // Collapsed by default as requested
   const [showRadarDetails, setShowRadarDetails] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeCategoryTab, setActiveCategoryTab] = useState<'ALL' | 'DERIVATIVES_MICROSTRUCTURE' | 'PRICE_ACTION_MOMENTUM' | 'MACRO_TIMEFRAME'>('ALL');
 
   const isSignalWait = signal?.action === 'WAIT_NEUTRAL';
-  const isBull = !isSignalWait && (signal?.action === 'BUY_CE' || setup.anticipatedAction === 'BUY_CE');
-  const isBear = !isSignalWait && (signal?.action === 'BUY_PE' || setup.anticipatedAction === 'BUY_PE');
-  const isWait = isSignalWait || setup.anticipatedAction === 'WAIT_NEUTRAL';
+  const isSetupWait = setup.anticipatedAction === 'WAIT_NEUTRAL';
+  const isWait = isSignalWait || isSetupWait;
+
+  const isBull = !isWait && (signal?.action === 'BUY_CE' || setup.anticipatedAction === 'BUY_CE');
+  const isBear = !isWait && (signal?.action === 'BUY_PE' || setup.anticipatedAction === 'BUY_PE');
   const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways);
+
+  // Spot buffer for invalidation
+  const spotBuffer = ticker.currency === '$' ? 1.5 : (ticker.symbol.includes('BANK') ? 60 : 25);
+  const effectiveSpotStopLoss = isBear
+    ? (setup.advanceStopLossSpot > ticker.spotPrice ? setup.advanceStopLossSpot : Number((ticker.spotPrice + spotBuffer).toFixed(2)))
+    : (setup.advanceStopLossSpot < ticker.spotPrice ? setup.advanceStopLossSpot : Number((ticker.spotPrice - spotBuffer).toFixed(2)));
 
   // Find live option LTP
   const contractRow = chain?.find(r => r.strike === setup.recommendedStrike);
@@ -351,7 +360,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           </div>
           <div className="mt-1">
             <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : 'text-rose-300'}`}>
-              {isWait ? 'Stand Aside at 09:15 Open' : `Spot: ${ticker.currency}${setup.advanceStopLossSpot.toLocaleString()}`}
+              {isWait ? 'Stand Aside at 09:15 Open' : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5">
               {isWait ? (
@@ -380,7 +389,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         </div>
       </div>
 
-      {/* 5+ LEADING PREDICTORS RADAR (COLLAPSED BY DEFAULT) */}
+      {/* 15-PILLAR LEADING PREDICTORS RADAR (COLLAPSED BY DEFAULT) */}
       <div className="mt-3 relative z-10">
         <button
           onClick={() => setShowRadarDetails(prev => !prev)}
@@ -388,7 +397,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         >
           <div className="flex items-center gap-2">
             <Gauge className="w-4 h-4 text-indigo-400" />
-            <span className="font-bold">Leading Predictors Radar</span>
+            <span className="font-bold">15-Pillar Pipeline Audit Radar</span>
             <span className="text-[10px] text-slate-400">({setup.leadingPredictorFactors.length} factors evaluated)</span>
           </div>
           <div className="flex items-center gap-1.5 text-indigo-400 text-[11px]">
@@ -398,31 +407,90 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         </button>
 
         {showRadarDetails && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2 pt-1 animate-fade-in">
-            {setup.leadingPredictorFactors.map((factor, idx) => (
-              <div 
-                key={idx} 
-                className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between space-y-1.5"
+          <div className="mt-2 space-y-2 animate-fade-in">
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-1 p-1 bg-slate-950/80 rounded-lg border border-slate-800 text-xs font-mono overflow-x-auto">
+              <button
+                onClick={() => setActiveCategoryTab('ALL')}
+                className={`px-2.5 py-1 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeCategoryTab === 'ALL'
+                    ? 'bg-indigo-600 text-white font-bold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
               >
-                <div className="flex items-start justify-between gap-1.5">
-                  <span className="text-xs font-bold text-slate-200 leading-tight">
-                    {factor.name}
-                  </span>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${getFactorBadgeColor(factor.state)}`}>
-                    {factor.state.replace(/_/g, ' ')}
-                  </span>
-                </div>
+                ALL (15 Pillars)
+              </button>
+              <button
+                onClick={() => setActiveCategoryTab('DERIVATIVES_MICROSTRUCTURE')}
+                className={`px-2.5 py-1 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeCategoryTab === 'DERIVATIVES_MICROSTRUCTURE'
+                    ? 'bg-indigo-600 text-white font-bold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Derivatives & Microstructure
+              </button>
+              <button
+                onClick={() => setActiveCategoryTab('PRICE_ACTION_MOMENTUM')}
+                className={`px-2.5 py-1 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeCategoryTab === 'PRICE_ACTION_MOMENTUM'
+                    ? 'bg-indigo-600 text-white font-bold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Price Action & Momentum
+              </button>
+              <button
+                onClick={() => setActiveCategoryTab('MACRO_TIMEFRAME')}
+                className={`px-2.5 py-1 rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeCategoryTab === 'MACRO_TIMEFRAME'
+                    ? 'bg-indigo-600 text-white font-bold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Macro & Multi-Timeframe
+              </button>
+            </div>
 
-                <p className="text-[11px] text-slate-400 leading-normal font-sans">
-                  {factor.valueDescription}
-                </p>
+            {/* Factors Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {setup.leadingPredictorFactors
+                .filter(factor => {
+                  if (activeCategoryTab === 'ALL') return true;
+                  const cat = factor.category;
+                  if (activeCategoryTab === 'DERIVATIVES_MICROSTRUCTURE') {
+                    return cat === 'OI_VELOCITY' || cat === 'HEAVYWEIGHT_LEAD' || cat === 'ORDER_FLOW_DELTA' || cat === 'PCR_DIVERGENCE';
+                  }
+                  if (activeCategoryTab === 'PRICE_ACTION_MOMENTUM') {
+                    return cat === 'VOLATILITY_SQUEEZE' || cat === 'LIQUIDITY_SWEEP' || cat === 'RSI_MOMENTUM' || cat === 'MACD_EXPANSION' || cat === 'VOLUME_ANALYTICS';
+                  }
+                  return cat === 'GLOBAL_MACRO_LEAD' || cat === 'SECTORAL_BREADTH' || cat === 'VIX_VELOCITY' || cat === 'INTERMARKET_TELEMETRY' || cat === 'HTF_ALIGNMENT' || cat === 'HYSTERESIS_STATE';
+                })
+                .map((factor, idx) => (
+                  <div 
+                    key={idx} 
+                    className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between space-y-1.5"
+                  >
+                    <div className="flex items-start justify-between gap-1.5">
+                      <span className="text-xs font-bold text-slate-200 leading-tight">
+                        {factor.name}
+                      </span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${getFactorBadgeColor(factor.state)}`}>
+                        {factor.state.replace(/_/g, ' ')}
+                      </span>
+                    </div>
 
-                <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-850">
-                  <span>Confidence: <strong className="text-slate-300">{factor.confidenceScore}%</strong></span>
-                  <span className="text-emerald-400/90 font-semibold">Active Vector</span>
-                </div>
-              </div>
-            ))}
+                    <p className="text-[11px] text-slate-400 leading-normal font-sans">
+                      {factor.valueDescription}
+                    </p>
+
+                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-850">
+                      <span>Confidence: <strong className="text-slate-300">{factor.confidenceScore}%</strong></span>
+                      <span className="text-emerald-400/90 font-semibold">Active Vector</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
       </div>

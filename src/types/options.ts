@@ -484,7 +484,22 @@ export type AdvanceSetupType =
 
 export interface LeadingPredictorFactor {
   name: string;
-  category: 'OI_VELOCITY' | 'HEAVYWEIGHT_LEAD' | 'ORDER_FLOW_DELTA' | 'VOLATILITY_SQUEEZE' | 'LIQUIDITY_SWEEP' | 'GLOBAL_MACRO_LEAD';
+  category: 
+    | 'OI_VELOCITY' 
+    | 'HEAVYWEIGHT_LEAD' 
+    | 'ORDER_FLOW_DELTA' 
+    | 'VOLATILITY_SQUEEZE' 
+    | 'LIQUIDITY_SWEEP' 
+    | 'GLOBAL_MACRO_LEAD'
+    | 'SECTORAL_BREADTH'
+    | 'RSI_MOMENTUM'
+    | 'MACD_EXPANSION'
+    | 'PCR_DIVERGENCE'
+    | 'VIX_VELOCITY'
+    | 'INTERMARKET_TELEMETRY'
+    | 'VOLUME_ANALYTICS'
+    | 'HTF_ALIGNMENT'
+    | 'HYSTERESIS_STATE';
   state: 'STRONG_BULLISH' | 'MODERATE_BULLISH' | 'NEUTRAL' | 'MODERATE_BEARISH' | 'STRONG_BEARISH';
   leadTimeMinutes: number;
   valueDescription: string;
