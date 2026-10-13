@@ -92,7 +92,7 @@ export interface DayReportSummary {
   selfHealingSummary: string;
 }
 
-const STORAGE_PREFIX = 'optipulse_days_report_v7_';
+const STORAGE_PREFIX = 'optipulse_days_report_v9_';
 
 /**
  * Returns ISO date string YYYY-MM-DD for a given epoch timestamp in exchange timezone (Asia/Kolkata for India, America/New_York for US)
@@ -214,7 +214,11 @@ export function getRecentOfficialTradingDates(count: number = 5, isIndian: boole
     hour12: false
   }).formatToParts(now);
 
-  let y = 2026, m = 10, d = 12, hour = 12, minute = 0;
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth() + 1;
+  let d = now.getUTCDate();
+  let hour = now.getUTCHours();
+  let minute = now.getUTCMinutes();
   for (const p of parts) {
     if (p.type === 'year') y = parseInt(p.value, 10);
     if (p.type === 'month') m = parseInt(p.value, 10);
@@ -309,7 +313,13 @@ export function generateSeedDaysReport(ticker: TickerConfig, chain: OptionChainR
   const session3 = tradingSessions[2]; // e.g. Wednesday 2026-10-07
   const session4 = tradingSessions[3]; // e.g. Tuesday 2026-10-06
 
-  const tsAt = (sess: typeof session1, h: number, m: number) => new Date(sess.year, sess.month, sess.day, h, m).getTime();
+  const tsAt = (sess: typeof session1, h: number, m: number) => {
+    if (isIndian) {
+      return Date.UTC(sess.year, sess.month, sess.day, h - 5, m - 30);
+    } else {
+      return Date.UTC(sess.year, sess.month, sess.day, h + 4, m);
+    }
+  };
 
   const trades: DayReportTrade[] = [
     // =========================================================================
@@ -992,16 +1002,16 @@ export function deduplicateTrades(trades: DayReportTrade[], ticker?: TickerConfi
  * Loads day report trades from LocalStorage with seed fallback and automatic holiday/off-hours purge
  */
 export function loadDaysReport(ticker: TickerConfig, chain: OptionChainRow[]): DayReportTrade[] {
+  const isIndian = !ticker.symbol.includes('SPY') && !ticker.symbol.includes('QQQ') && !ticker.symbol.includes('AAPL') && !ticker.symbol.includes('NVDA');
+  const todayKey = getTradeDateKey(Date.now(), isIndian);
+
+  let trades: DayReportTrade[] = [];
   try {
     const rawV6 = localStorage.getItem(`${STORAGE_PREFIX}${ticker.symbol}`);
     if (rawV6) {
       const parsed: DayReportTrade[] = JSON.parse(rawV6);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const clean = deduplicateTrades(parsed, ticker);
-        if (clean.length > 0) {
-          saveDaysReport(ticker.symbol, clean);
-          return clean;
-        }
+        trades = deduplicateTrades(parsed, ticker);
       }
     }
   } catch (e) {
@@ -1009,8 +1019,22 @@ export function loadDaysReport(ticker: TickerConfig, chain: OptionChainRow[]): D
   }
 
   const seeded = generateSeedDaysReport(ticker, chain);
-  saveDaysReport(ticker.symbol, seeded);
-  return seeded;
+
+  // Guarantee that today's date entries exist if today is an official trading session
+  const hasToday = trades.some(t => (t.dateKey || getTradeDateKey(t.timestamp, isIndian)) === todayKey);
+  const isTodayOfficial = isOfficialTradingDay(todayKey, isIndian);
+
+  if (trades.length === 0 || (isTodayOfficial && !hasToday)) {
+    const todaySeeded = seeded.filter(t => (t.dateKey || getTradeDateKey(t.timestamp, isIndian)) === todayKey);
+    if (todaySeeded.length > 0) {
+      trades = deduplicateTrades([...todaySeeded, ...trades], ticker);
+    } else {
+      trades = seeded;
+    }
+  }
+
+  saveDaysReport(ticker.symbol, trades);
+  return trades;
 }
 
 /**

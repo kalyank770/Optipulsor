@@ -10,54 +10,29 @@ import {
   DayReportSummary,
   loadDaysReport, 
   saveDaysReport, 
-  generateSeedDaysReport,
   updateDaysReportWithLiveTicks, 
   addLiveSignalToReport, 
   computeDaysReportSummary,
   getTradeDateKey,
   formatTradeDateDisplay,
-  deduplicateTrades,
-  isOfficialTradingDay
+  deduplicateTrades
 } from '../utils/daysReportEngine';
-import { 
-  SelfHealingCalibration,
-  loadSelfHealingCalibration,
-  saveSelfHealingCalibration,
-  computeSelfHealingCalibration,
-  diagnoseTradeDiscrepancy
-} from '../utils/selfHealingEngine';
 import { isMarketAutoRefreshActive } from '../utils/marketHours';
 import { MoneynessBadge } from './MoneynessBadge';
 import { 
-  ShieldCheck, 
   Target, 
   TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  Zap, 
+  Calendar, 
+  ChevronDown, 
+  ChevronUp, 
+  ArrowUpRight, 
+  ArrowDownRight, 
   CheckCircle2, 
-  AlertCircle, 
-  Download, 
-  RefreshCw, 
-  PlusCircle, 
+  Activity, 
   FileCheck2, 
-  RotateCcw,
-  Sparkles,
-  ArrowRight,
-  Filter,
-  Award,
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  LayoutList,
-  ArrowUpRight,
-  ArrowDownRight,
-  Info,
-  Sliders,
-  Check,
-  Activity,
-  Cpu
+  Clock, 
+  ArrowRight, 
+  ShieldCheck
 } from 'lucide-react';
 
 interface DaysReportTabProps {
@@ -68,9 +43,6 @@ interface DaysReportTabProps {
   onSyncLiveExchange?: () => void;
   isSyncing?: boolean;
 }
-
-type FilterStatus = 'ALL' | 'TARGET_HITS' | 'TARGET_2_ONLY' | 'ACTIVE_ONLY' | 'CE_ONLY' | 'PE_ONLY' | 'DISCREPANCY_ONLY';
-type ViewMode = 'SIMPLE' | 'DETAILED';
 
 interface DateGroup {
   dateKey: string;
@@ -85,8 +57,7 @@ interface DateGroup {
     winRate: number;
     netSpotPoints: number;
     netOptionPoints: number;
-    avgDiscrepancyPct: number;
-    exactHitsCount: number;
+    avgProfitPercent: number;
     marketProgression: {
       open: number;
       high: number;
@@ -96,7 +67,6 @@ interface DateGroup {
       netChangePct: number;
       trendSummary: string;
     };
-    selfHealingAction: string;
   };
 }
 
@@ -106,22 +76,10 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
   signal,
   onSelectContract,
   onSyncLiveExchange,
-  isSyncing = false,
 }) => {
   const [trades, setTrades] = useState<DayReportTrade[]>(() => loadDaysReport(ticker, chain));
-  const [activeFilter, setActiveFilter] = useState<FilterStatus>('ALL');
-  const [viewMode, setViewMode] = useState<ViewMode>('SIMPLE');
   const [expandedTradeIds, setExpandedTradeIds] = useState<Record<string, boolean>>({});
-  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
-  const [forceAutoRefresh, setForceAutoRefresh] = useState<boolean>(false);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
-  const [showSelfHealingDrawer, setShowSelfHealingDrawer] = useState<boolean>(false);
-
-  // Self-Healing Calibration state
-  const [selfHealing, setSelfHealing] = useState<SelfHealingCalibration>(() => 
-    loadSelfHealingCalibration(ticker.symbol, trades, ticker)
-  );
 
   const toggleTradeDetails = (tradeId: string) => {
     setExpandedTradeIds(prev => ({
@@ -137,26 +95,12 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     }));
   };
 
-  const showFeedback = (msg: string) => {
-    setFeedbackMsg(msg);
-    setTimeout(() => {
-      setFeedbackMsg(null);
-    }, 4000);
-  };
-
-  // Active Market Hours check for Auto-Refresh (09:00 AM to 03:40 PM IST, excluding weekends & Indian holidays)
-  const autoRefreshMarketStatus = useMemo(() => {
-    return isMarketAutoRefreshActive(ticker);
-  }, [ticker]);
-
-  // Reload report & self-healing when active ticker changes
+  // Reload report when active ticker changes
   useEffect(() => {
     const loaded = loadDaysReport(ticker, chain);
     setTrades(loaded);
-    setSelfHealing(loadSelfHealingCalibration(ticker.symbol, loaded, ticker));
   }, [ticker.symbol]);
 
-  // Sync / update report when chain changes or ticker spot ticks
   // Sync / update report when chain changes or ticker spot ticks
   useEffect(() => {
     setTrades(prev => deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain), ticker));
@@ -168,6 +112,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     if (marketStatus.isActive && signal && signal.recommendedStrike && signal.action !== 'WAIT_NEUTRAL') {
       setTrades(prev => {
         const updated = addLiveSignalToReport(prev, signal, ticker);
+        saveDaysReport(ticker.symbol, updated);
         return updated;
       });
     }
@@ -177,9 +122,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
   useEffect(() => {
     const runAutoRefresh = () => {
       const status = isMarketAutoRefreshActive(ticker);
-      const isWindowActive = status.isActive || forceAutoRefresh;
-
-      if (isWindowActive) {
+      if (status.isActive) {
         if (onSyncLiveExchange) {
           onSyncLiveExchange();
         }
@@ -188,149 +131,27 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           saveDaysReport(ticker.symbol, updated);
           return updated;
         });
-
-        const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY') || ticker.symbol.includes('BANK') || ticker.symbol.includes('SENSEX');
-        const timeZone = isIndian ? 'Asia/Kolkata' : 'America/New_York';
-        const formattedTime = new Intl.DateTimeFormat('en-US', {
-          timeZone,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true,
-        }).format(new Date());
-
-        setLastRefreshedAt(formattedTime);
       }
     };
 
     runAutoRefresh();
     const timer = setInterval(runAutoRefresh, 5000);
     return () => clearInterval(timer);
-  }, [ticker, chain, onSyncLiveExchange, forceAutoRefresh]);
+  }, [ticker, chain, onSyncLiveExchange]);
 
   // Compute aggregate summary metrics
   const summary: DayReportSummary = useMemo(() => {
     return computeDaysReportSummary(trades);
   }, [trades]);
 
-  // Trigger manual self-healing re-calibration
-  const handleTriggerSelfHealing = () => {
-    const reCalibrated = computeSelfHealingCalibration(trades, ticker);
-    saveSelfHealingCalibration(ticker.symbol, reCalibrated);
-    setSelfHealing(reCalibrated);
-    showFeedback('Prediction Engine Self-Healed! 6 adaptive parameters re-tuned across historical audit logs.');
-  };
+  // Clean, deduplicated trades list
+  const cleanTrades = useMemo(() => {
+    return deduplicateTrades(trades, ticker);
+  }, [trades, ticker]);
 
-  // Add current active live signal
-  const handleLogCurrentSignal = () => {
-    const marketStatus = isMarketAutoRefreshActive(ticker);
-    if (!marketStatus.isActive && !forceAutoRefresh) {
-      showFeedback('Market is currently closed. Live signal audit logging is active during official exchange trading hours (09:15 AM - 03:30 PM IST).');
-      return;
-    }
-
-    const isIndian = ticker.currency === '₹' || ticker.symbol.includes('NIFTY') || ticker.symbol.includes('BANK') || ticker.symbol.includes('SENSEX');
-    const dateKey = getTradeDateKey(Date.now(), isIndian);
-    if (!isOfficialTradingDay(dateKey, isIndian)) {
-      showFeedback('Market is currently closed for weekend/holiday. Live signal logging is active on official trading sessions.');
-      return;
-    }
-
-    if (!signal.recommendedStrike || signal.action === 'WAIT_NEUTRAL') {
-      showFeedback('Current engine status is WAIT_NEUTRAL. No directional signal is active to log.');
-      return;
-    }
-
-    const updated = addLiveSignalToReport(trades, signal, ticker);
-    setTrades(updated);
-    showFeedback(`Logged ${signal.action === 'BUY_CE' ? 'CALL (CE)' : 'PUT (PE)'} ${signal.recommendedStrike} signal into today's audit!`);
-  };
-
-  // Manual Instant Sync
-  const handleVerifyWithLiveTicks = () => {
-    if (onSyncLiveExchange) {
-      onSyncLiveExchange();
-    }
-    const updated = deduplicateTrades(updateDaysReportWithLiveTicks(trades, ticker, chain), ticker);
-    setTrades(updated);
-    saveDaysReport(ticker.symbol, updated);
-    showFeedback('Audit report refreshed against live exchange spot & option chain ticks!');
-  };
-
-  // Reset Session
-  const handleResetReport = () => {
-    try {
-      localStorage.removeItem(`optipulse_days_report_v5_${ticker.symbol}`);
-      localStorage.removeItem(`optipulse_days_report_v6_${ticker.symbol}`);
-    } catch {
-      // ignore
-    }
-    const seeded = generateSeedDaysReport(ticker, chain);
-    setTrades(seeded);
-    saveDaysReport(ticker.symbol, seeded);
-    setSelfHealing(computeSelfHealingCalibration(seeded, ticker));
-    showFeedback('Audit session reset to verified benchmark prediction logs.');
-  };
-
-  // Export CSV
-  const handleExportCSV = () => {
-    const headers = [
-      'Date', 'Time', 'Ticker', 'Action', 'Strike', 'Type', 'Spot At Signal',
-      'Entry LTP', 'Target 1', 'Target 2', 'Stop Loss', 'Actual Spot Peak',
-      'Actual Option Peak', 'Realized PnL %', 'Status', 'Discrepancy %',
-      'Discrepancy Diagnosis', 'Self-Healing Action', 'Predictive Catalyst'
-    ];
-
-    const rows = trades.map(t => [
-      t.dateKey || '',
-      t.timeFormatted,
-      t.tickerSymbol,
-      t.action,
-      t.strike,
-      t.optionType,
-      t.spotPriceAtSignal,
-      t.recommendedEntry,
-      t.target1,
-      t.target2,
-      t.stopLoss,
-      t.actualSpotSubsequentPeak,
-      t.actualOptionPeakPrice,
-      `${t.netPnlPercent}%`,
-      t.status,
-      `${t.discrepancyPct || 0}%`,
-      `"${(t.discrepancyDiagnosis || '').replace(/"/g, '""')}"`,
-      `"${(t.selfHealedParameterFix || '').replace(/"/g, '""')}"`,
-      `"${(t.predictedCatalyst || '').replace(/"/g, '""')}"`
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${ticker.symbol}_Prediction_Audit_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showFeedback('CSV Audit Report exported successfully!');
-  };
-
-  // Filtered trades list (deduplicated)
-  const filteredTrades = useMemo(() => {
-    const cleanTrades = deduplicateTrades(trades);
-    return cleanTrades.filter(t => {
-      if (activeFilter === 'TARGET_HITS') return t.status === 'TARGET_1_HIT' || t.status === 'TARGET_2_HIT';
-      if (activeFilter === 'TARGET_2_ONLY') return t.status === 'TARGET_2_HIT';
-      if (activeFilter === 'ACTIVE_ONLY') return t.status === 'ACTIVE' || t.status === 'ACTIVE_PROFIT';
-      if (activeFilter === 'CE_ONLY') return t.optionType === 'CE';
-      if (activeFilter === 'PE_ONLY') return t.optionType === 'PE';
-      if (activeFilter === 'DISCREPANCY_ONLY') return (t.discrepancyPct || 0) > 8;
-      return true;
-    });
-  }, [trades, activeFilter]);
-
-  // Group filtered trade predictions by date, ordered by latest date on top
+  // Group trade predictions by date, ordered by latest date on top
   const groupedTrades: DateGroup[] = useMemo(() => {
-    const sorted = [...filteredTrades].sort((a, b) => b.timestamp - a.timestamp);
+    const sorted = [...cleanTrades].sort((a, b) => b.timestamp - a.timestamp);
     
     const map = new Map<string, DayReportTrade[]>();
     for (const trade of sorted) {
@@ -359,13 +180,10 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
       const netSpotPoints = Number(groupTrades.reduce((acc, t) => acc + (t.actualSpotMovementPoints || 0), 0).toFixed(1));
       const netOptionPoints = Number(groupTrades.reduce((acc, t) => acc + (t.netPnlPoints || 0), 0).toFixed(1));
+      const totalProfitPct = groupTrades.reduce((acc, t) => acc + (t.netPnlPercent || 0), 0);
+      const avgProfitPercent = Number((totalProfitPct / Math.max(1, groupTrades.length)).toFixed(1));
 
-      // Calculate Average Discrepancy % for this day
-      const totalDisc = groupTrades.reduce((acc, t) => acc + (t.discrepancyPct || 0), 0);
-      const avgDiscrepancyPct = Number((totalDisc / groupTrades.length).toFixed(1));
-      const exactHitsCount = groupTrades.filter(t => (t.discrepancyPct || 0) <= 6).length;
-
-      // Realistic market progression for the session
+      // Market progression for the session
       const spotValues = groupTrades.map(t => t.spotPriceAtSignal);
       const peakValues = groupTrades.map(t => t.actualSpotSubsequentPeak);
       const allSpots = [...spotValues, ...peakValues];
@@ -385,16 +203,6 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
         trendSummary = `Corrected ${netChange} pts (${netChangePct}%) from morning resistance to test support floor.`;
       }
 
-      // Self-healing session action note
-      let selfHealingAction = '';
-      if (avgDiscrepancyPct <= 5) {
-        selfHealingAction = 'Exact Target Fulfillment: Model parameters verified with zero calibration drift.';
-      } else if (avgDiscrepancyPct <= 12) {
-        selfHealingAction = 'Minor Range Variance: Auto-tuned +25% OI writing resistance weight and locked Target 1 profits.';
-      } else {
-        selfHealingAction = 'Discrepancy Mitigated: Enforced Deep ITM contract delta (0.62) to insulate against IV crush and theta decay.';
-      }
-
       return {
         dateKey,
         displayLabel: dateInfo.display,
@@ -408,8 +216,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
           winRate,
           netSpotPoints,
           netOptionPoints,
-          avgDiscrepancyPct,
-          exactHitsCount,
+          avgProfitPercent,
           marketProgression: {
             open: dayOpen,
             high: dayHigh,
@@ -418,406 +225,134 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
             netChange,
             netChangePct,
             trendSummary
-          },
-          selfHealingAction
+          }
         }
       };
     });
-  }, [filteredTrades]);
+  }, [cleanTrades, ticker]);
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-fade-in pb-12 font-sans">
-      {/* Feedback Toast Notification */}
-      {feedbackMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-emerald-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs border border-emerald-400 animate-bounce">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{feedbackMsg}</span>
-        </div>
-      )}
-
-      {/* 1. MASTER ASSURANCE & RELIABILITY HERO CARD */}
+      {/* 1. HERO AUDIT HEADER & STATS RIBBON */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
                 <FileCheck2 className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                  <span>Prediction Audit &amp; Performance</span>
+                  <span>Suggested vs. Actual Trade History</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Audit trail comparing predictions against real market outcomes with discrepancy analysis.
+                  Strictly read-only 1-week audit trail comparing model trade recommendations against realized market execution.
                 </p>
-
-                {/* Auto-Refresh Status Pill */}
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {autoRefreshMarketStatus.isActive || forceAutoRefresh ? (
-                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold">
-                      <span className="relative flex h-2 w-2 shrink-0">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                      </span>
-                      <span>Auto-Refreshing Live (9:00 AM – 3:40 PM IST)</span>
-                      {lastRefreshedAt && <span className="text-[10px] text-emerald-400/90 font-mono">· Last: {lastRefreshedAt}</span>}
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-950/80 border border-slate-700/60 text-slate-300 text-[11px] font-medium">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                      <span>Auto-Refresh Paused · {autoRefreshMarketStatus.reason}</span>
-                      <span className="text-[10px] text-slate-400">({autoRefreshMarketStatus.windowLabel})</span>
-                    </div>
-                  )}
-
-                  {/* Test Auto-Refresh Icon Button */}
-                  <button
-                    onClick={() => setForceAutoRefresh(prev => !prev)}
-                    className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center justify-center shrink-0 ${
-                      forceAutoRefresh
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-xs shadow-emerald-500/30'
-                        : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border-slate-700/80 hover:bg-slate-700/80'
-                    }`}
-                    title={forceAutoRefresh ? 'Test Auto-Refresh Override: ACTIVE' : 'Test Auto-Refresh outside market hours'}
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 shrink-0 ${forceAutoRefresh ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
-                  </button>
-                </div>
               </div>
             </div>
           </div>
 
-          {/* Action Bar */}
-          <div className="flex flex-wrap items-center gap-2 self-start lg:self-center">
-            {/* Self-Heal Trigger Button */}
-            <button
-              onClick={handleTriggerSelfHealing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md cursor-pointer shrink-0 border border-indigo-400/50"
-              title="Analyze discrepancies and auto-tune prediction algorithm parameters"
-            >
-              <Cpu className="w-3.5 h-3.5 shrink-0" />
-              <span>Self-Heal Algorithm</span>
-            </button>
-
-            <button
-              onClick={handleLogCurrentSignal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-xs cursor-pointer shrink-0"
-              title="Snapshot and add the active live signal to today's prediction log"
-            >
-              <PlusCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>Log Live Signal</span>
-            </button>
-
-            <button
-              onClick={handleVerifyWithLiveTicks}
-              disabled={isSyncing}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition-all cursor-pointer disabled:opacity-50 shrink-0"
-              title="Manual Instant Sync: Force re-verify all trade outcomes against latest exchange ticks now"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
-            </button>
-
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition-all cursor-pointer shrink-0"
-              title="Download Day's Report as CSV"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span className="hidden sm:inline">Export CSV</span>
-            </button>
-
-            <button
-              onClick={handleResetReport}
-              className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-xs transition-all cursor-pointer shrink-0"
-              title="Reset Session: Clear custom logged signals and restore default benchmark log"
-            >
-              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-            </button>
+          <div className="flex items-center gap-2 text-xs text-slate-400 font-mono self-start lg:self-center">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Verified Exchange Data Source: <strong className="text-slate-200">NSE India</strong></span>
           </div>
         </div>
 
-        {/* AUTONOMOUS SELF-HEALING STATUS BANNER */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950 border border-indigo-500/40 relative overflow-hidden space-y-2.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
-              </span>
-              <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5 font-mono">
-                <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Autonomous Self-Healing Engine Active</span>
-              </span>
-              <span className="text-[10px] bg-indigo-950/80 text-indigo-200 border border-indigo-500/30 px-2 py-0.5 rounded-full font-mono">
-                Calibrated: {selfHealing.lastCalibratedAt}
-              </span>
-            </div>
-
-            <button
-              onClick={() => setShowSelfHealingDrawer(!showSelfHealingDrawer)}
-              className="text-xs text-indigo-300 hover:text-white flex items-center gap-1 font-semibold transition-colors cursor-pointer self-start sm:self-auto"
-            >
-              <span>{showSelfHealingDrawer ? 'Hide Tuned Parameters' : 'View Self-Healed Parameters & Diagnostics'}</span>
-              {showSelfHealingDrawer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-
-          <p className="text-xs text-slate-300 leading-relaxed">
-            {selfHealing.healingSummaryText}
-          </p>
-
-          {/* Expandable Deep Self-Healing Parameter Badges */}
-          {showSelfHealingDrawer && (
-            <div className="pt-3 border-t border-slate-800/80 space-y-3 animate-fade-in">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-sans">OI Wall Resistance Damping</span>
-                  <strong className="text-emerald-400 text-xs">+{Math.round((selfHealing.parameters.oiWritingWallResistanceWeight - 1.0) * 100)}% Barrier Weight</strong>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Prevents buying calls into Call OI walls</span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-sans">Delta Moneyness Preference</span>
-                  <strong className="text-sky-300 text-xs">Delta {selfHealing.parameters.deltaTargetMoneynessBias} (ITM)</strong>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Shields intrinsic premium from IV crush</span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-sans">FII Flow Divergence Floor</span>
-                  <strong className="text-indigo-300 text-xs">{selfHealing.parameters.fiiDecouplingConfidenceFloor}% Confidence</strong>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Filters out contrary institutional flows</span>
-                </div>
-
-                <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-sans">PCR Extreme Target Scale</span>
-                  <strong className="text-amber-300 text-xs">{Math.round(selfHealing.parameters.pcrExtremeTargetScale * 100)}% of T1</strong>
-                  <span className="text-[9px] text-slate-500 block mt-0.5">Early profit locking before mean reversion</span>
-                </div>
-              </div>
-
-              {/* Diagnostic Insights List */}
-              <div className="space-y-2">
-                <span className="text-[11px] font-bold text-slate-300 block">Identified Root Causes &amp; Automated Remediation:</span>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                  {selfHealing.insights.map((ins, i) => (
-                    <div key={i} className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-indigo-300 text-[11px]">{ins.title}</span>
-                        <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                          {ins.occurrenceCount} Occurrences
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 leading-tight">{ins.explanation}</p>
-                      <p className="text-[10.5px] text-emerald-400 font-medium">✓ {ins.healingParameterAction}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 4 HIGH-IMPACT RELIABILITY & DISCREPANCY METRIC CARDS */}
+        {/* 4 HIGH-IMPACT METRIC CARDS */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 font-mono">
-          {/* Metric 1: Win Rate & Target Accuracy */}
-          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 flex flex-col justify-between relative overflow-hidden h-full">
+          {/* Card 1: Total Trades Logged */}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col justify-between h-full">
+            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
+              <span className="font-semibold text-slate-300 flex items-center gap-1.5 min-w-0">
+                <Clock className="w-4 h-4 text-sky-400 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Trades Logged</span>
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                1 WEEK
+              </span>
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight my-1">
+                {summary.totalCalls} Trades
+              </div>
+              <div className="text-[11px] text-slate-400 font-sans leading-tight">
+                Across past 7 trading sessions
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Target Win Rate */}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-emerald-500/30 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
               <span className="font-semibold text-emerald-400 flex items-center gap-1.5 min-w-0">
-                <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span className="truncate text-[11px] sm:text-xs">Target Accuracy</span>
+                <Target className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Target Win Rate</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 font-mono">
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono">
                 {summary.reliabilityGrade}
               </span>
             </div>
             <div>
-              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight whitespace-nowrap my-1">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-emerald-400 tracking-tight my-1">
                 {summary.winRatePercent}%
               </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
+              <div className="text-[11px] text-slate-400 font-sans leading-tight">
                 {summary.successfulCalls} of {summary.totalCalls} recommendations hit targets ({summary.target2Hits} hit Target 2)
               </div>
             </div>
           </div>
 
-          {/* Metric 2: Net Index Points Captured */}
-          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-sky-500/30 flex flex-col justify-between relative overflow-hidden h-full">
+          {/* Card 3: Net Index Spot Points */}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-sky-500/30 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
               <span className="font-semibold text-sky-400 flex items-center gap-1.5 min-w-0">
-                <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span className="truncate text-[11px] sm:text-xs">Net Points</span>
+                <TrendingUp className="w-4 h-4 text-sky-400 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Net Spot Move</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 shrink-0 font-sans">
-                Spot Move
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 font-sans">
+                Index Points
               </span>
             </div>
             <div>
-              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-emerald-400 tracking-tight whitespace-nowrap my-1">
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-sky-300 tracking-tight my-1">
                 +{summary.netSpotPoints} pts
               </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
-                +{summary.netOptionPoints} pts option premium (Avg +{summary.avgProfitPercent}%)
+              <div className="text-[11px] text-slate-400 font-sans leading-tight">
+                Cumulative directional index movement captured
               </div>
             </div>
           </div>
 
-          {/* Metric 3: Average Target Discrepancy % */}
-          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-indigo-500/30 flex flex-col justify-between relative overflow-hidden h-full">
-            <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
-              <span className="font-semibold text-indigo-400 flex items-center gap-1.5 min-w-0">
-                <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span className="truncate text-[11px] sm:text-xs">Avg Discrepancy</span>
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shrink-0 font-sans">
-                Precision
-              </span>
-            </div>
-            <div>
-              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-indigo-300 tracking-tight whitespace-nowrap my-1">
-                {summary.avgDiscrepancyPct}%
-              </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
-                {summary.exactHitsCount} of {summary.totalCalls} calls reached exact targets with &lt;6% variance
-              </div>
-            </div>
-          </div>
-
-          {/* Metric 4: Self-Healing Parameters Status */}
-          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 flex flex-col justify-between relative overflow-hidden h-full">
+          {/* Card 4: Net Option Premium P&L */}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-950/90 border border-amber-500/30 flex flex-col justify-between h-full">
             <div className="flex items-center justify-between gap-1 text-xs font-sans text-slate-400 mb-2">
               <span className="font-semibold text-amber-400 flex items-center gap-1.5 min-w-0">
-                <Cpu className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                <span className="truncate text-[11px] sm:text-xs">Self-Healing</span>
+                <Activity className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate text-[11px] sm:text-xs">Option Premium P&amp;L</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 font-sans">
-                Active
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-sans">
+                Premium
               </span>
             </div>
             <div>
-              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-amber-300 tracking-tight whitespace-nowrap my-1">
-                6 Parameters
+              <div className="text-xl sm:text-2xl lg:text-3xl font-black text-amber-300 tracking-tight my-1">
+                +{summary.netOptionPoints} pts
               </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-400 font-sans mt-1 leading-tight line-clamp-2">
-                Adaptive weights tuned to eliminate discrepancy patterns
+              <div className="text-[11px] text-slate-400 font-sans leading-tight">
+                Avg +{summary.avgProfitPercent}% return per contract trade
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Assurance Verdict Banner */}
-        <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 font-sans">
-          <div className="flex items-start gap-2.5">
-            <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <span className="font-bold text-white block">
-                {summary.reliabilityHeadline}
-              </span>
-              <p className="text-slate-300 text-[12px] leading-relaxed">
-                {summary.reliabilityExplanation}
-              </p>
-            </div>
-          </div>
-          <div className="shrink-0 flex items-center gap-2 self-end md:self-center font-mono text-[11px] text-slate-400">
-            <span>Verified Source: <strong className="text-slate-200">National Stock Exchange of India (NSE)</strong></span>
           </div>
         </div>
       </div>
 
-      {/* 2. FILTER & VIEW MODE TOOLBAR */}
-      <div className="space-y-2.5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 text-xs font-mono">
-            <div className="flex items-center gap-1 text-slate-400 font-sans shrink-0 mr-1">
-              <Filter className="w-3.5 h-3.5 text-slate-500" />
-              <span>Filter:</span>
-            </div>
-
-            {[
-              { id: 'ALL', label: `All Trades (${trades.length})` },
-              { id: 'TARGET_HITS', label: `🎯 Targets Cleared (${trades.filter(t => t.status.includes('HIT')).length})` },
-              { id: 'TARGET_2_ONLY', label: `Target 2 Runners (${trades.filter(t => t.status === 'TARGET_2_HIT').length})` },
-              { id: 'ACTIVE_ONLY', label: `Active (${trades.filter(t => t.status.includes('ACTIVE')).length})` },
-              { id: 'DISCREPANCY_ONLY', label: `⚠️ Variances (${trades.filter(t => (t.discrepancyPct || 0) > 8).length})` },
-              { id: 'CE_ONLY', label: `Calls (CE) (${trades.filter(t => t.optionType === 'CE').length})` },
-              { id: 'PE_ONLY', label: `Puts (PE) (${trades.filter(t => t.optionType === 'PE').length})` },
-            ].map(f => (
-              <button
-                key={f.id}
-                onClick={() => setActiveFilter(f.id as FilterStatus)}
-                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer text-xs font-semibold shrink-0 ${
-                  activeFilter === f.id
-                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          {/* View Mode Toggle: Simple vs Detailed */}
-          <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl shrink-0 self-start sm:self-auto">
-            <button
-              onClick={() => setViewMode('SIMPLE')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                viewMode === 'SIMPLE'
-                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>Simple View</span>
-            </button>
-            <button
-              onClick={() => setViewMode('DETAILED')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                viewMode === 'DETAILED'
-                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <LayoutList className="w-3.5 h-3.5" />
-              <span>Detailed Audit</span>
-            </button>
-          </div>
-        </div>
-
-        {/* User-Friendly Explainer Tip */}
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-sans px-1">
-          <span className="flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span>
-              {viewMode === 'SIMPLE' 
-                ? 'Simple View active: Shows entry, predicted target, real-world progression, discrepancy %, and self-healing fixes.'
-                : 'Detailed Audit active: Showing full technical parameters, predictive catalysts, and verified exchange audit notes.'}
-            </span>
-          </span>
-          {viewMode === 'SIMPLE' && (
-            <button
-              onClick={() => {
-                const allExpanded: Record<string, boolean> = {};
-                filteredTrades.forEach(t => { allExpanded[t.id] = true; });
-                setExpandedTradeIds(allExpanded);
-              }}
-              className="text-emerald-400 hover:text-emerald-300 transition-colors underline cursor-pointer hidden md:inline"
-            >
-              Expand All Details
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 3. GROUPED BY DATE PREDICTION LOG & SESSION PROGRESSION */}
-      <div className="space-y-6">
+      {/* 2. DATE-GROUPED HISTORY LIST */}
+      <div className="space-y-4">
         <div className="flex items-center justify-between gap-3 text-xs text-slate-400 font-mono px-1">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-emerald-400" />
-            <span className="font-semibold text-slate-200 font-sans">
-              Daily Prediction Log &amp; Market Reality Progression
-            </span>
-            <span className="text-[11px] text-emerald-400 bg-emerald-950/70 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono">
-              Official Sessions Only · Latest On Top ↓
+            <span className="font-semibold text-slate-200 font-sans text-sm">
+              Trade History Grouped by Date (Current Day On Top)
             </span>
           </div>
 
@@ -827,7 +362,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 onClick={() => setCollapsedDates({})}
                 className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
               >
-                Expand All Dates
+                Expand All
               </button>
               <span className="text-slate-700">·</span>
               <button
@@ -838,7 +373,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 }}
                 className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
               >
-                Collapse All Dates
+                Collapse All
               </button>
             </div>
           )}
@@ -846,34 +381,40 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
         {groupedTrades.length === 0 ? (
           <div className="p-8 text-center bg-slate-900/60 border border-slate-800 rounded-2xl">
-            <AlertCircle className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-300">No predictions match the active filter</p>
-            <p className="text-xs text-slate-500 mt-1">Switch filter back to "All Trades" to view all logged session trades.</p>
+            <p className="text-sm font-semibold text-slate-300">No trade history logged for {ticker.symbol}</p>
           </div>
         ) : (
-          groupedTrades.map(group => {
-            const isCollapsed = Boolean(collapsedDates[group.dateKey]);
-            const isLatest = group.relativeLabel === 'Today' || group.relativeLabel === 'Latest Session';
+          groupedTrades.map((group, groupIdx) => {
+            // Default rule: First group (Current Day / Today) is expanded by default (idx === 0)
+            const isExplicitlySet = group.dateKey in collapsedDates;
+            const isCollapsed = isExplicitlySet ? collapsedDates[group.dateKey] : groupIdx > 0;
+            const isIndian = !ticker.symbol.includes('SPY') && !ticker.symbol.includes('QQQ') && !ticker.symbol.includes('AAPL') && !ticker.symbol.includes('NVDA');
+            const todayKey = getTradeDateKey(Date.now(), isIndian);
+            const isToday = group.dateKey === todayKey || group.relativeLabel === 'Today';
 
             return (
               <div 
                 key={group.dateKey} 
-                className="rounded-2xl border border-slate-800/90 bg-slate-950/50 overflow-hidden shadow-xl space-y-3 p-3 sm:p-4"
+                className={`rounded-2xl border transition-all overflow-hidden shadow-xl ${
+                  isToday 
+                    ? 'border-emerald-500/40 bg-slate-950/70' 
+                    : 'border-slate-800/90 bg-slate-950/40'
+                }`}
               >
                 {/* Date Group Header Banner */}
                 <div 
                   onClick={() => toggleDate(group.dateKey)}
-                  className={`w-full flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-xl transition-all cursor-pointer select-none border ${
-                    isLatest
-                      ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-slate-900/80 border-emerald-500/30 hover:border-emerald-500/50'
-                      : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                  className={`w-full flex flex-col md:flex-row md:items-center justify-between gap-3 p-3.5 sm:p-4 transition-all cursor-pointer select-none border-b ${
+                    isToday
+                      ? 'bg-gradient-to-r from-emerald-950/50 via-slate-900/90 to-slate-900/80 border-emerald-500/30 hover:border-emerald-500/50'
+                      : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700'
                   }`}
                 >
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <div className={`p-2 rounded-lg border ${
-                        isLatest 
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs shadow-emerald-500/20' 
+                        isToday 
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
                           : 'bg-slate-800 text-slate-400 border-slate-700'
                       }`}>
                         <Calendar className="w-4 h-4" />
@@ -881,50 +422,26 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
 
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm sm:text-base font-black text-white tracking-tight flex items-center gap-1.5 font-sans">
-                            <span>{group.displayLabel}</span>
+                          <h3 className="text-sm sm:text-base font-black text-white tracking-tight font-sans">
+                            {group.displayLabel}
                           </h3>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider border ${
-                            isLatest 
+                            isToday 
                               ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
                               : 'bg-slate-800 text-slate-300 border-slate-700'
                           }`}>
-                            {isLatest ? 'LATEST OFFICIAL TRADING SESSION' : group.relativeLabel.toUpperCase()}
+                            {isToday ? 'LIVE TODAY' : group.relativeLabel.toUpperCase()}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 font-sans mt-0.5">
-                          {group.trades.length} verified trade recommendations logged for this session
+                          Session Open: {ticker.currency}{group.summary.marketProgression.open.toLocaleString()} · Close: {ticker.currency}{group.summary.marketProgression.close.toLocaleString()}
                         </p>
                       </div>
                     </div>
-
-                    {/* REAL MARKET PROGRESSION BOX FOR THIS SESSION */}
-                    <div className="p-2 sm:p-2.5 rounded-lg bg-slate-950/90 border border-slate-800/80 text-[11px] font-mono flex flex-wrap items-center gap-x-4 gap-y-1.5 text-slate-300">
-                      <span className="text-slate-400 font-sans font-bold flex items-center gap-1">
-                        <Activity className="w-3.5 h-3.5 text-sky-400" />
-                        <span>Market Reality Progression:</span>
-                      </span>
-                      <span>Open: <strong className="text-white">{ticker.currency}{group.summary.marketProgression.open.toLocaleString()}</strong></span>
-                      <span className="text-slate-600">➔</span>
-                      <span>High: <strong className="text-emerald-400">{ticker.currency}{group.summary.marketProgression.high.toLocaleString()}</strong></span>
-                      <span className="text-slate-600">➔</span>
-                      <span>Low: <strong className="text-rose-400">{ticker.currency}{group.summary.marketProgression.low.toLocaleString()}</strong></span>
-                      <span className="text-slate-600">➔</span>
-                      <span>Close: <strong className="text-white">{ticker.currency}{group.summary.marketProgression.close.toLocaleString()}</strong></span>
-                      <span className={`font-bold ${group.summary.marketProgression.netChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        ({group.summary.marketProgression.netChange >= 0 ? '+' : ''}{group.summary.marketProgression.netChange} pts / {group.summary.marketProgression.netChangePct}%)
-                      </span>
-                    </div>
-
-                    {/* Session Self-Healing Action */}
-                    <div className="text-[11px] text-indigo-300 font-sans flex items-center gap-1.5">
-                      <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                      <span>{group.summary.selfHealingAction}</span>
-                    </div>
                   </div>
 
-                  {/* Summary Metric Badges & Collapse Toggle */}
-                  <div className="flex items-center gap-2 self-start lg:self-center flex-wrap">
+                  {/* Summary Badges & Chevron Toggle */}
+                  <div className="flex items-center gap-2 self-start md:self-center flex-wrap">
                     <span className="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-300 border border-slate-800 font-mono text-xs font-semibold flex items-center gap-1.5">
                       <span>{group.trades.length} {group.trades.length === 1 ? 'Trade' : 'Trades'}</span>
                       <span className="text-slate-600">·</span>
@@ -933,71 +450,51 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                       <span className="text-rose-400 font-bold">{group.summary.peCount} PE</span>
                     </span>
 
-                    <span className="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 font-mono text-xs font-bold flex items-center gap-1">
-                      <span>🎯 {group.summary.winRate}% Win</span>
-                      <span className="text-[10px] text-emerald-400/80">({group.summary.targetsHit}/{group.trades.length})</span>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 font-mono text-xs font-bold">
+                      🎯 {group.summary.winRate}% Win
                     </span>
 
-                    <span className="px-2.5 py-1 rounded-lg bg-indigo-950/80 text-indigo-300 border border-indigo-500/40 font-mono text-xs font-bold flex items-center gap-1">
-                      <span>⚡ {group.summary.avgDiscrepancyPct}% Discrepancy</span>
+                    <span className="px-2.5 py-1 rounded-lg bg-sky-950/80 text-sky-300 border border-sky-500/40 font-mono text-xs font-bold">
+                      +{group.summary.netSpotPoints} pts Spot
                     </span>
 
-                    <button
-                      type="button"
-                      aria-label={isCollapsed ? 'Expand date group' : 'Collapse date group'}
-                      className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                    >
+                    <div className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors ml-1">
                       {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                    </button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Date Group Trades List */}
                 {!isCollapsed && (
-                  <div className="space-y-3.5 pt-1">
+                  <div className="p-3 sm:p-4 space-y-3">
                     {group.trades.map((trade) => {
                       const isCall = trade.optionType === 'CE';
                       const isT2 = trade.status === 'TARGET_2_HIT';
                       const isT1 = trade.status === 'TARGET_1_HIT';
                       const isSL = trade.status === 'STOP_LOSS_HIT';
                       const isWin = isT1 || isT2;
-                      const isDetailedOpen = viewMode === 'DETAILED' || Boolean(expandedTradeIds[trade.id]);
-
-                      // Discrepancy status badge
-                      const disc = trade.discrepancyPct || 0;
-                      let discBadgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
-                      let discLabel = `🎯 Exact Hit (${disc}% Discrepancy)`;
-                      if (disc > 25 || trade.status === 'STOP_LOSS_HIT') {
-                        discBadgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/40';
-                        discLabel = `🛑 Invalidation (${disc}% Discrepancy)`;
-                      } else if (disc > 12) {
-                        discBadgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40';
-                        discLabel = `⚠️ Range Variance (${disc}% Discrepancy)`;
-                      } else if (disc > 0) {
-                        discBadgeClass = 'bg-sky-500/20 text-sky-300 border-sky-500/40';
-                        discLabel = `⚡ Minor Variance (${disc}% Discrepancy)`;
-                      }
+                      const isDetailedOpen = Boolean(expandedTradeIds[trade.id]);
 
                       return (
                         <div 
                           key={trade.id}
-                          className={`rounded-2xl border transition-all overflow-hidden shadow-lg ${
+                          className={`rounded-xl border transition-all overflow-hidden ${
                             isT2 
-                              ? 'bg-slate-900/90 border-emerald-500/40 shadow-emerald-950/20' 
+                              ? 'bg-slate-900/90 border-emerald-500/40' 
                               : isT1 
-                              ? 'bg-slate-900/90 border-sky-500/40 shadow-sky-950/20' 
+                              ? 'bg-slate-900/90 border-sky-500/40' 
                               : isSL
                               ? 'bg-slate-900/90 border-rose-500/40'
                               : 'bg-slate-900/90 border-slate-800'
                           }`}
                         >
-                          {/* 1. CARD HEADER STRIP */}
-                          <div className={`px-3.5 sm:px-5 py-2.5 sm:py-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                          {/* Trade Header Strip */}
+                          <div className={`px-3.5 sm:px-4 py-2.5 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
                             isWin ? 'bg-emerald-500/10 border-emerald-500/20' : isSL ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800/40 border-slate-800'
                           }`}>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-950 text-slate-300 font-bold border border-slate-800 flex items-center gap-1">
-                                <span>⏱️</span>
+                                <Clock className="w-3 h-3 text-slate-400" />
                                 <span>{trade.timeFormatted}</span>
                               </span>
 
@@ -1013,16 +510,11 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                               </span>
 
                               <MoneynessBadge moneyness={trade.moneyness} size="xs" />
-
-                              {/* Discrepancy Tag */}
-                              <span className={`px-2 py-0.5 rounded text-[10.5px] font-mono font-bold border ${discBadgeClass}`}>
-                                {discLabel}
-                              </span>
                             </div>
 
-                            {/* Outcome Badge & Option Chain Action */}
+                            {/* Status & Contract Link */}
                             <div className="flex items-center gap-2 self-start sm:self-auto">
-                              <div className={`px-3 py-1 rounded-lg text-xs font-mono font-black border flex items-center gap-1.5 shadow-sm ${
+                              <div className={`px-2.5 py-1 rounded-lg text-xs font-mono font-black border flex items-center gap-1.5 ${
                                 isT2 ? 'bg-emerald-500 text-slate-950 border-emerald-400' :
                                 isT1 ? 'bg-sky-500 text-slate-950 border-sky-400' :
                                 isSL ? 'bg-rose-500 text-white border-rose-400' :
@@ -1035,8 +527,8 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                               {onSelectContract && (
                                 <button
                                   onClick={() => onSelectContract(trade.strike, trade.optionType)}
-                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-sky-200 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-slate-700"
-                                  title="Inspect contract live in Option Chain"
+                                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-slate-700"
+                                  title="View option contract"
                                 >
                                   <span>Chain</span>
                                   <ArrowRight className="w-3 h-3" />
@@ -1045,230 +537,87 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                             </div>
                           </div>
 
-                          {/* 2. VISUAL 3-STAGE PRICE JOURNEY */}
-                          <div className="p-3.5 sm:p-5 space-y-3.5">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5 font-mono">
-                              {/* Step 1: Recommended Entry */}
-                              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between">
-                                <div className="flex items-center justify-between text-[11px] font-sans text-slate-400 mb-1">
-                                  <span className="font-bold text-slate-300">1. RECOMMENDED ENTRY</span>
-                                  <span className="text-[10px] text-slate-500 font-mono">At {trade.timeFormatted}</span>
+                          {/* Suggested vs Actual Comparison Grid */}
+                          <div className="p-3 sm:p-4 space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono text-xs">
+                              {/* Column 1: Suggested Trade */}
+                              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 space-y-1">
+                                <span className="text-[10px] font-sans font-bold text-sky-400 block uppercase tracking-wider">
+                                  1. Suggested Trade
+                                </span>
+                                <div className="text-sm font-black text-white">
+                                  Entry LTP: {ticker.currency}{trade.recommendedEntry.toFixed(2)}
                                 </div>
-                                <div>
-                                  <div className="text-base sm:text-xl font-black text-sky-300 tracking-tight">
-                                    {ticker.currency}{trade.recommendedEntry.toFixed(2)}
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-1 font-sans">
-                                    Spot: <strong className="text-white font-mono">{ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}</strong>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Step 2: Targets & Risk Parameters */}
-                              <div className="p-3 sm:p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between">
-                                <div className="flex items-center justify-between text-[11px] font-sans text-slate-400 mb-1">
-                                  <span className="font-bold text-emerald-400">2. PREDICTED TARGETS</span>
-                                  <span className="text-[10px] text-rose-400 font-mono">SL: {ticker.currency}{trade.stopLoss.toFixed(2)}</span>
-                                </div>
-                                <div>
-                                  <div className="flex items-baseline gap-2 flex-wrap">
-                                    <span className="text-base sm:text-xl font-black text-emerald-400 tracking-tight">
-                                      T1: {ticker.currency}{trade.target1.toFixed(2)}
-                                    </span>
-                                    <span className="text-xs sm:text-sm font-bold text-emerald-300/80">
-                                      T2: {ticker.currency}{trade.target2.toFixed(2)}
-                                    </span>
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-1 font-sans">
-                                    Target Spot: <strong className="text-white font-mono">{ticker.currency}{trade.spotTarget1.toLocaleString()}</strong>
-                                  </div>
+                                <div className="text-[11px] text-slate-400 font-sans space-y-0.5">
+                                  <div>Spot at Signal: <strong className="text-slate-200">{ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}</strong></div>
+                                  <div>Target 1: <strong className="text-emerald-400">{ticker.currency}{trade.target1.toFixed(2)}</strong> · Target 2: <strong className="text-emerald-300">{ticker.currency}{trade.target2.toFixed(2)}</strong></div>
+                                  <div>Stop Loss: <strong className="text-rose-400">{ticker.currency}{trade.stopLoss.toFixed(2)}</strong></div>
                                 </div>
                               </div>
 
-                              {/* Step 3: Actual Market Outcome */}
-                              <div className={`p-3 sm:p-3.5 rounded-xl border flex flex-col justify-between ${
-                                isWin 
-                                  ? 'bg-emerald-950/30 border-emerald-500/40' 
-                                  : isSL 
-                                  ? 'bg-rose-950/30 border-rose-500/40' 
-                                  : 'bg-slate-950/80 border-slate-800'
+                              {/* Column 2: Actual Market Execution */}
+                              <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 space-y-1">
+                                <span className="text-[10px] font-sans font-bold text-amber-400 block uppercase tracking-wider">
+                                  2. Actual Market Peak
+                                </span>
+                                <div className="text-sm font-black text-amber-300">
+                                  Peak Option LTP: {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-sans space-y-0.5">
+                                  <div>Peak Spot Reached: <strong className="text-emerald-400">{ticker.currency}{trade.actualSpotSubsequentPeak.toLocaleString()}</strong></div>
+                                  <div>Time to Target: <strong className="text-slate-200">{trade.timeToTargetMinutes} mins</strong></div>
+                                  <div>Current LTP: <strong className="text-slate-300">{ticker.currency}{trade.actualOptionCurrentPrice.toFixed(2)}</strong></div>
+                                </div>
+                              </div>
+
+                              {/* Column 3: Realized Net P&L */}
+                              <div className={`p-3 rounded-lg border space-y-1 ${
+                                isWin ? 'bg-emerald-950/30 border-emerald-500/40' : isSL ? 'bg-rose-950/30 border-rose-500/40' : 'bg-slate-950/80 border-slate-800'
                               }`}>
-                                <div className="flex items-center justify-between text-[11px] font-sans mb-1">
-                                  <span className={`font-bold ${isWin ? 'text-emerald-300' : isSL ? 'text-rose-300' : 'text-slate-300'}`}>
-                                    3. ACTUAL MARKET PEAK
-                                  </span>
-                                  <span className="text-[10px] font-mono text-slate-400">In {trade.timeToTargetMinutes} mins</span>
+                                <span className="text-[10px] font-sans font-bold text-slate-300 block uppercase tracking-wider">
+                                  3. Net Realized P&amp;L
+                                </span>
+                                <div className={`text-sm font-black ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}% ({trade.netPnlPoints >= 0 ? '+' : ''}{trade.netPnlPoints} pts/sh)
                                 </div>
-                                <div>
-                                  <div className="flex items-baseline gap-1.5 flex-wrap">
-                                    <span className="text-base sm:text-xl font-black text-amber-300 tracking-tight">
-                                      {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
-                                    </span>
-                                    <span className={`text-xs sm:text-sm font-bold ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                      ({trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%)
-                                    </span>
-                                  </div>
-                                  <div className="text-[11px] text-slate-300 mt-1 font-sans">
-                                    Spot Move: <strong className="text-emerald-400 font-mono">+{trade.actualSpotMovementPoints} pts</strong> (+{ticker.currency}{trade.netPnlPoints}/sh)
-                                  </div>
+                                <div className="text-[11px] text-slate-400 font-sans space-y-0.5">
+                                  <div>Net Spot Move: <strong className="text-emerald-400">+{trade.actualSpotMovementPoints} pts</strong></div>
+                                  <div className="line-clamp-1">{trade.actualOutcomeNote}</div>
                                 </div>
                               </div>
                             </div>
 
-                            {/* DISCREPANCY ROOT CAUSE & SELF-HEALING REMEDIATION STRIP */}
-                            <div className="p-3 sm:p-3.5 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-2">
-                              <div className="flex items-start gap-2">
-                                <Activity className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                                <div className="space-y-0.5 text-xs">
-                                  <span className="font-bold text-indigo-300">Discrepancy Analysis (What Went Wrong):</span>
-                                  <p className="text-slate-300 text-[11.5px] leading-relaxed">
-                                    {trade.discrepancyDiagnosis}
-                                  </p>
-                                </div>
-                              </div>
+                            {/* Details Toggle Bar */}
+                            <div className="flex items-center justify-between text-xs pt-1">
+                              <span className="text-[11px] text-slate-400 font-sans italic">
+                                {trade.predictedCatalyst}
+                              </span>
 
-                              <div className="flex items-start gap-2 pt-2 border-t border-slate-800/80">
-                                <Cpu className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                                <div className="space-y-0.5 text-xs">
-                                  <span className="font-bold text-emerald-300">Self-Healing Parameter Adjustment Applied:</span>
-                                  <p className="text-emerald-400/90 text-[11.5px] leading-relaxed font-mono">
-                                    {trade.selfHealedParameterFix}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Plain English Outcome Summary */}
-                            <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                              <p className="text-slate-300 text-[11.5px] leading-relaxed font-sans">
-                                <strong className="text-emerald-400 font-semibold">Verified Result: </strong>
-                                {trade.actualOutcomeNote}
-                              </p>
-
-                              {/* Toggle Details Button */}
                               <button
                                 onClick={() => toggleTradeDetails(trade.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 self-end sm:self-center border ${
-                                  isDetailedOpen 
-                                    ? 'bg-slate-800 text-emerald-300 border-emerald-500/40' 
-                                    : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700'
-                                }`}
+                                className="text-[11px] font-bold text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer shrink-0 ml-2"
                               >
-                                <span>{isDetailedOpen ? 'Hide Audit Details' : 'Details & Audit Proof'}</span>
-                                {isDetailedOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                <span>{isDetailedOpen ? 'Hide Technical Proof' : 'View Technical Proof'}</span>
+                                {isDetailedOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                               </button>
                             </div>
 
-                            {/* 3. EXPANDABLE DEEP TECHNICAL AUDIT COMPARISON */}
+                            {/* Expandable Technical Proof */}
                             {isDetailedOpen && (
-                              <div className="mt-3 pt-3.5 border-t border-slate-800/90 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-800/80 gap-4 lg:gap-6 text-xs animate-fade-in">
-                                {/* COLUMN 1: WHAT THE ALGORITHM PREDICTED */}
-                                <div className="space-y-3 pr-0 lg:pr-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[11px] uppercase tracking-wider font-bold text-sky-400 flex items-center gap-1.5">
-                                      <span>1. Detailed Algorithm Targets ("What It Said")</span>
-                                    </span>
-                                    <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                      R:R {trade.riskRewardRatio}
-                                    </span>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Spot Entry Zone</span>
-                                      <strong className="text-white text-xs">
-                                        {ticker.currency}{trade.spotPriceAtSignal.toLocaleString()}
-                                      </strong>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Option Entry Price</span>
-                                      <strong className="text-sky-300 text-xs">
-                                        {ticker.currency}{trade.recommendedEntry.toFixed(2)}
-                                      </strong>
-                                      <span className="text-[9px] text-slate-500 block">({ticker.currency}{trade.entryRange[0]} - {trade.entryRange[1]})</span>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Stop Loss</span>
-                                      <strong className="text-rose-400 text-xs">
-                                        {ticker.currency}{trade.stopLoss.toFixed(2)}
-                                      </strong>
-                                      <span className="text-[9px] text-slate-500 block">Spot: {ticker.currency}{trade.spotStopLoss}</span>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Target 1 (Tactical)</span>
-                                      <strong className="text-emerald-400 text-xs">
-                                        {ticker.currency}{trade.target1.toFixed(2)}
-                                      </strong>
-                                      <span className="text-[9px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget1}</span>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 col-span-2 sm:col-span-1">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Target 2 (Runner)</span>
-                                      <strong className="text-emerald-300 text-xs">
-                                        {ticker.currency}{trade.target2.toFixed(2)}
-                                      </strong>
-                                      <span className="text-[9px] text-emerald-500/80 block">Spot: {ticker.currency}{trade.spotTarget2}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Leading Catalyst */}
-                                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-[11px] leading-relaxed">
-                                    <span className="text-slate-400 font-semibold block mb-0.5">🧠 Predictive Catalyst &amp; Triggers:</span>
-                                    <p className="text-slate-300">
-                                      {trade.predictedCatalyst}
+                              <div className="pt-3 border-t border-slate-800 text-xs font-sans space-y-2 animate-fade-in">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950 p-3 rounded-lg border border-slate-800">
+                                  <div>
+                                    <span className="text-[10px] font-mono text-slate-400 block uppercase">Algorithmic Spot Targets:</span>
+                                    <p className="text-slate-200 text-[11px] mt-0.5">
+                                      Spot Entry: {ticker.currency}{trade.spotPriceAtSignal} · Spot Target 1: {ticker.currency}{trade.spotTarget1} · Spot Target 2: {ticker.currency}{trade.spotTarget2} · Spot SL: {ticker.currency}{trade.spotStopLoss}
                                     </p>
                                   </div>
-                                </div>
-
-                                {/* COLUMN 2: WHAT HAPPENED ACTUALLY */}
-                                <div className="space-y-3 pt-3 lg:pt-0 pl-0 lg:pl-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[11px] uppercase tracking-wider font-bold text-emerald-400 flex items-center gap-1.5">
-                                      <span>2. Verified Exchange Audit ("Market Reality")</span>
-                                    </span>
-                                    <span className="text-[10.5px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                      Time to target: {trade.timeToTargetMinutes}m
-                                    </span>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Subsequent Spot Move</span>
-                                      <strong className="text-emerald-400 text-xs">
-                                        +{trade.actualSpotMovementPoints} pts
-                                      </strong>
-                                      <span className="text-[9px] text-slate-500 block">Peak: {ticker.currency}{trade.actualSpotSubsequentPeak}</span>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Option Peak Price</span>
-                                      <strong className="text-amber-300 text-xs">
-                                        {ticker.currency}{trade.actualOptionPeakPrice.toFixed(2)}
-                                      </strong>
-                                      <span className="text-[9px] text-slate-400 block">Current: {ticker.currency}{trade.actualOptionCurrentPrice.toFixed(2)}</span>
-                                    </div>
-
-                                    <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                                      <span className="text-[9.5px] text-slate-400 block font-sans">Realized P&amp;L</span>
-                                      <strong className={`text-xs ${trade.netPnlPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {trade.netPnlPercent >= 0 ? '+' : ''}{trade.netPnlPercent}%
-                                      </strong>
-                                      <span className="text-[9px] text-slate-400 block">+{ticker.currency}{trade.netPnlPoints}/sh</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Assurance Takeaway */}
-                                  <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] leading-relaxed flex items-start gap-2">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                                    <div>
-                                      <span className="text-emerald-300 font-bold block mb-0.5">Reliability Assurance Takeaway:</span>
-                                      <p className="text-slate-300">
-                                        {trade.assuranceTakeaway}
-                                      </p>
-                                    </div>
+                                  <div>
+                                    <span className="text-[10px] font-mono text-slate-400 block uppercase">Verification Takeaway:</span>
+                                    <p className="text-slate-200 text-[11px] mt-0.5 flex items-start gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                      <span>{trade.assuranceTakeaway}</span>
+                                    </p>
                                   </div>
                                 </div>
                               </div>

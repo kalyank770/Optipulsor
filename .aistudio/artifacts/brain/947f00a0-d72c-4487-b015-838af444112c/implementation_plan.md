@@ -1,131 +1,96 @@
-# Comprehensive Audit & Verification of CE, PE, and NEUTRAL Prediction Algorithms
+# Audit Tab Refactoring: Read-Only 1-Week Trade History
 
-A complete audit and precision-calibration plan to verify that CE (Call Option), PE (Put Option), and NEUTRAL (Wait / Capital Protection) recommendations are 100% accurately interpreted, mathematically balanced, and clearly presented across the real-time, multi-timeframe, and pre/after-market prediction engines.
+Refactor the **Audit Tab** ("Audit & Accuracy") into a clean, strictly read-only historical verification workstation that compares **Suggested Trades vs. Actual Trades** for the last 1 week (grouped by date with the current day expanded on top), while removing all diagnostic triggers, calibration drawers, and manual controls without altering the core prediction engine.
+
+---
+
+## User Review & Confirmed Decisions
 
 > [!IMPORTANT]
-> **Confirmed User Decisions**:
-> - **Scope**: Full audit across real-time (`signalEngine.ts`), multi-timeframe (`htfPredictionEngine.ts`), and pre-market (`afterMarketEngine.ts`) prediction engines.
-> - **Neutral Trigger Discipline**: Balanced threshold triggering `WAIT_NEUTRAL` on signal tie, deadband equilibrium (score within -0.7 to +0.7), or multi-factor indicator divergence.
-> - **CE/PE Symmetry**: Strict 1:1 symmetrical scoring math, identical guard rail thresholds, and symmetric contradiction veto checks for CE and PE.
+> The following decisions were explicitly selected in Turn 1 and govern the refactoring of the Audit tab:
+
+- **Confirmed Decision 1 (Layout & Grouping)**: Clean date-grouped history view with the current trading day ("Today") expanded at the top and prior days collapsed by default.
+- **Confirmed Decision 2 (Controls & Interactivity)**: Strictly read-only history table with **no header action buttons** (all buttons like "Trigger Self-Healing Calibration", "Reset Seed Data", manual trade inputs, and filter drawers are removed).
+- **Confirmed Decision 3 (Metrics & Table Display)**: Comprehensive trade comparison row showing **Suggested Entry**, **Actual Entry**, **Target / Stop Loss**, **Exit Price**, and **Net Points P&L** (Spot & Option points).
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Scans all 3 prediction engines in the app (Real-Time Intraday Option Engine, Pre/After-Market Opening Predictor, and Multi-Timeframe Trend Predictor) to audit scoring weightings, veto thresholds, guard rails, and UI badge interpretations for CE, PE, and NEUTRAL recommendations.
-- **Target Audience / Persona**: High-frequency and intraday F&O traders requiring 100% reliable, zero-bias, transparent option trade recommendations with zero false-directional skew or misinterpretation.
-- **Key Value**: Guarantees that CE is only recommended on genuine bullish momentum/reclaim, PE on genuine bearish breakdown/supply, and NEUTRAL on chop/conflict—eliminating any residual bias or misleading trade signals.
+- **What It Does**: Provides an accurate, non-polluted 1-week historical audit log comparing the prediction engine's suggested trades against real market execution outcomes for NIFTY, BANKNIFTY, and FINNIFTY.
+- **Target Audience**: Quantitative traders and institutional users verifying the algorithm's real-world accuracy and P&L performance across the past 5–7 trading sessions.
+- **Key Value**: Zero visual clutter, no false entries, and flawless financial tracking with tabular numeral alignment.
 
 ---
 
-## 2. Comprehensive Engine Audit Matrix
+## 2. User Experience & Visual Design
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                        FULL PREDICTION ALGORITHM AUDIT MATRIX                          │
-├──────────────────────────────┬─────────────────────────────┬───────────────────────────┤
-│ Engine / Component           │ Scan Focus Area             │ Verification Target       │
-├──────────────────────────────┼─────────────────────────────┼───────────────────────────┤
-│ 1. Real-Time Option Engine   │ • Score thresholds          │ • BUY_CE if score >= +0.7 │
-│    (src/utils/signalEngine)  │ • Bull vs Bear match ratio  │ • BUY_PE if score <= -0.7 │
-│                              │ • Guard Rail symmetry       │ • WAIT_NEUTRAL in deadband│
-│                              │ • Contradiction veto logic  │   (-0.7 < score < +0.7)   │
-├──────────────────────────────┼─────────────────────────────┼───────────────────────────┤
-│ 2. Pre-Market Predictor      │ • Gift Nifty implied open   │ • BUY_CE on Gap-Up        │
-│    (src/utils/afterMarket)   │ • Basis & Gap drift math    │ • BUY_PE on Gap-Down      │
-│                              │ • Directional opening skew  │ • WAIT on Flat / Chop     │
-├──────────────────────────────┼─────────────────────────────┼───────────────────────────┤
-│ 3. Multi-Timeframe Forecast  │ • 15m, 1h, 1d trend alignment│ • BULLISH_CE, BEARISH_PE, │
-│    (src/utils/htfPrediction) │ • HTF Confluence weighting  │   or NEUTRAL_RANGE        │
-├──────────────────────────────┼─────────────────────────────┼───────────────────────────┤
-│ 4. UI Representation Cards   │ • SignalCard.tsx            │ • Accurate color coding & │
-│    (src/components/*)        │ • AfterMarketOpeningCard    │   unambiguous action text │
-└──────────────────────────────┴─────────────────────────────┴───────────────────────────┘
-```
+- **Layout Hierarchy**:
+  1. **Daily Summary Ribbon**: Single top row displaying aggregate 1-week metrics (Total Trades, Win Rate %, Net Option Points, Net Spot Points).
+  2. **Current Day Group ("Today")**: Positioned at the top with a subtle green border and live indicator, auto-expanded to display today's live/logged trades.
+  3. **Historical Date Groups (Past 6 Sessions)**: Collapsible date accordions displaying day-by-day suggested vs. actual trades, win counts, and daily net P&L.
+- **Table Column Structure**:
+  - **Timestamp & Type**: Execution time (e.g. `09:20 AM`) & Signal Action (`BUY CALL (CE)` / `BUY PUT (PE)`).
+  - **Suggested Trade**: Recommended Entry LTP, Target 1 / Target 2, and Stop Loss.
+  - **Actual Execution**: Realized Entry LTP, Subsequent Peak/Low LTP, Exit Price.
+  - **Outcome**: Target Status badge (`TARGET 2 HIT`, `TARGET 1 HIT`, `STOP LOSS HIT`) & Time to Target.
+  - **P&L Performance**: Net Spot Points and Net Option Premium Points (bold green for profit, red for loss).
+- **Visual Style**: Clean dark theme with tabular numbers (`tabular-nums font-mono`), WCAG AA contrast, unboxed date metadata, and hairline borders (`border-slate-800`).
 
 ---
 
-## 3. Detailed Audit Findings & Planned Fixes
+## 3. Key Product Decisions & Trade-Offs
 
-### A. Real-Time Signal Engine (`src/utils/signalEngine.ts`)
-1. **Symmetric Score Thresholds**:
-   - Ensure `score >= +0.7` and `netBullEdge >= 1` route to `BUY_CE`.
-   - Ensure `score <= -0.7` and `netBullEdge <= -1` route to `BUY_PE`.
-   - Ensure scores within `(-0.7, +0.7)` or `netBullEdge == 0` route cleanly to `WAIT_NEUTRAL`.
-2. **Symmetrical Contradiction Veto Checks**:
-   - Verify `bullContradictionCount` and `bearContradictionCount` evaluate mirrored conditions (PCR, order flow, candlestick confluence, and heavyweight point impact).
-3. **Guard Rail Symmetrical Softening**:
-   - Audit Guard Rails 0 to 8 (VWAP support/resistance, Call Wall / Put Wall proximity, PCR extremes, RSI overbought/oversold) to verify they dampen both CE and PE with exact 1:1 mathematical formulas.
-4. **`recommendedType` Watchlist Clarity when `WAIT_NEUTRAL`**:
-   - When action is `WAIT_NEUTRAL`, ensure the UI clearly highlights the "WAIT / NEUTRAL" state while displaying the reference watchlist strike without confusing the user into thinking an active order entry is advised.
-
-### B. Pre-Market Engine (`src/utils/afterMarketEngine.ts`)
-1. **Gap-Up & Gap-Down Strategy Routing**:
-   - Verify `GAP_UP_OPENING` maps exclusively to `BUY_CE` or `WAIT_FIRST_15M` (never `BUY_PE`).
-   - Verify `GAP_DOWN_OPENING` maps exclusively to `BUY_PE` or `WAIT_FIRST_15M` (never `BUY_CE`).
-   - Verify `FLAT_OPENING` defaults to `WAIT_FIRST_15M`.
-
-### C. Multi-Timeframe Trend Engine (`src/utils/htfPredictionEngine.ts`)
-1. **Timeframe Confluence Calculation**:
-   - Verify 15m, 1h, and Daily timeframes use uniform trend thresholds for `BULLISH_CE`, `BEARISH_PE`, and `NEUTRAL_RANGE`.
-
-### D. UI Rendering & Interpretation Clarity (`SignalCard.tsx` & `AfterMarketOpeningCard.tsx`)
-1. **Visual Distinction**:
-   - **CE (Call Option)**: Vibrant Emerald/Green badge with `BUY_CE` or `BULLISH_CE` action text.
-   - **PE (Put Option)**: Sharp Rose/Red badge with `BUY_PE` or `BEARISH_PE` action text.
-   - **NEUTRAL (Wait)**: Clear Amber/Slate badge with `WAIT_NEUTRAL` or `WAIT_FIRST_15M` action text and capital protection rationale.
+- **Decision 1: Removal of Interactive Diagnostic Controls**:
+  - *Chosen Approach*: Remove "Self-Healing Calibration Drawer", "Reset Audit Data" button, "Manual Trade Entry" forms, and multi-select filter bars from `DaysReportTab.tsx`.
+  - *Why*: User requested a strictly read-only history table without extra buttons or complex diagnostic overlays.
+- **Decision 2: Retention of Underlying Prediction Math & Log Engine**:
+  - *Chosen Approach*: Keep `daysReportEngine.ts` and `selfHealingEngine.ts` functions intact in background utilities so prediction models, confidence scoring, and trade history calculation remain 100% operational.
+  - *Why*: Ensures removing UI buttons does NOT break or alter any prediction algorithms.
 
 ---
 
-## 4. Technical Architecture & Component Flow
+## 4. Technical Architecture & Data Strategy
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                            PREDICTION INTERPRETATION FLOW                              │
-└───────────────────────────┬────────────────────────────────────────────┘
-                                            │
-                                  ┌─────────┴─────────┐
-                                  │   Market Data &   │
-                                  │ Live Option Chain │
-                                  └─────────┬─────────┘
-                                            │
-                    ┌───────────────────────┼───────────────────────┐
-                    │                       │                       │
-          ┌─────────┴─────────┐   ┌─────────┴─────────┐   ┌─────────┴─────────┐
-          │ Real-Time Signal  │   │ Pre-Market Opening│   │  HTF Prediction   │
-          │      Engine       │   │      Engine       │   │      Engine       │
-          └─────────┬─────────┘   └─────────┬─────────┘   └─────────┬─────────┘
-                    │                       │                       │
-                    └───────────────────────┼───────────────────────┘
-                                            │
-                                  ┌─────────┴─────────┐
-                                  │ Symmetric Audit   │
-                                  │   & Veto Filter   │
-                                  └─────────┬─────────┘
-                                            │
-               ┌────────────────────────────┼────────────────────────────┐
-               │                            │                            │
-     ┌─────────┴─────────┐        ┌─────────┴─────────┐        ┌─────────┴─────────┐
-     │   BUY_CE (Call)   │        │   BUY_PE (Put)    │        │   WAIT_NEUTRAL    │
-     │  Score >= +0.7    │        │  Score <= -0.7    │        │ Deadband / Chop   │
-     └─────────┬─────────┘        └─────────┬─────────┘        └─────────┬─────────┘
-               │                            │                            │
-               └────────────────────────────┼────────────────────────────┘
-                                            │
-                                  ┌─────────┴─────────┐
-                                  │  UI Signal Cards  │
-                                  │ (Green/Red/Amber) │
-                                  └───────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             OptiPulse V10 App                               │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    ▼                                     ▼
+      ┌───────────────────────────┐         ┌───────────────────────────┐
+      │     Live Option Chain     │         │   HTF Prediction Engine   │
+      └─────────────┬─────────────┘         └─────────────┬─────────────┘
+                    │                                     │
+                    └──────────────────┬──────────────────┘
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │     daysReportEngine.ts / Logger    │
+                    │   (Calculates Suggested vs Actual)  │
+                    └──────────────────┬──────────────────┘
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │     DaysReportTab.tsx (Refactored)  │
+                    │  - Read-Only Date Accordion Groups  │
+                    │  - Current Day Expanded at Top      │
+                    │  - Suggested vs Actual Price Table  │
+                    └─────────────────────────────────────┘
 ```
+
+- **File Modifications**:
+  - `src/components/DaysReportTab.tsx`: Refactor layout to render clean date-grouped trade history tables, removing headers, self-healing drawers, filter buttons, and manual forms.
+  - `src/utils/daysReportEngine.ts`: Verify that 1-week seed trade records and live trade logs contain accurate spot and option price calculations without false/duplicate entries.
 
 ---
 
-## 5. Implementation & Verification Plan
+## Plan Verification Checklist
 
-1. **Algorithm Code Audit & Calibration**:
-   - Review `src/utils/signalEngine.ts`, `src/utils/afterMarketEngine.ts`, and `src/utils/htfPredictionEngine.ts` to confirm 100% symmetry in scoring math, veto rules, and strategy assignment.
-   - Verify that all edge cases (neutral tie, extreme PCR, heavyweight divergence, gap-up vs gap-down) result in accurate CE, PE, or NEUTRAL outputs.
-2. **UI & Component Audit**:
-   - Verify `SignalCard.tsx` and `AfterMarketOpeningCard.tsx` render badges, strike suggestions, dynamic confidence bars, and capital protection notices clearly without ambiguity.
-3. **Build & Type-Safety Validation**:
-   - Execute `compile_applet` and `lint_applet` to ensure zero compilation or syntax issues.
+- [ ] Remove header action buttons (Self-Healing trigger, Reset button, Manual forms).
+- [ ] Group trade history strictly by date (last 7 days).
+- [ ] Expand current trading day ("Today") at the top by default; collapse previous days.
+- [ ] Display Suggested Entry, Actual Entry, Target/SL, Exit Price, and Net Points P&L in table rows.
+- [ ] Preserve underlying prediction algorithms in `daysReportEngine.ts`.
+- [ ] Validate compilation (`compile_applet`) and TypeScript linting (`lint_applet`).
