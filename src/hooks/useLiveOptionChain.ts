@@ -616,7 +616,7 @@ export function useLiveOptionChain() {
         url += `?${qs}`;
       }
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(2200) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         setFeedLatencies(prev => ({ ...prev, chain: Math.max(1, Math.round(performance.now() - tStart)) }));
         const data = await res.json();
