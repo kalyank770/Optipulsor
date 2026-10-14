@@ -73,6 +73,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const isWait = !isBull && !isBear;
   const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways && isWait);
 
+  // Trade lifecycle stages
+  const stage = signal?.tradeStage || 'FRESH_ENTRY';
+  const isRetracing = stage === 'POST_TARGET_RETRACEMENT';
+  const isTarget1Captured = stage === 'TARGET_1_HIT';
+  const isTarget2Captured = stage === 'TARGET_2_HIT';
+  const isStopLossBreached = stage === 'STOP_LOSS_HIT';
+
   // Spot buffer for invalidation
   const spotBuffer = ticker.currency === '$' ? 1.5 : (ticker.symbol.includes('BANK') ? 60 : 25);
   const effectiveSpotStopLoss = isBear
@@ -170,14 +177,21 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {/* Main Recommendation Row: Directional Icon, Headline, Regime Badge & Action Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-1">
           <div className="flex items-start sm:items-center gap-3">
-            {/* Directional Icon Box: Upward Green Arrow (Bullish), Downward Red Arrow (Bearish), 'O' Orange (Sideways), '-' Grey (Wait/Neutral) */}
+            {/* Directional Icon Box */}
             <div className={`p-2.5 sm:p-3 rounded-lg flex items-center justify-center shrink-0 border ${
+              isStopLossBreached ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-xs shadow-rose-500/20' :
+              isRetracing ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-xs shadow-amber-500/20' :
+              isTarget1Captured || isTarget2Captured ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-xs shadow-emerald-500/20' :
               isBull ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-xs shadow-emerald-500/20' :
               isBear ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-xs shadow-rose-500/20' :
               isSideways ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-xs shadow-amber-500/20' :
               'bg-slate-800 text-slate-400 border-slate-700'
             }`}>
-              {isBull ? (
+              {isStopLossBreached ? (
+                <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 stroke-[2.5] shrink-0" />
+              ) : isRetracing ? (
+                <Activity className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 stroke-[2.5] shrink-0" />
+              ) : isBull ? (
                 <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 stroke-[2.5] shrink-0" />
               ) : isBear ? (
                 <TrendingDown className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 stroke-[2.5] shrink-0" />
@@ -191,34 +205,76 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-                  {isBull && (
+                  {isStopLossBreached && (
+                    <span className="text-rose-400 flex items-center gap-2 flex-wrap">
+                      <span>🛑 STOP LOSS HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
+                      <span className="text-xs font-mono font-bold bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-800">CAPITAL PROTECTED</span>
+                    </span>
+                  )}
+                  {isTarget2Captured && (
+                    <span className="text-sky-400 flex items-center gap-2 flex-wrap">
+                      <span>🚀 TARGET 2 HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
+                      <span className="text-xs font-mono font-bold bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-800">FULL EXIT</span>
+                    </span>
+                  )}
+                  {isTarget1Captured && (
+                    <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
+                      <span>🎯 TARGET 1 HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
+                      <span className="text-xs font-mono font-bold bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">SCALE 50%</span>
+                    </span>
+                  )}
+                  {isRetracing && (
+                    <span className="text-amber-300 flex items-center gap-2 flex-wrap">
+                      <span>⚠️ TARGET 1 HIT · RETRACEMENT WATCH — {setup.recommendedStrike} {setup.recommendedType}</span>
+                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                    </span>
+                  )}
+                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBull && (
                     <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
                       <span>BUY CALL — {setup.recommendedStrike} CE</span>
                       <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
                     </span>
                   )}
-                  {isBear && (
+                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBear && (
                     <span className="text-rose-400 flex items-center gap-2 flex-wrap">
                       <span>BUY PUT — {setup.recommendedStrike} PE</span>
                       <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
                     </span>
                   )}
-                  {isWait && <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>}
+                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isWait && (
+                    <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>
+                  )}
                 </h2>
 
                 {/* Dynamic Regime & Momentum Badge */}
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded border flex items-center gap-1.5 font-mono shadow-xs ${
-                  isBull
+                  isStopLossBreached
+                    ? 'border-rose-500/50 bg-rose-950/70 text-rose-300'
+                    : isRetracing
+                    ? 'border-amber-500/50 bg-amber-950/70 text-amber-300'
+                    : isTarget2Captured
+                    ? 'border-sky-500/50 bg-sky-950/70 text-sky-300'
+                    : isTarget1Captured
+                    ? 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
+                    : isBull
                     ? 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
                     : isBear
                     ? 'border-rose-500/50 bg-rose-950/70 text-rose-300'
                     : 'border-amber-500/50 bg-amber-950/70 text-amber-300'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                    isBull ? 'bg-emerald-400' : isBear ? 'bg-rose-400' : 'bg-amber-400'
+                    isStopLossBreached ? 'bg-rose-400' : isRetracing ? 'bg-amber-400' : isTarget2Captured ? 'bg-sky-400' : isBull ? 'bg-emerald-400' : isBear ? 'bg-rose-400' : 'bg-amber-400'
                   }`} />
                   <span>
-                    {isBull
+                    {isStopLossBreached
+                      ? 'SL HIT (CAPITAL PRESERVED)'
+                      : isRetracing
+                      ? 'PULLBACK RETEST (Do Not Chase)'
+                      : isTarget2Captured
+                      ? '100% TARGET CAPTURED'
+                      : isTarget1Captured
+                      ? 'TARGET 1 CAPTURED (+35%)'
+                      : isBull
                       ? `BULLISH (${setup.probabilityScore}% Momentum)`
                       : isBear
                       ? `BEARISH (${setup.probabilityScore}% Momentum)`
@@ -233,7 +289,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
             {/* Simulate Contract Icon Button */}
-            {!isWait && (
+            {!isWait && !isStopLossBreached && (
               <button
                 onClick={() => onSelectContractForSimulation(setup.recommendedStrike, setup.recommendedType)}
                 className="p-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold transition-all cursor-pointer shadow-sm shadow-emerald-500/20 flex items-center justify-center shrink-0"
@@ -246,7 +302,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         </div>
       </div>
 
-      {/* Subtitle */}
+      {/* Subtitle / Predictive Trigger */}
       <p className="text-xs text-slate-300 font-sans mt-2.5 leading-relaxed relative z-10">
         <strong className="text-amber-300">Predictive Trigger: </strong>
         {setup.primaryLeadingCatalyst}
@@ -259,8 +315,14 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>Algorithm Validation:</span>
           </span>
-          <span className="text-emerald-400 font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/60">
-            0.0% Directional Bias
+          <span className={`font-bold px-1.5 py-0.5 rounded border ${
+            isBull 
+              ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60' 
+              : isBear 
+              ? 'text-rose-400 bg-rose-950/60 border-rose-800/60' 
+              : 'text-amber-300 bg-amber-950/60 border-amber-800/60'
+          }`}>
+            {setup.directionalBiasLabel || (isBull ? `+${setup.probabilityScore}% Bullish Bias` : isBear ? `-${setup.probabilityScore}% Bearish Bias` : '0.0% Neutral Bias')}
           </span>
           <span className="text-slate-500">|</span>
           <span className="text-slate-300">
@@ -278,11 +340,17 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         <div className="flex items-center gap-1.5 text-[10.5px]">
           <span className="text-slate-400">Regime:</span>
           <span className={`font-bold px-1.5 py-0.2 rounded border ${
+            isStopLossBreached ? 'text-rose-300 bg-rose-950 border-rose-700' :
+            isRetracing ? 'text-amber-300 bg-amber-950 border-amber-700' :
             isBull ? 'text-emerald-300 bg-emerald-950 border-emerald-700' :
             isBear ? 'text-rose-300 bg-rose-950 border-rose-700' :
             'text-amber-300 bg-amber-950 border-amber-700'
           }`}>
-            {isBull ? 'Confirmed Call Momentum' : isBear ? 'Confirmed Put Momentum' : 'Consolidation Stand Aside'}
+            {isStopLossBreached ? 'SL Invalidation Floor Breached' :
+             isRetracing ? 'Retracement Pullback Phase' :
+             isBull ? 'Confirmed Call Momentum' :
+             isBear ? 'Confirmed Put Momentum' :
+             'Consolidation Stand Aside'}
           </span>
         </div>
       </div>

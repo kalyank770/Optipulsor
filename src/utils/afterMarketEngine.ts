@@ -254,25 +254,30 @@ export function computeAfterMarketOpeningAnalytics(
       ? `Synthesizing today's weak closing structure (${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts): Spot is projected to gap down below the ${ticker.currency}${supFloor.toLocaleString()} Put OI Support floor towards ${tomorrowStrike} PE. If breakdown sustains below ${ticker.currency}${supFloor.toLocaleString()} in the first 15 minutes, long unwinding will accelerate spot to ${projectedSpotAtHit}.`
       : `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts), spot will test ${tomorrowStrike} PE at 09:15 AM open.`;
   } else {
-    // FLAT OPENING / NEUTRAL ORB
-    if (isBullishSkew && !isBearishSkew) {
+    // FLAT OPENING / NEUTRAL ORB PROTOCOL:
+    // On flat openings (within ±0.15% or ±25 pts), buying naked calls or puts at 09:15 AM open
+    // statistically leads to theta decay and IV crush. Prudent quantitative protocol mandates
+    // standing aside for the first 15-minute Opening Range Breakout (ORB) post-09:30 AM.
+    if (openMomentumScore >= 2.6 && isBullishSkew && !isBearishSkew) {
       tomorrowAction = 'BUY_CE';
       tomorrowType = 'CE';
-    } else if (isBearishSkew && !isBullishSkew) {
+    } else if (openMomentumScore <= -2.6 && isBearishSkew && !isBullishSkew) {
       tomorrowAction = 'BUY_PE';
       tomorrowType = 'PE';
     } else {
       tomorrowAction = 'WAIT_FIRST_15M';
-      tomorrowType = spotClose >= (metrics?.realtimeIndicators?.vwap?.value || spotClose) ? 'CE' : 'PE';
+      tomorrowType = isBearishSkew ? 'PE' : (spotClose >= (metrics?.realtimeIndicators?.vwap?.value || spotClose) ? 'CE' : 'PE');
     }
     tomorrowStrike = Math.round(spotClose / step) * step;
     projectedSpotAtHit = predictedOpeningSpot;
 
     const candleContext = candlePatterns?.confluenceBias === 'BEARISH'
-      ? `Late session 2m/5m/15m candlesticks indicate BEARISH MOMENTUM (${candlePatterns.confluencePattern || 'selling pressure off session highs'}).`
+      ? `Late session candlesticks indicate BEARISH PROFIT-TAKING (${candlePatterns.confluencePattern || 'selling pressure off session highs'}).`
+      : candlePatterns?.confluenceBias === 'BULLISH'
+      ? `Late session candlesticks indicate BULLISH ACCUMULATION (${candlePatterns.confluencePattern || 'buying support'}).`
       : `Daily closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}).`;
 
-    hitReason = `Mild/Flat opening projected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} Directive: ${tomorrowAction === 'WAIT_FIRST_15M' ? 'Stand aside for 15m Opening Range (ORB) breakout' : `Active trade recommendation: ${tomorrowAction} at ${tomorrowStrike} ${tomorrowType}`}.`;
+    hitReason = `Mild/Flat opening projected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} Directive: ${tomorrowAction === 'WAIT_FIRST_15M' ? `Stand aside for 15-minute Opening Range Breakout (ORB) post-09:30 AM before committing capital to reference contract ${tomorrowStrike} ${tomorrowType}` : `Active trade recommendation: ${tomorrowAction} at ${tomorrowStrike} ${tomorrowType}`}.`;
   }
 
   // Derive estimated opening contract targets for tomorrow's hit strike

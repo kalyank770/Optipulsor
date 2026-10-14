@@ -677,24 +677,34 @@ export function generateTradeSignal(
   // =========================================================================
   const netBullEdge = bullMatches - bearMatches;
 
+  // Candlestick multi-timeframe directional bias & score:
+  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore <= -1.6;
+  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore >= 1.6;
+
+  // Add candlestick confluence to match tallies:
+  if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.5) bullMatches++;
+  if (candlePatterns.confluenceBias === 'BEARISH' && candlePatterns.confluenceScore <= -1.5) bearMatches++;
+
   // Multi-factor contradiction counters: Require 2+ contradictory indicators to veto a signal,
   // preventing a single dissenting micro-metric from blocking high-probability setups.
   const bearContradictionCount = (
-    (pcrTotalOI <= 0.75 ? 1 : 0) +
+    (pcrTotalOI <= 0.78 ? 1 : 0) +
     (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ? 1 : 0) +
-    (candlePatterns.confluenceBias === 'BEARISH' ? 1 : 0) +
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -25 ? 1 : 0)
+    (isCandleBearish ? 1 : 0) +
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -20 ? 1 : 0)
   );
 
   const bullContradictionCount = (
-    (pcrTotalOI >= 1.35 ? 1 : 0) +
+    (pcrTotalOI >= 1.30 ? 1 : 0) +
     (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ? 1 : 0) +
-    (candlePatterns.confluenceBias === 'BULLISH' ? 1 : 0) +
-    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 25 ? 1 : 0)
+    (isCandleBullish ? 1 : 0) +
+    (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 20 ? 1 : 0)
   );
 
-  const isHardBearishVeto = bearContradictionCount >= 2 || (isContinuousFall && score < 0);
-  const isHardBullishVeto = bullContradictionCount >= 2 || (isMarketRaising && score > 0);
+  // Candlestick Veto: If candles are firmly bearish, NEVER issue BUY_CE.
+  // If candles are firmly bullish, NEVER issue BUY_PE.
+  const isHardBearishVeto = isCandleBearish || bearContradictionCount >= 2 || (isContinuousFall && score < 0);
+  const isHardBullishVeto = isCandleBullish || bullContradictionCount >= 2 || (isMarketRaising && score > 0);
 
   if (score >= 0.7 && netBullEdge >= 1 && !isHardBearishVeto) {
     // BULLISH MOMENTUM / RECOVERY REGIME: Recommend Call Option (BUY_CE)
@@ -716,6 +726,10 @@ export function generateTradeSignal(
     if (!capitalProtectionReason) {
       if (Math.abs(score) < 0.7) {
         capitalProtectionReason = `Consolidation Deadband: Multi-factor composite score (${score > 0 ? '+' : ''}${score.toFixed(1)}) is in neutral equilibrium (-0.7 to +0.7). Lacking institutional directional edge; stand aside in WAIT_NEUTRAL.`;
+      } else if (score > 0 && isCandleBearish) {
+        capitalProtectionReason = `Candlestick Divergence: Spot price has positive drift, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'bearish pressure'}) indicate supply distribution. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
+      } else if (score < 0 && isCandleBullish) {
+        capitalProtectionReason = `Candlestick Divergence: Spot is pulling back, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'bullish accumulation'}) indicate institutional buying support. High risk of short trap; stand aside in WAIT_NEUTRAL.`;
       } else if (score > 0 && isHardBearishVeto) {
         capitalProtectionReason = `Signal Divergence: Spot price is positive, but derivatives flow (PCR ${pcrTotalOI.toFixed(2)}, Order Flow ${rt.orderFlow.sentiment}) or heavyweights show confirmed supply drag. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
       } else if (score < 0 && isHardBullishVeto) {
@@ -1331,15 +1345,16 @@ export function generateTradeSignal(
   rationalePoints.push({
     title: 'RSI, MACD Momentum & Option Gamma (GEX) Regime',
     verdict: rt.macd.trend.includes('BULLISH') ? 'BULLISH' : rt.macd.trend.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
-    description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence?.replace(/_/g, ' ') || 'NONE'}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure?.regime?.replace(/_/g, ' ') || 'BALANCED'} (Net GEX: ${rt.gammaExposure.netGex.toLocaleString()} | Flip Strike: ${ticker.currency}${rt.gammaExposure.flipStrike.toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment?.replace(/_/g, ' ') || 'BALANCED'}).`,
+    description: `5m RSI: ${rt.rsi.value.toFixed(1)} (${rt.rsi.label}${rt.rsi.divergence !== 'NONE' ? ` · ${rt.rsi.divergence?.replace(/_/g, ' ') || 'NONE'}` : ''}). MACD (12,26,9): Hist ${rt.macd.histogram > 0 ? '+' : ''}${rt.macd.histogram} (${rt.macd.label}). Gamma Regime: ${rt.gammaExposure?.regime?.replace(/_/g, ' ') || 'BALANCED'} (Net GEX: ${rt.gammaExposure?.netGex?.toLocaleString() ?? 0} | Flip Strike: ${ticker.currency}${rt.gammaExposure?.flipStrike?.toLocaleString() ?? (ticker.spotPrice + ticker.strikeStep).toLocaleString()}). Order Flow Delta: ${rt.orderFlow.orderFlowDelta > 0 ? '+' : ''}${rt.orderFlow.orderFlowDelta.toLocaleString()} (${rt.orderFlow.sentiment?.replace(/_/g, ' ') || 'BALANCED'}).`,
   });
 
   // Rationale 8: Nifty Derivative Constituent Heavyweights & Sectoral Breadth (for Indian Equities & Indices)
   if (constituentAnalysis) {
+    const hwBias = constituentAnalysis.overallHeavyweightBias || '';
     rationalePoints.push({
       title: 'Nifty Derivative Heavyweight Breadth & Sectoral Delta',
-      verdict: constituentAnalysis.overallHeavyweightBias.includes('BULLISH') ? 'BULLISH' : constituentAnalysis.overallHeavyweightBias.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
-      description: `Heavyweight Breadth: ${constituentAnalysis.summaryNote} (Breadth Score: ${constituentAnalysis.breadthScore > 0 ? '+' : ''}${constituentAnalysis.breadthScore}/10 | Weighted Delta: ${constituentAnalysis.weightedConstituentDelta > 0 ? '+' : ''}${constituentAnalysis.weightedConstituentDelta}%). Sectoral Contributions: ${constituentAnalysis.sectoralBreakdown.slice(0, 3).map(s => `${s.sector}: ${s.contributionPoints >= 0 ? '+' : ''}${s.contributionPoints} pts (${s.leadingStock})`).join(' | ')}.`,
+      verdict: hwBias.includes('BULLISH') ? 'BULLISH' : hwBias.includes('BEARISH') ? 'BEARISH' : 'NEUTRAL',
+      description: `Heavyweight Breadth: ${constituentAnalysis.summaryNote || 'Heavyweight flow active'} (Breadth Score: ${(constituentAnalysis.breadthScore ?? 0) > 0 ? '+' : ''}${constituentAnalysis.breadthScore ?? 0}/10 | Weighted Delta: ${(constituentAnalysis.weightedConstituentDelta ?? 0) > 0 ? '+' : ''}${constituentAnalysis.weightedConstituentDelta ?? 0}%). Sectoral Contributions: ${(constituentAnalysis.sectoralBreakdown || []).slice(0, 3).map(s => `${s.sector}: ${s.contributionPoints >= 0 ? '+' : ''}${s.contributionPoints} pts (${s.leadingStock})`).join(' | ')}.`,
     });
   }
 
@@ -1669,6 +1684,25 @@ export function generateTradeSignal(
     constituentAnalysis
   );
 
+  // Sideways Market Trap Filter: If range compression is active, require a confirmed price breakout
+  // outside the deadband triggers before issuing directional recommendations, protecting option buyers from theta bleed
+  const isGenuineBullishBreakout = spotPrice >= sidewaysMarketAnalysis.breakoutWatchLevels.bullishBreakoutTrigger && isStrongBullMomentum;
+  const isGenuineBearishBreakdown = spotPrice <= sidewaysMarketAnalysis.breakoutWatchLevels.bearishBreakdownTrigger && isStrongBearMomentum;
+
+  if (sidewaysMarketAnalysis.isSideways && (action === 'BUY_CE' || action === 'BUY_PE')) {
+    if (action === 'BUY_CE' && !isGenuineBullishBreakout) {
+      action = 'WAIT_NEUTRAL';
+      strength = 'CAUTION';
+      confidence = Math.min(65, Math.max(48, Math.round(50 + (sidewaysMarketAnalysis.compressionPercentage * 0.15))));
+      capitalProtectionReason = `Capital Protection: Sideways Market Deadband (${sidewaysMarketAnalysis.compressionPercentage}% range compression between ${ticker.currency}${sidewaysMarketAnalysis.rangeFloor.toLocaleString()} floor & ${ticker.currency}${sidewaysMarketAnalysis.rangeCeiling.toLocaleString()} ceiling). Directional option buying inside deadband has severe negative expected value; stand aside in WAIT until confirmed breakout above ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bullishBreakoutTrigger}.`;
+    } else if (action === 'BUY_PE' && !isGenuineBearishBreakdown) {
+      action = 'WAIT_NEUTRAL';
+      strength = 'CAUTION';
+      confidence = Math.min(65, Math.max(48, Math.round(50 + (sidewaysMarketAnalysis.compressionPercentage * 0.15))));
+      capitalProtectionReason = `Capital Protection: Sideways Market Deadband (${sidewaysMarketAnalysis.compressionPercentage}% range compression between ${ticker.currency}${sidewaysMarketAnalysis.rangeFloor.toLocaleString()} floor & ${ticker.currency}${sidewaysMarketAnalysis.rangeCeiling.toLocaleString()} ceiling). Directional option buying inside deadband has severe negative expected value; stand aside in WAIT until confirmed breakdown below ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bearishBreakdownTrigger}.`;
+    }
+  }
+
   if (sidewaysMarketAnalysis.isSideways && action === 'WAIT_NEUTRAL') {
     summaryNote = `${pricePrefix}: Verified SIDEWAYS / RANGE-BOUND scenario detected (${sidewaysMarketAnalysis.compressionPercentage}% range compression, bound between ${ticker.currency}${sidewaysMarketAnalysis.rangeFloor.toLocaleString()} floor & ${ticker.currency}${sidewaysMarketAnalysis.rangeCeiling.toLocaleString()} ceiling). Directional option buying (both CE and PE) has severe negative expected value due to rapid theta bleed. Stand aside in WAIT until spot cleanly breaks ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bullishBreakoutTrigger} or ${ticker.currency}${sidewaysMarketAnalysis.breakoutWatchLevels.bearishBreakdownTrigger}. Reference contract ${targetStrike} ${recommendedType} @ ${ticker.currency}${premium.toFixed(2)}.`;
     
@@ -1720,11 +1754,50 @@ export function generateTradeSignal(
     recommendedType
   );
 
+  // Pillar Consensus Validation: Prevent issuing BUY_CE when bearish pillars dominate, or BUY_PE when bullish pillars dominate
+  const bullPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BULLISH')).length || 0;
+  const bearPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BEARISH')).length || 0;
+
+  if (action === 'BUY_CE' && bearPillars > bullPillars) {
+    action = 'WAIT_NEUTRAL';
+    strength = 'CAUTION';
+    confidence = 58;
+    capitalProtectionReason = `Pillar Consensus Divergence: Bullish price drift is contradicted by ${bearPillars} bearish pillars (vs only ${bullPillars} bullish). Stand aside in WAIT_NEUTRAL until multi-factor consensus aligns.`;
+    summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
+  } else if (action === 'BUY_PE' && bullPillars > bearPillars) {
+    action = 'WAIT_NEUTRAL';
+    strength = 'CAUTION';
+    confidence = 58;
+    capitalProtectionReason = `Pillar Consensus Divergence: Bearish price drift is contradicted by ${bullPillars} bullish pillars (vs only ${bearPillars} bearish). Stand aside in WAIT_NEUTRAL until multi-factor consensus aligns.`;
+    summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
+  }
+
   // Synchronize advance trade setup with authoritative trade recommendation
   advanceTradeSetup.recommendedStrike = targetStrike;
   advanceTradeSetup.recommendedType = recommendedType;
-  if (action === 'BUY_CE' || action === 'BUY_PE') {
-    advanceTradeSetup.anticipatedAction = action;
+  advanceTradeSetup.anticipatedAction = action;
+
+  if (action === 'WAIT_NEUTRAL') {
+    advanceTradeSetup.isAvailable = false;
+    advanceTradeSetup.setupType = 'EQUILIBRIUM_WAIT';
+    advanceTradeSetup.directionalBiasPercent = 0;
+    advanceTradeSetup.directionalBiasLabel = bearPillars > bullPillars 
+      ? `Neutral Equilibrium (${bearPillars} Bearish vs ${bullPillars} Bullish)` 
+      : bullPillars > bearPillars 
+      ? `Neutral Equilibrium (${bullPillars} Bullish vs ${bearPillars} Bearish)` 
+      : '0.0% Neutral Equilibrium';
+    advanceTradeSetup.primaryLeadingCatalyst = capitalProtectionReason || advanceTradeSetup.primaryLeadingCatalyst;
+    advanceTradeSetup.subTitle = capitalProtectionReason ? `Capital Preservation Mandate: ${capitalProtectionReason}` : advanceTradeSetup.subTitle;
+  } else if (action === 'BUY_CE') {
+    advanceTradeSetup.isAvailable = true;
+    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') advanceTradeSetup.setupType = 'PRE_BREAKOUT_COILING_CE';
+    advanceTradeSetup.directionalBiasPercent = Math.min(96, Math.max(68, Math.round(confidence)));
+    advanceTradeSetup.directionalBiasLabel = `+${advanceTradeSetup.directionalBiasPercent}% Bullish Bias`;
+  } else if (action === 'BUY_PE') {
+    advanceTradeSetup.isAvailable = true;
+    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') advanceTradeSetup.setupType = 'PRE_BREAKDOWN_COILING_PE';
+    advanceTradeSetup.directionalBiasPercent = -Math.min(96, Math.max(68, Math.round(confidence)));
+    advanceTradeSetup.directionalBiasLabel = `-${Math.abs(advanceTradeSetup.directionalBiasPercent)}% Bearish Bias`;
   }
 
   if (!marketStatus.isOpen && afterMarketAnalytics.tomorrowHitStrike) {
@@ -1760,8 +1833,12 @@ export function generateTradeSignal(
     advanceTradeSetup.advanceRiskRewardRatio = rrRatio;
     if (action === 'WAIT_NEUTRAL') {
       advanceTradeSetup.isAvailable = false;
-      advanceTradeSetup.subTitle = 'Capital Preservation Mandate: Market is oscillating within consolidation deadband. High risk of theta crush for option buyers. Stand aside in WAIT until confirmed breakout outside session range.';
-      advanceTradeSetup.primaryLeadingCatalyst = 'Equilibrium Range Bound: Wait for confirmed directional breakout outside range before committing capital.';
+      advanceTradeSetup.subTitle = capitalProtectionReason
+        ? `Capital Preservation Mandate: ${capitalProtectionReason}`
+        : 'Capital Preservation Mandate: Market is oscillating within consolidation deadband. High risk of theta crush for option buyers. Stand aside in WAIT until confirmed breakout outside session range.';
+      advanceTradeSetup.primaryLeadingCatalyst = capitalProtectionReason
+        ? capitalProtectionReason
+        : 'Equilibrium Range Bound: Market is consolidating. Wait for confirmed directional breakout outside range before committing capital.';
     } else {
       advanceTradeSetup.isAvailable = true;
     }

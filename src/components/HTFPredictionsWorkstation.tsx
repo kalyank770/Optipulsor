@@ -50,8 +50,9 @@ function MiniCandleChart({ candles, resistance, support, ema20 }: {
   ema20: number;
 }) {
   if (!candles || candles.length === 0) return null;
-  const minPrice = Math.min(...candles.map(c => c.low), support);
-  const maxPrice = Math.max(...candles.map(c => c.high), resistance);
+  const recentCandles = candles.slice(-16);
+  const minPrice = Math.min(...recentCandles.map(c => c.low), support);
+  const maxPrice = Math.max(...recentCandles.map(c => c.high), resistance);
   const priceRange = Math.max(0.1, maxPrice - minPrice);
 
   const getY = (val: number) => {
@@ -83,7 +84,7 @@ function MiniCandleChart({ candles, resistance, support, ema20 }: {
           style={{ top: `${getY(ema20)}%` }}
         />
 
-        {candles.map((candle, idx) => {
+        {recentCandles.map((candle, idx) => {
           const isGreen = candle.close >= candle.open;
           const highY = getY(candle.high);
           const lowY = getY(candle.low);
@@ -123,9 +124,9 @@ function MiniCandleChart({ candles, resistance, support, ema20 }: {
       </div>
 
       <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1.5 border-t border-slate-800">
-        <span>Earliest: {candles[0]?.time}</span>
-        <span className="text-white font-bold">Current Spot: ₹{candles[candles.length - 1]?.close.toLocaleString()}</span>
-        <span>Latest: {candles[candles.length - 1]?.time}</span>
+        <span>Earliest: {recentCandles[0]?.time}</span>
+        <span className="text-white font-bold">Current Spot: ₹{recentCandles[recentCandles.length - 1]?.close.toLocaleString()}</span>
+        <span>Latest: {recentCandles[recentCandles.length - 1]?.time}</span>
       </div>
     </div>
   );
@@ -381,7 +382,7 @@ export function HTFPredictionsWorkstation({
                   </div>
 
                   <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Swing Exit Target: <strong className="text-emerald-400">{ticker.currency}{candleData?.derivedExitLevel1?.toLocaleString()}</strong></span>
+                    <span>Swing Exit Target: <strong className={candleData?.confluenceBias === 'BEARISH' ? 'text-rose-400' : 'text-emerald-400'}>{ticker.currency}{candleData?.derivedExitLevel1?.toLocaleString()}</strong></span>
                     <span>ATR: <strong className="text-slate-300">{candleData?.m5?.atr} pts</strong></span>
                   </div>
                 </div>
@@ -429,7 +430,7 @@ export function HTFPredictionsWorkstation({
                   </div>
 
                   <div className="pt-2.5 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                    <span>Runner Exit Target: <strong className="text-sky-400">{ticker.currency}{candleData?.derivedExitLevel2?.toLocaleString()}</strong></span>
+                    <span>Runner Exit Target: <strong className={candleData?.confluenceBias === 'BEARISH' ? 'text-rose-400' : 'text-sky-400'}>{ticker.currency}{candleData?.derivedExitLevel2?.toLocaleString()}</strong></span>
                     <span>ATR: <strong className="text-slate-300">{candleData?.m15?.atr} pts</strong></span>
                   </div>
                 </div>

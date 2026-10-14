@@ -739,21 +739,24 @@ export function computeAdvanceTradeSetup(
 
   // Multi-factor contradiction counters: Require 2+ contradictory indicators to veto an advance trade setup,
   // preventing a single dissenting micro-metric from blocking high-probability setups.
+  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore <= -1.6;
+  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore >= 1.6;
+
   const bearContradictionCount = (
     (metrics.pcrTotalOI <= 0.80 ? 1 : 0) +
     (rt.orderFlow.sentiment === 'SELLER_DOMINANCE' ? 1 : 0) +
-    (candlePatterns.confluenceBias === 'BEARISH' ? 1 : 0) +
+    (isCandleBearish ? 1 : 0) +
     (constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -20 ? 1 : 0)
   );
-  const isDerivativesOrCandleBearish = bearContradictionCount >= 2;
+  const isDerivativesOrCandleBearish = isCandleBearish || bearContradictionCount >= 2;
 
   const bullContradictionCount = (
     (metrics.pcrTotalOI >= 1.25 ? 1 : 0) +
     (rt.orderFlow.sentiment === 'BUYER_DOMINANCE' ? 1 : 0) +
-    (candlePatterns.confluenceBias === 'BULLISH' ? 1 : 0) +
+    (isCandleBullish ? 1 : 0) +
     (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 20 ? 1 : 0)
   );
-  const isDerivativesOrCandleBullish = bullContradictionCount >= 2;
+  const isDerivativesOrCandleBullish = isCandleBullish || bullContradictionCount >= 2;
 
   // --- 15. FACTOR 15: ANTI-WHIPSAW HYSTERESIS STATE ---
   let hysteresisFactor: LeadingPredictorFactor;
@@ -813,16 +816,32 @@ export function computeAdvanceTradeSetup(
   ];
   const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
-  let anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' = currentSignalAction || 'WAIT_NEUTRAL';
+  const bullPillarCount = leadingFactors.filter(f => f.state.includes('BULLISH')).length;
+  const bearPillarCount = leadingFactors.filter(f => f.state.includes('BEARISH')).length;
+  const neutralPillarCount = leadingFactors.filter(f => f.state === 'NEUTRAL').length;
+
+  let anticipatedAction: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' = 'WAIT_NEUTRAL';
   let setupType: AdvanceSetupType = 'EQUILIBRIUM_WAIT';
   let probabilityScore = 55;
-  let leadTimeAdvantageMinutes = 3.0;
+  let leadTimeAdvantageMinutes = 1.0;
 
+  // Strict multi-factor consensus: Score and pillar count must BOTH be aligned to prevent contradictory recommendations
   const minThreshold = currentSignalAction === 'WAIT_NEUTRAL' ? 2.8 : 1.6;
+  const isScoreBullish = totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.6 && !isDerivativesOrCandleBearish;
+  const isScoreBearish = totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.6 && !isDerivativesOrCandleBullish;
+  const isPillarsBullishConsensus = bullPillarCount > bearPillarCount;
+  const isPillarsBearishConsensus = bearPillarCount > bullPillarCount;
 
-  if (totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.5 && !isDerivativesOrCandleBearish) {
+  if (currentSignalAction === 'WAIT_NEUTRAL') {
+    // If authoritative signal engine commands WAIT_NEUTRAL (due to consolidation, flat open, or capital protection),
+    // strictly enforce WAIT_NEUTRAL in advance setup to eliminate contradictory signals
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'EQUILIBRIUM_WAIT';
+    probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
+    leadTimeAdvantageMinutes = 1.0;
+  } else if (isScoreBullish && isPillarsBullishConsensus) {
     anticipatedAction = 'BUY_CE';
-    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBullScore * 4.2 + (avgFactorConf - 60) * 0.25)));
+    probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBullScore * 3.8 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
     if (swBullScore >= 2.0) {
@@ -834,9 +853,9 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKOUT_COILING_CE';
     }
-  } else if (totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.5 && !isDerivativesOrCandleBullish) {
+  } else if (isScoreBearish && isPillarsBearishConsensus) {
     anticipatedAction = 'BUY_PE';
-    probabilityScore = Math.min(96, Math.max(62, Math.round(68 + totalBearScore * 4.2 + (avgFactorConf - 60) * 0.25)));
+    probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBearScore * 3.8 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
 
     if (swBearScore >= 2.0) {
@@ -849,7 +868,7 @@ export function computeAdvanceTradeSetup(
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
   } else {
-    // True Stand-Aside / Capital Preservation Equilibrium
+    // True Stand-Aside / Capital Preservation Equilibrium / Divergence
     anticipatedAction = 'WAIT_NEUTRAL';
     setupType = 'EQUILIBRIUM_WAIT';
     probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
@@ -857,13 +876,29 @@ export function computeAdvanceTradeSetup(
   }
 
   // Directional signal actions align with advance setups
-  if (currentSignalAction === 'BUY_CE') {
+  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus) {
     anticipatedAction = 'BUY_CE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
-  } else if (currentSignalAction === 'BUY_PE') {
+  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus) {
     anticipatedAction = 'BUY_PE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKDOWN_COILING_PE';
+  } else if (currentSignalAction === 'WAIT_NEUTRAL') {
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'EQUILIBRIUM_WAIT';
   }
+
+  const netBiasPct = anticipatedAction === 'BUY_CE'
+    ? Math.min(96, Math.max(65, Math.round(probabilityScore)))
+    : anticipatedAction === 'BUY_PE'
+    ? -Math.min(96, Math.max(65, Math.round(probabilityScore)))
+    : 0;
+
+  const directionalBiasPercent = netBiasPct;
+  const directionalBiasLabel = anticipatedAction === 'BUY_CE'
+    ? `+${Math.abs(netBiasPct)}% Bullish Bias`
+    : anticipatedAction === 'BUY_PE'
+    ? `-${Math.abs(netBiasPct)}% Bearish Bias`
+    : '0.0% Neutral Bias';
 
   // --- STRIKE, ZONE & OPTION TARGET CALCULATIONS ---
   const isBearishSkew = (
@@ -1015,8 +1050,14 @@ export function computeAdvanceTradeSetup(
       break;
     default:
       title = 'Equilibrium Range (Stand Aside)';
-      subTitle = 'No Directional Divergence Detected in Leading Indicators';
-      primaryLeadingCatalyst = 'Balanced market order flow and neutral straddle positioning.';
+      subTitle = 'Capital Preservation Mandate: No Confirmed Directional Edge';
+      if (!isPillarsBullishConsensus && totalBullScore > totalBearScore) {
+        primaryLeadingCatalyst = `Pillar Divergence Detected: Bullish momentum score is offset by ${bearPillarCount} bearish pillars. Stand aside until directional consensus aligns.`;
+      } else if (!isPillarsBearishConsensus && totalBearScore > totalBullScore) {
+        primaryLeadingCatalyst = `Pillar Divergence Detected: Bearish momentum score is offset by ${bullPillarCount} bullish pillars. Stand aside until directional consensus aligns.`;
+      } else {
+        primaryLeadingCatalyst = 'Balanced market order flow and neutral positioning. Stand aside in cash to avoid theta decay.';
+      }
       break;
   }
 
@@ -1063,5 +1104,10 @@ export function computeAdvanceTradeSetup(
     executionPlaybook,
     slippageSavedPercent,
     advanceVsLaggingComparison,
+    directionalBiasPercent,
+    directionalBiasLabel,
+    pillarsBullishCount: bullPillarCount,
+    pillarsBearishCount: bearPillarCount,
+    pillarsNeutralCount: neutralPillarCount,
   };
 }

@@ -542,6 +542,11 @@ export interface AdvanceTradeSetup {
     laggingRiskRewardRatio: string;
     slippageSavedPercent: number;
   };
+  directionalBiasPercent?: number;
+  directionalBiasLabel?: string;
+  pillarsBullishCount?: number;
+  pillarsBearishCount?: number;
+  pillarsNeutralCount?: number;
   invalidationReason?: string;
 }
 

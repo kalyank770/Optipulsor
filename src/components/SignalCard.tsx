@@ -242,12 +242,32 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       }`}>
         <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
           <div className="flex items-center gap-2">
-            <Calculator className="w-4 h-4 text-emerald-400" />
+            <Calculator className={`w-4 h-4 ${isNeutral ? 'text-amber-400' : 'text-emerald-400'}`} />
             <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-white">
-              Position Sizing &amp; Capital Allocation Desk
+              {isNeutral
+                ? 'Contingent Breakout Sizing Desk'
+                : signal.tradeStage === 'POST_TARGET_RETRACEMENT'
+                ? 'Trade Management Desk (Retracement Phase)'
+                : signal.tradeStage === 'STOP_LOSS_HIT'
+                ? 'Risk Control Audit Desk (Position Closed)'
+                : 'Position Sizing & Capital Allocation Desk'}
             </h4>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
-              Lot Size: {ticker.lotSize}
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${
+              isNeutral
+                ? 'bg-amber-950 text-amber-300 border-amber-800'
+                : signal.tradeStage === 'STOP_LOSS_HIT'
+                ? 'bg-rose-950 text-rose-300 border-rose-800'
+                : signal.tradeStage === 'POST_TARGET_RETRACEMENT'
+                ? 'bg-amber-950 text-amber-300 border-amber-800'
+                : 'bg-slate-800 text-slate-300 border-slate-700'
+            }`}>
+              {isNeutral
+                ? 'STAND ASIDE'
+                : signal.tradeStage === 'STOP_LOSS_HIT'
+                ? 'SL HIT (CLOSED)'
+                : signal.tradeStage === 'POST_TARGET_RETRACEMENT'
+                ? 'RUNNER SECURED'
+                : `Lot Size: ${ticker.lotSize}`}
             </span>
           </div>
 
@@ -259,19 +279,23 @@ export const SignalCard: React.FC<SignalCardProps> = ({
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
                   : 'bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-700'
               }`}
-              title="Copy complete trade recommendation alert with entry, targets, SL & capital"
+              title={isNeutral ? "Copy Watchlist Breakout Setup" : "Copy complete trade recommendation alert with entry, targets, SL & capital"}
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
-              <span>{copied ? 'Copied Alert!' : 'Copy Alert'}</span>
+              <span>{copied ? (isNeutral ? 'Copied Watchlist Setup!' : 'Copied Alert!') : (isNeutral ? 'Copy Watchlist' : 'Copy Alert')}</span>
             </button>
 
             <button
               onClick={() => onSelectContractForSimulation(signal.recommendedStrike, signal.recommendedType)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transition-all cursor-pointer shadow-sm shadow-emerald-500/20"
-              title="Simulate this contract in Paper Trading Desk"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
+                isNeutral
+                  ? 'bg-slate-800 hover:bg-slate-750 text-amber-300 border border-amber-500/40'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-500/20'
+              }`}
+              title={isNeutral ? "Simulate Breakout Scenario in Paper Trading Desk" : "Simulate this contract in Paper Trading Desk"}
             >
               <PlayCircle className="w-3.5 h-3.5 text-white" />
-              <span>Paper Trade</span>
+              <span>{isNeutral ? 'Simulate Breakout' : 'Paper Trade'}</span>
             </button>
           </div>
         </div>
@@ -303,41 +327,51 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
           {/* Capital Deployed */}
           <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
-            <span className="text-[10px] text-slate-400 font-sans uppercase block">Capital Required</span>
+            <span className="text-[10px] text-slate-400 font-sans uppercase block">
+              {isNeutral ? 'Contingent Capital' : 'Capital Required'}
+            </span>
             <div className="text-sm font-bold text-white mt-1">
               {ticker.currency}{totalCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <span className="text-[10px] text-slate-400">@ {ticker.currency}{currentLTP.toFixed(2)} LTP</span>
+            <span className="text-[10px] text-slate-400">
+              {isNeutral ? `@ ${ticker.currency}${currentLTP.toFixed(2)} Ref LTP (On Trigger)` : `@ ${ticker.currency}${currentLTP.toFixed(2)} LTP`}
+            </span>
           </div>
 
           {/* Target 1 Projected Gain */}
-          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-emerald-500/30">
+          <div className={`p-2.5 rounded-lg bg-slate-900/80 border ${isNeutral ? 'border-amber-500/30' : 'border-emerald-500/30'}`}>
             <div className="flex items-center justify-between text-[10px] font-sans uppercase">
-              <span className="text-slate-400">Target 1 Gain</span>
-              <span className="text-emerald-400 font-bold">+{t1ProfitPct}%</span>
+              <span className="text-slate-400">{isNeutral ? 'Post-Breakout T1' : signal.tradeStage === 'POST_TARGET_RETRACEMENT' ? 'Target 1 Secured' : 'Target 1 Gain'}</span>
+              <span className={`font-bold ${isNeutral ? 'text-amber-300' : 'text-emerald-400'}`}>+{t1ProfitPct}%</span>
             </div>
-            <div className="text-sm font-bold text-emerald-400 mt-1">
+            <div className={`text-sm font-bold mt-1 ${isNeutral ? 'text-amber-300' : 'text-emerald-400'}`}>
               +{ticker.currency}{t1ProfitTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <span className="text-[10px] text-emerald-300/80 font-mono">T1 @ {ticker.currency}{target1.toFixed(2)}</span>
+            <span className={`text-[10px] font-mono ${isNeutral ? 'text-amber-300/80' : 'text-emerald-300/80'}`}>
+              {isNeutral ? `On verified breakout (${ticker.currency}${target1.toFixed(2)})` : `T1 @ ${ticker.currency}${target1.toFixed(2)}`}
+            </span>
           </div>
 
           {/* Stop Loss Max Risk */}
-          <div className="p-2.5 rounded-lg bg-slate-900/80 border border-rose-500/30">
+          <div className={`p-2.5 rounded-lg bg-slate-900/80 border ${isNeutral ? 'border-amber-500/30' : 'border-rose-500/30'}`}>
             <div className="flex items-center justify-between text-[10px] font-sans uppercase">
-              <span className="text-slate-400">Stop Loss Risk</span>
-              <span className="text-rose-400 font-bold">-{slLossPct}%</span>
+              <span className="text-slate-400">{isNeutral ? 'Capital Discipline' : 'Stop Loss Risk'}</span>
+              <span className={`font-bold ${isNeutral ? 'text-amber-300' : 'text-rose-400'}`}>{isNeutral ? 'PROTECTED' : `-${slLossPct}%`}</span>
             </div>
-            <div className="text-sm font-bold text-rose-400 mt-1">
-              -{ticker.currency}{slLossTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div className={`text-sm font-bold mt-1 ${isNeutral ? 'text-amber-300' : 'text-rose-400'}`}>
+              {isNeutral ? '0 Active Drawdown' : `-${ticker.currency}${slLossTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </div>
-            <span className="text-[10px] text-rose-300/80 font-mono">SL @ {ticker.currency}{stopLoss.toFixed(2)}</span>
+            <span className={`text-[10px] font-mono ${isNeutral ? 'text-slate-400' : 'text-rose-300/80'}`}>
+              {isNeutral ? 'Zero naked trades in chop' : `SL @ ${ticker.currency}${stopLoss.toFixed(2)}`}
+            </span>
           </div>
         </div>
 
         {/* Trade Parameters Corridor */}
         <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-300">
           <div className="flex items-center gap-3 flex-wrap">
+            <span>Status: <strong className={isNeutral ? 'text-amber-300' : isCE ? 'text-emerald-400' : 'text-rose-400'}>{isNeutral ? 'STAND ASIDE' : isCE ? 'ACTIVE CALL' : 'ACTIVE PUT'}</strong></span>
+            <span>·</span>
             <span>R:R Ratio: <strong className="text-emerald-400">{signal.riskRewardRatio}</strong></span>
             <span>·</span>
             <span>Breakeven Spot: <strong className="text-white">{ticker.currency}{breakevenSpot.toFixed(2)}</strong></span>
@@ -345,7 +379,8 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             <span>Target 2: <strong className="text-emerald-400">+{ticker.currency}{t2ProfitTotal.toLocaleString()} (+{t2ProfitPct}%) @ {ticker.currency}{target2.toFixed(2)}</strong></span>
           </div>
           <span className="text-[10.5px] text-slate-400">
-            Contract: <strong className="text-slate-200">{signal.recommendedStrike} {signal.recommendedType} ({signal.moneyness})</strong>
+            {isNeutral ? 'Reference Watchlist: ' : 'Contract: '}
+            <strong className="text-slate-200">{signal.recommendedStrike} {signal.recommendedType} ({signal.moneyness})</strong>
           </span>
         </div>
       </div>

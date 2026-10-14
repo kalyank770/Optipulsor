@@ -57,7 +57,7 @@ export function generateRollingCandles(
 
   // 1. If REAL exchange candles exist for this symbol & timeframe, use them directly!
   const realStore = getGlobalRealCandles(ticker.symbol);
-  const tfKey = timeframeMinutes === 1 ? 'm1' : timeframeMinutes === 2 ? 'm2' : timeframeMinutes === 5 ? 'm5' : timeframeMinutes === 15 ? 'm15' : timeframeMinutes === 60 ? 'h1' : timeframeMinutes === 1440 ? 'd1' : null;
+  const tfKey = timeframeMinutes === 1 ? 'm1' : timeframeMinutes === 2 ? 'm2' : timeframeMinutes === 5 ? 'm5' : timeframeMinutes === 15 ? 'm15' : timeframeMinutes === 60 ? 'h1' : timeframeMinutes === 1440 ? 'd1' : timeframeMinutes === 10080 ? 'w1' : null;
   if (tfKey && realStore && realStore[tfKey] && realStore[tfKey]!.length > 0) {
     const raw = realStore[tfKey]!.map(c => ({ ...c }));
     if (raw.length > 0) {
@@ -91,13 +91,27 @@ export function generateRollingCandles(
         }
       }
 
-      // Anchor latest forming candle to live spot price
-      sanitized[sanitized.length - 1] = {
-        ...sanitized[sanitized.length - 1],
-        close: S,
-        high: Math.max(sanitized[sanitized.length - 1].high, S),
-        low: Math.min(sanitized[sanitized.length - 1].low, S),
-      };
+      // If the current minute has advanced beyond the latest candle timestamp, form a new active candle
+      const lastCandle = sanitized[sanitized.length - 1];
+      const nowTs = Date.now();
+      const tfMs = timeframeMinutes * 60 * 1000;
+      if (lastCandle && (nowTs - lastCandle.timestamp) >= tfMs && tfKey !== 'd1') {
+        const currentMins = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+        sanitized.push({
+          time: currentMins,
+          open: lastCandle.close,
+          high: Math.max(lastCandle.close, S),
+          low: Math.min(lastCandle.close, S),
+          close: S,
+          volume: 0,
+          timestamp: nowTs,
+        });
+      } else if (lastCandle) {
+        // Anchor latest forming candle to live spot price S
+        lastCandle.close = S;
+        lastCandle.high = Math.max(lastCandle.high, S);
+        lastCandle.low = Math.min(lastCandle.low, S);
+      }
       return sanitized.slice(-count);
     }
   }
@@ -260,17 +274,22 @@ export function analyzeTimeframeCandles(
   const prevIsRed = prev.close < prev.open;
   const prevIsGreen = prev.close >= prev.open;
 
-  // 5. Exponential Moving Average (EMA 9) & SMA 5
-  const emaPeriod = Math.min(9, cleanCandles.length);
-  const k = 2 / (emaPeriod + 1);
+  // 5. Exponential Moving Average (EMA 9 and EMA 21)
+  const ema9Period = Math.min(9, cleanCandles.length);
+  const k9 = 2 / (ema9Period + 1);
   let ema9 = cleanCandles[0].close;
   for (let i = 1; i < cleanCandles.length; i++) {
-    ema9 = cleanCandles[i].close * k + ema9 * (1 - k);
+    ema9 = cleanCandles[i].close * k9 + ema9 * (1 - k9);
   }
   ema9 = Number(ema9.toFixed(2));
 
-  const smaPeriod = Math.min(5, cleanCandles.length);
-  const sma5 = cleanCandles.slice(-smaPeriod).reduce((acc, c) => acc + c.close, 0) / smaPeriod;
+  const ema21Period = Math.min(21, cleanCandles.length);
+  const k21 = 2 / (ema21Period + 1);
+  let ema21 = cleanCandles[0].close;
+  for (let i = 1; i < cleanCandles.length; i++) {
+    ema21 = cleanCandles[i].close * k21 + ema21 * (1 - k21);
+  }
+  ema21 = Number(ema21.toFixed(2));
 
   // 6. Displacement & Velocity
   const singleBarVelocity = Number(((latest.close - prev.close) / Math.max(0.1, atr)).toFixed(2));
@@ -292,15 +311,22 @@ export function analyzeTimeframeCandles(
   const greenCount = last4.filter(c => c.close >= c.open).length;
   const redCount = last4.filter(c => c.close < c.open).length;
 
-  // 7. Trend determination
+  // 7. Trend determination using dual EMAs (9 & 21) + displacement
   let trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' = 'SIDEWAYS';
-  if (latest.close > ema9 + atr * 0.15 && multiBarDisplacement > -atr * 0.15) {
+  const isEmaBullishStack = ema9 >= ema21 && latest.close >= ema9 - atr * 0.15;
+  const isEmaBearishStack = ema9 <= ema21 && latest.close <= ema9 + atr * 0.15;
+
+  if (isEmaBullishStack && multiBarDisplacement >= -atr * 0.2) {
     trend = 'BULLISH';
-  } else if (latest.close < ema9 - atr * 0.15 && multiBarDisplacement < atr * 0.15) {
+  } else if (isEmaBearishStack && multiBarDisplacement <= atr * 0.2) {
     trend = 'BEARISH';
-  } else if (singleBarVelocity > 0.75 && greenCount >= 3) {
+  } else if (latest.close > ema9 + atr * 0.2 && singleBarVelocity > 0.4) {
     trend = 'BULLISH';
-  } else if (singleBarVelocity < -0.75 && redCount >= 3) {
+  } else if (latest.close < ema9 - atr * 0.2 && singleBarVelocity < -0.4) {
+    trend = 'BEARISH';
+  } else if (greenCount >= 3 && singleBarVelocity > 0.2) {
+    trend = 'BULLISH';
+  } else if (redCount >= 3 && singleBarVelocity < -0.2) {
     trend = 'BEARISH';
   }
 
@@ -446,13 +472,25 @@ export function analyzeTimeframeCandles(
     patternBias = 'BULLISH';
     momentumScore = Number(Math.min(7.5, Math.max(3.2, 4.2 + candleVelocity * 0.8)).toFixed(1));
   } else if (trend === 'BULLISH' && isRed) {
-    pattern = `${timeframe} Healthy Pullback to Support / EMA`;
-    patternBias = 'BULLISH';
-    momentumScore = Number(Math.max(1.2, Math.min(4.2, 3.2 + candleVelocity * 0.8)).toFixed(1));
+    if (latest.close < ema9) {
+      pattern = `${timeframe} EMA Breakdown / Supply Retest`;
+      patternBias = 'NEUTRAL';
+      momentumScore = Number(Math.max(-3.5, Math.min(-0.8, candleVelocity * 1.2)).toFixed(1));
+    } else {
+      pattern = `${timeframe} Pullback to EMA Support`;
+      patternBias = 'NEUTRAL';
+      momentumScore = Number(Math.max(-1.8, Math.min(0.8, candleVelocity * 0.8)).toFixed(1));
+    }
   } else if (trend === 'BEARISH' && isGreen) {
-    pattern = `${timeframe} Bear Relief Bounce to EMA`;
-    patternBias = 'NEUTRAL';
-    momentumScore = Number(Math.max(-1.5, Math.min(2.0, candleVelocity * 0.8)).toFixed(1));
+    if (latest.close > ema9) {
+      pattern = `${timeframe} Relief Bounce Over EMA`;
+      patternBias = 'NEUTRAL';
+      momentumScore = Number(Math.min(3.5, Math.max(0.8, candleVelocity * 1.2)).toFixed(1));
+    } else {
+      pattern = `${timeframe} Bear Flag Retest at EMA`;
+      patternBias = 'NEUTRAL';
+      momentumScore = Number(Math.min(1.8, Math.max(-0.8, candleVelocity * 0.8)).toFixed(1));
+    }
   }
   // Pattern Q: Default Trend Alignment with Velocity Scaling
   else if (trend === 'BULLISH') {
@@ -557,35 +595,35 @@ export function computeMultiTimeframeChartPatterns(
     : 1.0;
 
   // Compute aggregate momentum index across all 6 timeframes:
-  // Macro: 1D (20%) + 1H (20%) | Intermediate: 15m (25%) + 5m (20%) | Fast Trigger: 2m (10%) + 1m (5%)
+  // Tactical Intraday: 5m (30%) + 15m (25%) + 2m (15%) + 1m (10%) | Macro Structure: 1H (12%) + 1D (8%)
   const aggregateMomentumIndex = Number((
-    d1Score * 0.20 +
-    h1Score * 0.20 +
+    m5Score * 0.30 +
     m15Score * 0.25 +
-    m5Score * 0.20 +
-    m2Score * 0.10 +
-    m1Score * 0.05
+    m2Score * 0.15 +
+    m1Score * 0.10 +
+    h1Score * 0.12 +
+    d1Score * 0.08
   ).toFixed(1));
 
   let orbAdjustment = 0;
-  if (orbStatus === 'BULLISH_ORB_BREAKOUT') orbAdjustment = 1.2;
-  else if (orbStatus === 'BEARISH_ORB_BREAKDOWN') orbAdjustment = -1.2;
+  if (orbStatus === 'BULLISH_ORB_BREAKOUT') orbAdjustment = 1.0;
+  else if (orbStatus === 'BEARISH_ORB_BREAKDOWN') orbAdjustment = -1.0;
 
   const confluenceScore = Number(Math.max(-10, Math.min(10, aggregateMomentumIndex + orbAdjustment)).toFixed(1));
 
   let confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   let momentumAlignment: MultiTimeframeChartPatterns['momentumAlignment'] = 'NEUTRAL_MIXED';
 
-  if (confluenceScore >= 4.5 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
+  if (confluenceScore >= 4.0 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
-  } else if (confluenceScore >= 1.8) {
+  } else if (confluenceScore >= 1.6 && m5Score >= 0) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'MODERATE_BULLISH';
-  } else if (confluenceScore <= -4.5 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
+  } else if (confluenceScore <= -4.0 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
-  } else if (confluenceScore <= -1.8) {
+  } else if (confluenceScore <= -1.6 && m5Score <= 0) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'MODERATE_BEARISH';
   } else {
