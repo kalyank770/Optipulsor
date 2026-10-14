@@ -63,6 +63,7 @@ export default function App() {
     setUpdateIntervalMs,
     lastUpdated,
     isSyncing,
+    isFeedReconnecting,
     usePreMarket,
     toggleUsePreMarket,
     dataSourceNote,
@@ -364,6 +365,7 @@ export default function App() {
         lastUpdated={lastUpdated}
         unreadNewsCount={newsFeed.length}
         isSyncing={isSyncing}
+        isFeedReconnecting={isFeedReconnecting}
         syncStatusMsg={dataSourceNote}
         marketStatus={marketStatus}
         usePreMarket={usePreMarket}

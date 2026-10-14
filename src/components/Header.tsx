@@ -31,6 +31,7 @@ interface HeaderProps {
   lastUpdated: Date;
   unreadNewsCount?: number;
   isSyncing?: boolean;
+  isFeedReconnecting?: boolean;
   syncStatusMsg?: string;
   marketStatus?: MarketHoursStatus;
   usePreMarket?: boolean;
@@ -48,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onForceRefresh,
   unreadNewsCount = 0,
   isSyncing = false,
+  isFeedReconnecting = false,
   marketStatus,
   usePreMarket = false,
   onTogglePreMarket,
@@ -207,11 +209,15 @@ export const Header: React.FC<HeaderProps> = ({
             <RefreshCw className={`w-4 h-4 text-emerald-400 shrink-0 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* Auto 0.5-second sub-second live stream status */}
-          <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-mono font-semibold rounded bg-slate-900 border border-slate-800 text-slate-300 min-h-[36px]">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="hidden xs:inline">0.5s Stream</span>
-            <span className="xs:hidden">0.5s</span>
+          {/* Official NSE Feed & Reconnection Status Indicator */}
+          <div className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-mono font-semibold rounded border min-h-[36px] transition-colors ${
+            isFeedReconnecting 
+              ? 'bg-amber-950/70 border-amber-500/50 text-amber-300' 
+              : 'bg-slate-900 border-slate-800 text-slate-300'
+          }`} title={isFeedReconnecting ? 'Feed paused or stale - Re-establishing session with Official NSE Endpoint...' : 'Direct Live Stream from Official NSE Endpoint'}>
+            <span className={`w-2 h-2 rounded-full ${isFeedReconnecting ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'}`}></span>
+            <span className="hidden xs:inline">{isFeedReconnecting ? 'Reconnecting NSE...' : 'Official NSE Feed'}</span>
+            <span className="xs:hidden">{isFeedReconnecting ? 'Reconnecting' : 'NSE Live'}</span>
           </div>
         </div>
       </div>

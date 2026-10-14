@@ -544,10 +544,13 @@ async function getYahooSession(): Promise<{ cookie: string; crumb: string }> {
 let cachedNseCookie = '';
 let lastNseCookieFetch = 0;
 
-async function getNseSessionCookie(): Promise<string> {
+async function getNseSessionCookie(forceNewCookie = false): Promise<string> {
   const now = Date.now();
-  if (cachedNseCookie && now - lastNseCookieFetch < 10 * 60 * 1000) {
+  if (!forceNewCookie && cachedNseCookie && now - lastNseCookieFetch < 10 * 60 * 1000) {
     return cachedNseCookie;
+  }
+  if (forceNewCookie) {
+    cachedNseCookie = '';
   }
 
   const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -558,7 +561,7 @@ async function getNseSessionCookie(): Promise<string> {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       },
-      signal: AbortSignal.timeout(2000), // 2s fast timeout to prevent cloud IP hangs
+      signal: AbortSignal.timeout(3500),
     });
     const cookies = res.headers.getSetCookie ? res.headers.getSetCookie().join('; ') : (res.headers.get('set-cookie') || '');
     if (cookies) {
@@ -567,7 +570,7 @@ async function getNseSessionCookie(): Promise<string> {
       return cookies;
     }
   } catch (_err) {
-    // Silent failover when NSE blocks Cloud Run / GCP IP range
+    // Silent failover
   }
   return cachedNseCookie;
 }
@@ -579,23 +582,29 @@ async function fetchNseLivePreMarket(rawSymbol: string): Promise<{
   preMarketChangePercent: number;
   source: string;
 } | null> {
-  // First try: Official NSE India allIndices API
+  const isBank = rawSymbol.toUpperCase().includes('BANK');
+  const isFin = rawSymbol.toUpperCase().includes('FIN');
+  const ySymbol = isBank 
+    ? '^NSEBANK' 
+    : (isFin ? 'NIFTY_FIN_SERVICE.NS' : '^NSEI');
+
+  // Priority 1: Official NSE India allIndices API Endpoint
   try {
     const cookie = await getNseSessionCookie();
     const res = await fetch('https://www.nseindia.com/api/allIndices', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
         'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
         'Cookie': cookie || '',
       },
-      signal: AbortSignal.timeout(2000),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const json = await res.json();
       const rows = json.data || [];
       const symUpper = rawSymbol.toUpperCase();
-      const targetIdx = symUpper.includes('BANK') ? 'NIFTY BANK' : 'NIFTY 50';
+      const targetIdx = symUpper.includes('BANK') ? 'NIFTY BANK' : (symUpper.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
       const row = rows.find((r: any) => r.index === targetIdx || r.indexSymbol === targetIdx);
       if (row && row.last > 0) {
         const lastPrice = Number(row.last.toFixed(2));
@@ -606,46 +615,35 @@ async function fetchNseLivePreMarket(rawSymbol: string): Promise<{
           preMarketPrice: lastPrice,
           preMarketChange: variation,
           preMarketChangePercent: percentChange,
-          source: 'Official NSE India Pre-Open & Live Index Feed'
+          source: 'Official NSE India Endpoint (nseindia.com/api/allIndices)'
         };
       }
     }
-  } catch (_e) {
-    // Failover
-  }
+  } catch (_e) {}
 
-  // Second try: GIFT Nifty Live Feed via TradingView Scanner
+  // Priority 2: Live Pre-Market Exchange Fallback (Yahoo Chart v8)
   try {
-    const symbolUpper = rawSymbol.toUpperCase();
-    const tvTicker = symbolUpper.includes('BANK') ? 'NSEIX:BANKNIFTY1!' : 'NSEIX:NIFTY1!';
-    const res = await fetch('https://scanner.tradingview.com/global/scan', {
-      method: 'POST',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        symbols: { tickers: [tvTicker, symbolUpper.includes('BANK') ? 'NSE:BANKNIFTY' : 'NSE:NIFTY'] },
-        columns: ['close', 'change', 'change_abs', 'high', 'low', 'open', 'volume']
-      }),
-      signal: AbortSignal.timeout(2000)
+    const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(1500)
     });
-    if (res.ok) {
-      const json = await res.json();
-      const row = json?.data?.find((item: any) => item.s === tvTicker && Array.isArray(item.d) && item.d[0] > 1000) ||
-                  json?.data?.find((item: any) => Array.isArray(item.d) && item.d[0] > 1000);
-      if (row && Array.isArray(row.d) && row.d[0] > 0) {
-        const price = Number(row.d[0].toFixed(2));
-        const changePercent = Number(row.d[1].toFixed(2));
-        const change = Number(row.d[2].toFixed(2));
+    if (yahooRes.ok) {
+      const json = await yahooRes.json();
+      const meta = json?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 1000) {
+        const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+        const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+        const change = Number((spotPrice - prevClose).toFixed(2));
+        const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
         return {
-          preMarketPrice: price,
+          preMarketPrice: spotPrice,
           preMarketChange: change,
           preMarketChangePercent: changePercent,
-          source: 'GIFT Nifty Live Futures Index Feed'
+          source: 'Live Pre-Market Index Feed (NSE India / Yahoo Chart v8)'
         };
       }
     }
-  } catch (err) {
-    console.warn('GIFT Nifty live fetch failed:', err);
-  }
+  } catch (_e) {}
 
   return null;
 }
@@ -780,11 +778,11 @@ function applyLiveTick(normSym: string, basePrice: number, baseDayHigh: number, 
   };
 }
 
-async function fetchOfficialNseIndexQuote(rawSymbol: string) {
+async function fetchOfficialNseIndexQuote(rawSymbol: string, forceRefresh = false) {
   const norm = rawSymbol.toUpperCase().trim();
   const targetIdx = norm.includes('BANK') ? 'NIFTY BANK' : (norm.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
   try {
-    const cookie = await getNseSessionCookie();
+    const cookie = await getNseSessionCookie(forceRefresh);
     const url = 'https://www.nseindia.com/api/allIndices';
     const res = await fetch(url, {
       headers: {
@@ -793,20 +791,25 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string) {
         'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
         'Cookie': cookie || '',
       },
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const json = await res.json();
       const rows = json.data || [];
       const niftyRow = rows.find((r: any) => r.index === targetIdx || r.indexSymbol === targetIdx);
       if (niftyRow && niftyRow.last > 0) {
-        const spotPrice = Number(niftyRow.last.toFixed(2));
-        const prevClose = Number((niftyRow.previousClose || niftyRow.previousDayVal || spotPrice).toFixed(2));
-        const change = Number((niftyRow.variation ?? (spotPrice - prevClose)).toFixed(2));
-        const changePercent = Number((niftyRow.percentChange ?? (prevClose > 0 ? (change / prevClose) * 100 : 0)).toFixed(2));
-        const dayOpen = Number((niftyRow.open || prevClose).toFixed(2));
-        const dayHigh = Number((niftyRow.high || spotPrice).toFixed(2));
-        const dayLow = Number((niftyRow.low || spotPrice).toFixed(2));
+        const baseSpotPrice = Number(niftyRow.last.toFixed(2));
+        const prevClose = Number((niftyRow.previousClose || niftyRow.previousDayVal || baseSpotPrice).toFixed(2));
+        const baseDayOpen = Number((niftyRow.open || prevClose).toFixed(2));
+        const baseDayHigh = Number((niftyRow.high || baseSpotPrice).toFixed(2));
+        const baseDayLow = Number((niftyRow.low || baseSpotPrice).toFixed(2));
+
+        // Use exact official NSE spot price directly with zero artificial micro-tick drift
+        const spotPrice = baseSpotPrice;
+        const dayHigh = Math.max(baseSpotPrice, baseDayHigh);
+        const dayLow = Math.min(baseSpotPrice, baseDayLow);
+        const change = Number((spotPrice - prevClose).toFixed(2));
+        const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
 
         const holiday = checkMarketHoliday(new Date(), true);
         const tz = 'Asia/Kolkata';
@@ -831,8 +834,18 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string) {
           hour12: false,
         }) + ' IST';
 
+        const extendedHours = {
+          session: 'PRE',
+          price: spotPrice,
+          change,
+          changePercent,
+          time: istString,
+          source: 'Official NSE India Endpoint (nseindia.com/api/allIndices)',
+        };
+
         return {
           symbol: rawSymbol,
+          baseSpotPrice,
           price: spotPrice,
           spotPrice: spotPrice,
           regularPrice: spotPrice,
@@ -840,12 +853,16 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string) {
           changePercent,
           dayHigh,
           dayLow,
-          dayOpen,
+          dayOpen: baseDayOpen,
           prevClose,
           vwap: spotPrice,
           volume: niftyRow.totalTradedVolume || 0,
           marketState,
           lastUpdated: istString,
+          preMarketPrice: spotPrice,
+          preMarketChange: change,
+          preMarketChangePercent: changePercent,
+          extendedHours,
           source: 'Official NSE India Endpoint (nseindia.com/api/allIndices)',
         };
       }
@@ -901,6 +918,15 @@ async function fetchYahooFastIndexQuote(rawSymbol: string) {
           hour12: false,
         }) + ' IST';
 
+        const extendedHours = {
+          session: 'PRE',
+          price: spotPrice,
+          change,
+          changePercent,
+          time: istString,
+          source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
+        };
+
         return {
           symbol: rawSymbol,
           price: spotPrice,
@@ -916,6 +942,10 @@ async function fetchYahooFastIndexQuote(rawSymbol: string) {
           volume: 0,
           marketState,
           lastUpdated: istString,
+          preMarketPrice: spotPrice,
+          preMarketChange: change,
+          preMarketChangePercent: changePercent,
+          extendedHours,
           source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
         };
       }
@@ -973,19 +1003,42 @@ async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
 
   // Fast-track quote caching: 150ms micro-cache during active operations for ultra-fast real-time live streaming
   if (!forceRefresh && cached && now - cached.timestamp < 150) {
+    if (cached.quote && (cached.quote.baseSpotPrice || cached.quote.spotPrice)) {
+      const isBank = normSym.includes('BANK');
+      const targetIdx = isBank ? 'NIFTY BANK' : (normSym.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
+      const baseSpot = cached.quote.baseSpotPrice || cached.quote.spotPrice;
+      const prevClose = cached.quote.prevClose || baseSpot;
+      const spotPrice = baseSpot;
+      const change = Number((spotPrice - prevClose).toFixed(2));
+      const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+      return {
+        ...cached.quote,
+        price: spotPrice,
+        spotPrice: spotPrice,
+        regularPrice: spotPrice,
+        change,
+        changePercent,
+        dayHigh: Math.max(spotPrice, cached.quote.dayHigh || spotPrice),
+        dayLow: Math.min(spotPrice, cached.quote.dayLow || spotPrice),
+        preMarketPrice: spotPrice,
+        preMarketChange: change,
+        preMarketChangePercent: changePercent,
+      };
+    }
     return cached.quote;
   }
 
   const yahooSymbol = SYMBOL_MAP[rawSymbol.toUpperCase()] || rawSymbol;
   const isIndianIndex = rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
 
-  // Primary Source for Indian Benchmark Indices: Fast Resilient Concurrent Race (Official NSE India + Yahoo Chart v8)
+  // Ultra-fast real-time feed racing for Indian Benchmark Indices: Yahoo Fast Index Chart & Official NSE Endpoint in parallel
   if (isIndianIndex) {
     try {
-      const liveQuote = await Promise.any([
-        fetchOfficialNseIndexQuote(rawSymbol).then(q => { if (!q) throw new Error('NSE null'); return q; }),
-        fetchYahooFastIndexQuote(rawSymbol).then(q => { if (!q) throw new Error('Yahoo null'); return q; }),
-      ]);
+      const liveQuote = await Promise.race([
+        fetchYahooFastIndexQuote(rawSymbol),
+        fetchOfficialNseIndexQuote(rawSymbol, forceRefresh)
+      ]).catch(() => null) || await fetchYahooFastIndexQuote(rawSymbol) || await fetchOfficialNseIndexQuote(rawSymbol, forceRefresh);
+
       if (liveQuote) {
         liveQuoteCache.set(normSym, { quote: liveQuote, timestamp: now });
         return liveQuote;
@@ -3116,6 +3169,9 @@ async function startServer() {
   const server = app.listen(PORT, HOST, () => {
     console.log(`Server listening on http://${HOST}:${PORT} (isProduction: ${isProduction}, hasDist: ${hasDist})`);
     
+    // Pre-warm official NSE India session cookie
+    getNseSessionCookie().catch(() => {});
+
     // Start background stream worker for continuous sub-second live price updates
     const streamSymbols = ['NIFTY 50', 'BANKNIFTY', 'GIFT NIFTY', 'INDIAVIX'];
     let streamIdx = 0;

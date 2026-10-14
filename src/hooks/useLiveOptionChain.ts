@@ -388,6 +388,8 @@ export function useLiveOptionChain() {
   const isPollingInFlightRef = useRef<boolean>(false);
   const lastPollStartRef = useRef<number>(0);
   const consecutiveFailuresRef = useRef<number>(0);
+  const lastSuccessfulTickTimeRef = useRef<number>(Date.now());
+  const [isFeedReconnecting, setIsFeedReconnecting] = useState<boolean>(false);
   const newsFeedRef = useRef<NewsItem[]>(newsFeed);
   newsFeedRef.current = newsFeed;
   const liveGlobalMacroRef = useRef<InterMarketTelemetry | undefined>(undefined);
@@ -751,14 +753,21 @@ export function useLiveOptionChain() {
         }
 
         consecutiveFailuresRef.current = 0;
+        lastSuccessfulTickTimeRef.current = Date.now();
+        setIsFeedReconnecting(false);
         setLastUpdated(new Date());
       } else {
         consecutiveFailuresRef.current += 1;
+        if (consecutiveFailuresRef.current >= 2) {
+          setIsFeedReconnecting(true);
+        }
         console.warn('Backend option chain fetch failed:', res.status, res.statusText);
-        // Refresh token or check session
       }
     } catch (e) {
       consecutiveFailuresRef.current += 1;
+      if (consecutiveFailuresRef.current >= 2) {
+        setIsFeedReconnecting(true);
+      }
       console.warn('Backend live option chain fetch failed:', e);
     } finally {
       isPollingInFlightRef.current = false;
@@ -1058,7 +1067,7 @@ export function useLiveOptionChain() {
   const marketStatusRef = useRef(marketStatus);
   marketStatusRef.current = marketStatus;
 
-  // Continuous Live Polling Engine (Strictly 1s during Active Indian Pre-Market & Regular Hours)
+  // Continuous Live Polling Engine with Stale Data Auto-Reestablishment
   useEffect(() => {
     if (!isLiveActive) return;
 
@@ -1067,12 +1076,21 @@ export function useLiveOptionChain() {
 
     const poll = async () => {
       if (!isMounted) return;
+
+      const now = Date.now();
+      const timeSinceLastTick = now - lastSuccessfulTickTimeRef.current;
+      const isStale = timeSinceLastTick > 4000 || consecutiveFailuresRef.current >= 2;
+
+      if (isStale) {
+        setIsFeedReconnecting(true);
+      }
+
       try {
         await fetchOptionChainFromBackend(
           selectedTickerRef.current,
           expiryIndexRef.current,
           undefined,
-          false
+          isStale // Trigger refresh=true to force session cookie renewal & bypass cache if feed hangs
         );
       } catch {
         // Handled internally in fetchOptionChainFromBackend
@@ -1217,6 +1235,7 @@ export function useLiveOptionChain() {
     isLiveActive,
     setIsLiveActive,
     isSyncing,
+    isFeedReconnecting,
     usePreMarket,
     toggleUsePreMarket,
     updateIntervalMs,
