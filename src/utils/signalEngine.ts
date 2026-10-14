@@ -1915,6 +1915,9 @@ export function generateTradeSignal(
     sidewaysMarketAnalysis,
     htfPredictions,
     advanceTradeSetup,
+    gammaRegimeData: advanceTradeSetup.gammaRegimeData,
+    timeframeCoherence: advanceTradeSetup.timeframeCoherence,
+    dynamicVolatilityMatrix: advanceTradeSetup.dynamicVolatilityMatrix,
   };
 }
 

@@ -11,7 +11,10 @@ import {
   AdvanceSetupType,
   LeadingPredictorFactor,
   OptionType,
-  Moneyness
+  Moneyness,
+  OptionAGammaRegimeData,
+  OptionCTimeframeCoherence,
+  OptionCDynamicVolatilityMatrix
 } from '../types/options';
 import { calculateBlackScholes } from './blackScholes';
 import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
@@ -797,6 +800,45 @@ export function computeAdvanceTradeSetup(
   const totalBullScore = oiBullScore + hwBullScore + ofBullScore + swBullScore + macroBullScore + sectorBullScore + rsiBullScore + macdBullScore + pcrBullScore + vixBullScore + interMarketBullScore + volumeBullScore + htfBullScore + hystBullScore + (isCoiling && (oiBullScore > 0 || hwBullScore > 0 || ofBullScore > 0 || macroBullScore > 0) ? 1.0 : 0);
   const totalBearScore = oiBearScore + hwBearScore + ofBearScore + swBearScore + macroBearScore + sectorBearScore + rsiBearScore + macdBearScore + pcrBearScore + vixBearScore + interMarketBearScore + volumeBearScore + htfBearScore + hystBearScore + (isCoiling && (oiBearScore > 0 || hwBearScore > 0 || ofBearScore > 0 || macroBearScore > 0) ? 1.0 : 0);
 
+  // --- OPTION A: FACTOR 16 - GAMMA EXPOSURE (GEX) REGIME ---
+  const netGexVal = rt.gammaExposure?.netGex ?? 0;
+  const isNegGex = rt.gammaExposure?.regime === 'NEGATIVE_GAMMA' || spotPrice < (rt.gammaExposure?.flipStrike || atmStrike);
+  
+  const gexFactor: LeadingPredictorFactor = {
+    name: 'Option Gamma (GEX) Dealer Regime',
+    category: 'GAMMA_GEX_REGIME',
+    state: isNegGex
+      ? (totalBearScore > totalBullScore ? 'STRONG_BEARISH' : 'STRONG_BULLISH')
+      : 'NEUTRAL',
+    leadTimeMinutes: 2.5,
+    valueDescription: isNegGex
+      ? `Short Gamma Accelerator (Net GEX ${netGexVal > 0 ? '+' : ''}${netGexVal.toLocaleString()} | Flip: ${ticker.currency}${rt.gammaExposure?.flipStrike ?? atmStrike}): Dealer hedging accelerates directional breakouts`
+      : `Long Gamma Pin Buffer (Net GEX ${netGexVal > 0 ? '+' : ''}${netGexVal.toLocaleString()} | Pin Wall: ${ticker.currency}${rt.gammaExposure?.pinWallStrike ?? atmStrike}): Dealers dampen volatility near hurdles`,
+    confidenceScore: isNegGex ? 88 : 65,
+  };
+
+  // --- OPTION C: FACTOR 17 - MULTI-TIMEFRAME TREND COHERENCE ---
+  const tfTrendsArr = [
+    { tf: '1m', trend: candlePatterns.m1?.trend || 'SIDEWAYS' },
+    { tf: '2m', trend: candlePatterns.m2?.trend || 'SIDEWAYS' },
+    { tf: '5m', trend: candlePatterns.m5?.trend || 'SIDEWAYS' },
+    { tf: '15m', trend: candlePatterns.m15?.trend || 'SIDEWAYS' },
+    { tf: '1h', trend: candlePatterns.h1?.trend || 'SIDEWAYS' },
+    { tf: '1d', trend: candlePatterns.d1?.trend || 'SIDEWAYS' },
+  ];
+  const bullTfCount = tfTrendsArr.filter(t => t.trend === 'BULLISH').length;
+  const bearTfCount = tfTrendsArr.filter(t => t.trend === 'BEARISH').length;
+  const coherenceScoreVal = Math.round((Math.max(bullTfCount, bearTfCount) / tfTrendsArr.length) * 100);
+
+  const coherenceFactor: LeadingPredictorFactor = {
+    name: 'Multi-Timeframe Trend Coherence (MTCF)',
+    category: 'TIMEFRAME_COHERENCE',
+    state: bullTfCount >= 4 ? 'STRONG_BULLISH' : bullTfCount >= 3 ? 'MODERATE_BULLISH' : bearTfCount >= 4 ? 'STRONG_BEARISH' : bearTfCount >= 3 ? 'MODERATE_BEARISH' : 'NEUTRAL',
+    leadTimeMinutes: 3.0,
+    valueDescription: `${coherenceScoreVal}% Trend Coherence across 6 timeframes (${bullTfCount} Bullish, ${bearTfCount} Bearish, ${tfTrendsArr.length - bullTfCount - bearTfCount} Sideways)`,
+    confidenceScore: Math.min(95, Math.max(50, coherenceScoreVal)),
+  };
+
   const leadingFactors: LeadingPredictorFactor[] = [
     oiFactor,          // 1. OI Velocity
     hwFactor,          // 2. Heavyweight Lead
@@ -813,6 +855,8 @@ export function computeAdvanceTradeSetup(
     volumeFactor,      // 13. Volume Analytics
     htfFactor,         // 14. HTF Alignment
     hysteresisFactor,  // 15. Hysteresis State
+    gexFactor,         // 16. Option A: Gamma GEX Regime
+    coherenceFactor,   // 17. Option C: Timeframe Coherence
   ];
   const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
@@ -830,13 +874,25 @@ export function computeAdvanceTradeSetup(
   const isCandleBear = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore < -0.4;
 
   // Strict multi-factor consensus: Score and pillar count must BOTH be aligned to prevent contradictory recommendations
-  const minThreshold = currentSignalAction === 'WAIT_NEUTRAL' ? 2.8 : 1.6;
+  // Rapid Signal Flip Protection: Raising threshold on direct reversals to prevent 90% CE -> 90% PE whip-saws
+  const isDirectFlipAttempt = (currentSignalAction === 'BUY_CE' && totalBearScore > totalBullScore) || (currentSignalAction === 'BUY_PE' && totalBullScore > totalBearScore);
+  const minThreshold = currentSignalAction === 'WAIT_NEUTRAL' ? 2.8 : (isDirectFlipAttempt ? 3.6 : 1.6);
+
   const isScoreBullish = totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.6 && !isDerivativesOrCandleBearish && !isCandleBear;
   const isScoreBearish = totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.6 && !isDerivativesOrCandleBullish && !isCandleBull;
   const isPillarsBullishConsensus = bullPillarCount > bearPillarCount;
   const isPillarsBearishConsensus = bearPillarCount > bullPillarCount;
 
-  if (currentSignalAction === 'WAIT_NEUTRAL') {
+  const isRapidFlipDetected = (currentSignalAction === 'BUY_CE' && (isScoreBearish || bearPillarCount > bullPillarCount + 2)) ||
+                             (currentSignalAction === 'BUY_PE' && (isScoreBullish || bullPillarCount > bearPillarCount + 2));
+
+  if (isRapidFlipDetected) {
+    // Intervene and enforce Stand-Aside hysteresis stabilization period
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'RAPID_DIRECTIONAL_FLIP_GUARD';
+    probabilityScore = 48;
+    leadTimeAdvantageMinutes = 1.0;
+  } else if (currentSignalAction === 'WAIT_NEUTRAL') {
     // If authoritative signal engine commands WAIT_NEUTRAL (due to consolidation, flat open, or capital protection),
     // strictly enforce WAIT_NEUTRAL in advance setup to eliminate contradictory signals
     anticipatedAction = 'WAIT_NEUTRAL';
@@ -880,7 +936,10 @@ export function computeAdvanceTradeSetup(
   }
 
   // Directional signal actions align with advance setups
-  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
+  if (isRapidFlipDetected) {
+    anticipatedAction = 'WAIT_NEUTRAL';
+    setupType = 'RAPID_DIRECTIONAL_FLIP_GUARD';
+  } else if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
     anticipatedAction = 'BUY_CE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
   } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus && !isCandleBull) {
@@ -925,39 +984,98 @@ export function computeAdvanceTradeSetup(
     ? (spotPrice <= atmStrike - step * 0.3 ? atmStrike - step : atmStrike)
     : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike));
 
-  // Spot entry zone and breakout level
   let advanceEntryZoneSpot: [number, number];
   let breakoutConfirmationSpot: number;
   let advanceStopLossSpot: number;
 
   const isUSD = ticker.currency === '$';
-  const spotBuffer = isUSD ? 1.5 : (isBankNifty ? 60 : 25);
-  const targetBuffer1 = isUSD ? 3.0 : (isBankNifty ? 120 : 50);
+
+  // OPTION C: DYNAMIC ATR VOLATILITY MATRIX CALCULATION
+  const dynamicAtr14 = Number(Math.max(isUSD ? 0.8 : step * 0.15, candlePatterns.m5?.atr || candlePatterns.m15?.atr || (spotPrice * 0.0038)).toFixed(2));
+  const atrPercentage = Number(((dynamicAtr14 / spotPrice) * 100).toFixed(2));
+  
+  const volatilityRegime: 'HIGH_VOLATILITY' | 'NORMAL_VOLATILITY' | 'LOW_COMPRESSION' =
+    dynamicAtr14 >= step * 0.65 ? 'HIGH_VOLATILITY' :
+    dynamicAtr14 <= step * 0.25 ? 'LOW_COMPRESSION' :
+    'NORMAL_VOLATILITY';
+
+  const spotAtrStopBuffer = Number(Math.max(isUSD ? 1.0 : step * 0.25, dynamicAtr14 * 0.90).toFixed(2));
+  const spotAtrTarget1Buffer = Number(Math.max(isUSD ? 2.5 : step * 0.50, dynamicAtr14 * 1.60).toFixed(2));
+  const spotAtrTarget2Buffer = Number(Math.max(isUSD ? 4.5 : step * 0.90, dynamicAtr14 * 2.80).toFixed(2));
+
+  const trailingStopMilestones = {
+    trailToBreakevenSpot: Number((anticipatedAction === 'BUY_CE' ? spotPrice + dynamicAtr14 * 0.60 : spotPrice - dynamicAtr14 * 0.60).toFixed(2)),
+    trailToT1Spot: Number((anticipatedAction === 'BUY_CE' ? spotPrice + spotAtrTarget1Buffer : spotPrice - spotAtrTarget1Buffer).toFixed(2)),
+    runnerTargetSpot: Number((anticipatedAction === 'BUY_CE' ? spotPrice + spotAtrTarget2Buffer : spotPrice - spotAtrTarget2Buffer).toFixed(2)),
+  };
+
+  const dynamicVolatilityMatrix: OptionCDynamicVolatilityMatrix = {
+    dynamicAtr14,
+    atrPercentage,
+    volatilityRegime,
+    spotAtrStopBuffer,
+    spotAtrTarget1Buffer,
+    spotAtrTarget2Buffer,
+    trailingStopMilestones,
+  };
+
+  // OPTION A: GAMMA GEX REGIME SYNTHESIS
+  const gexRegimeData: OptionAGammaRegimeData = {
+    netGex: rt.gammaExposure?.netGex ?? 0,
+    regime: rt.gammaExposure?.regime || 'POSITIVE_GAMMA',
+    flipStrike: rt.gammaExposure?.flipStrike || atmStrike,
+    pinWallStrike: rt.gammaExposure?.pinWallStrike || atmStrike,
+    dealerRegimeAction: (rt.gammaExposure?.regime === 'NEGATIVE_GAMMA')
+      ? 'Short Gamma Accelerator (Dealers amplify trend momentum)'
+      : 'Long Gamma Pin Buffer (Dealers absorb shocks near pin wall)',
+    accelerationBoost: (rt.gammaExposure?.regime === 'NEGATIVE_GAMMA') ? 1.35 : 0.85,
+  };
+
+  // OPTION C: TIMEFRAME COHERENCE SYNTHESIS
+  const targetDirection = anticipatedAction === 'BUY_CE' ? 'BULLISH' : anticipatedAction === 'BUY_PE' ? 'BEARISH' : 'SIDEWAYS';
+  const alignedTfs = tfTrendsArr.filter(t => t.trend === targetDirection).map(t => t.tf);
+  const conflictingTfs = tfTrendsArr.filter(t => targetDirection !== 'SIDEWAYS' && t.trend !== 'SIDEWAYS' && t.trend !== targetDirection).map(t => t.tf);
+  const coherenceScore = Math.round((alignedTfs.length / tfTrendsArr.length) * 100);
+
+  let coherenceGrade: 'FULL_CONFLUENCE' | 'STRONG_TREND' | 'COUNTER_TREND_CHOP' | 'PULLBACK_RETEST' = 'STRONG_TREND';
+  if (coherenceScore >= 80) coherenceGrade = 'FULL_CONFLUENCE';
+  else if (conflictingTfs.includes('15m') && conflictingTfs.includes('1h')) coherenceGrade = 'COUNTER_TREND_CHOP';
+  else if (coherenceScore >= 50) coherenceGrade = 'STRONG_TREND';
+  else coherenceGrade = 'PULLBACK_RETEST';
+
+  const timeframeCoherence: OptionCTimeframeCoherence = {
+    coherenceScore,
+    grade: coherenceGrade,
+    alignedTimeframes: alignedTfs,
+    conflictingTimeframes: conflictingTfs,
+    isCounterTrendBlocked: coherenceGrade === 'COUNTER_TREND_CHOP',
+    summary: `${coherenceScore}% Timeframe Coherence (${alignedTfs.length}/${tfTrendsArr.length} TFs aligned: ${alignedTfs.join(', ') || 'None'})`,
+  };
 
   if (anticipatedAction === 'BUY_CE') {
     advanceEntryZoneSpot = [
       Number((spotPrice - (isUSD ? 0.8 : (isBankNifty ? 30 : 12))).toFixed(2)),
       Number((spotPrice + (isUSD ? 0.5 : (isBankNifty ? 20 : 8))).toFixed(2))
     ];
-    breakoutConfirmationSpot = Number((spotPrice + (isUSD ? 1.2 : (isBankNifty ? 45 : 20))).toFixed(2));
-    advanceStopLossSpot = Number((spotPrice - spotBuffer).toFixed(2));
+    breakoutConfirmationSpot = Number((spotPrice + spotAtrTarget1Buffer * 0.75).toFixed(2));
+    advanceStopLossSpot = Number((spotPrice - spotAtrStopBuffer).toFixed(2));
   } else if (anticipatedAction === 'BUY_PE') {
     advanceEntryZoneSpot = [
       Number((spotPrice - (isUSD ? 0.5 : (isBankNifty ? 20 : 8))).toFixed(2)),
       Number((spotPrice + (isUSD ? 0.8 : (isBankNifty ? 30 : 12))).toFixed(2))
     ];
-    breakoutConfirmationSpot = Number((spotPrice - (isUSD ? 1.2 : (isBankNifty ? 45 : 20))).toFixed(2));
-    advanceStopLossSpot = Number((spotPrice + spotBuffer).toFixed(2));
+    breakoutConfirmationSpot = Number((spotPrice - spotAtrTarget1Buffer * 0.75).toFixed(2));
+    advanceStopLossSpot = Number((spotPrice + spotAtrStopBuffer).toFixed(2));
   } else {
     advanceEntryZoneSpot = isBearishSkew
-      ? [Number((spotPrice - spotBuffer).toFixed(2)), Number((spotPrice + spotBuffer * 0.5).toFixed(2))]
-      : [Number((spotPrice - spotBuffer * 0.5).toFixed(2)), Number((spotPrice + spotBuffer).toFixed(2))];
+      ? [Number((spotPrice - spotAtrStopBuffer).toFixed(2)), Number((spotPrice + spotAtrStopBuffer * 0.5).toFixed(2))]
+      : [Number((spotPrice - spotAtrStopBuffer * 0.5).toFixed(2)), Number((spotPrice + spotAtrStopBuffer).toFixed(2))];
     breakoutConfirmationSpot = isBearishSkew
-      ? Number((spotPrice - spotBuffer).toFixed(2))
-      : Number((spotPrice + spotBuffer).toFixed(2));
+      ? Number((spotPrice - spotAtrStopBuffer).toFixed(2))
+      : Number((spotPrice + spotAtrStopBuffer).toFixed(2));
     advanceStopLossSpot = isBearishSkew
-      ? Number((spotPrice + spotBuffer).toFixed(2))
-      : Number((spotPrice - spotBuffer).toFixed(2));
+      ? Number((spotPrice + spotAtrStopBuffer).toFixed(2))
+      : Number((spotPrice - spotAtrStopBuffer).toFixed(2));
   }
 
   // Resolve realistic option pricing
@@ -985,21 +1103,25 @@ export function computeAdvanceTradeSetup(
     roundToTick(currentLTP + spreadBuffer)
   ];
 
-  // Advance Targets & Risk-Managed Stop Loss (15% SL risk, 35% T1, 70% T2)
-  const advanceOptionStopLoss = roundToTick(Math.max(0.05, currentLTP * 0.85));
-  const advanceOptionTarget1 = roundToTick(currentLTP * 1.35); // +35%
-  const advanceOptionTarget2 = roundToTick(currentLTP * 1.70); // +70%
+  // Dynamic Option Targets & Risk-Managed Stop Loss using Delta & Gamma
+  const optionDelta = Math.abs(liveOption?.greeks?.delta || 0.52);
+  const optionGamma = Math.abs(liveOption?.greeks?.gamma || 0.002);
+  const isNegativeGamma = gexRegimeData.regime === 'NEGATIVE_GAMMA';
 
-  const advanceRisk = currentLTP - advanceOptionStopLoss;
-  const advanceReward = advanceOptionTarget1 - currentLTP;
-  const advanceRiskRewardRatio = `1 : ${(advanceReward / Math.max(advanceRisk, 0.5)).toFixed(1)}`;
+  const advanceOptionStopLoss = roundToTick(Math.max(0.05, currentLTP - (spotAtrStopBuffer * optionDelta * 0.92)));
+  const advanceOptionTarget1 = roundToTick(currentLTP + (spotAtrTarget1Buffer * optionDelta * 1.05));
+  const advanceOptionTarget2 = roundToTick(currentLTP + (spotAtrTarget2Buffer * (optionDelta + optionGamma * spotAtrTarget1Buffer * 0.5) * (isNegativeGamma ? 1.15 : 1.0)));
+
+  const advanceRisk = Math.max(0.5, currentLTP - advanceOptionStopLoss);
+  const advanceReward = Math.max(0.5, advanceOptionTarget1 - currentLTP);
+  const advanceRiskRewardRatio = `1 : ${(advanceReward / advanceRisk).toFixed(1)}`;
 
   // Comparative metrics: Advance Entry vs Lagging Entry
   const laggingEstimatedOptionPrice = roundToTick(currentLTP * 1.20);
   const slippageSavedPercent = Math.round(((laggingEstimatedOptionPrice - currentLTP) / laggingEstimatedOptionPrice) * 100);
-  const laggingRisk = laggingEstimatedOptionPrice - advanceOptionStopLoss;
-  const laggingReward = advanceOptionTarget1 - laggingEstimatedOptionPrice;
-  const laggingRiskRewardRatio = `1 : ${Math.max(0.8, laggingReward / Math.max(laggingRisk, 0.5)).toFixed(1)}`;
+  const laggingRisk = Math.max(0.5, laggingEstimatedOptionPrice - advanceOptionStopLoss);
+  const laggingReward = Math.max(0.5, advanceOptionTarget1 - laggingEstimatedOptionPrice);
+  const laggingRiskRewardRatio = `1 : ${Math.max(0.8, laggingReward / laggingRisk).toFixed(1)}`;
 
   const advanceVsLaggingComparison = {
     advanceEntryOptionPrice: currentLTP,
@@ -1056,6 +1178,11 @@ export function computeAdvanceTradeSetup(
       title = 'OI Unwinding Flush Velocity (PE)';
       subTitle = 'Trapped Put Writers Bailing Prior to Spot Breakdown';
       primaryLeadingCatalyst = `Put writers rapidly covering ${Math.abs(totalNearPeOiChange).toLocaleString()} contracts, opening room for downward flush.`;
+      break;
+    case 'RAPID_DIRECTIONAL_FLIP_GUARD':
+      title = 'Rapid Directional Flip Guard (Whipsaw Lock)';
+      subTitle = 'Stand-Aside Protection Active: Rapid CE ↔ PE Reversal Detected';
+      primaryLeadingCatalyst = '⚠️ WHIPSAW / STOP-HUNT GUARD: Rapid directional signal flip detected within <2 mins. Market is experiencing aggressive institutional liquidity sweeps or bull/bear traps. Standing aside to preserve capital until signal stabilizes.';
       break;
     default:
       title = 'Equilibrium Range (Stand Aside)';
@@ -1118,5 +1245,8 @@ export function computeAdvanceTradeSetup(
     pillarsBullishCount: bullPillarCount,
     pillarsBearishCount: bearPillarCount,
     pillarsNeutralCount: neutralPillarCount,
+    gammaRegimeData: gexRegimeData,
+    timeframeCoherence,
+    dynamicVolatilityMatrix,
   };
 }

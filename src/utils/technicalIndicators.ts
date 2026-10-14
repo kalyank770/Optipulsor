@@ -503,11 +503,18 @@ export function computeRealtimeIndicators(
   gexPoints.sort((a, b) => a.strike - b.strike);
   let cumGex = 0;
   let flipStrike = ticker.atmStrike;
+  let pinWallStrike = ticker.atmStrike;
+  let maxAbsGex = -1;
+
   for (const gp of gexPoints) {
     cumGex += gp.netGex;
-    if (cumGex >= 0) {
+    if (cumGex >= 0 && flipStrike === ticker.atmStrike) {
       flipStrike = gp.strike;
-      break;
+    }
+    const absGex = Math.abs(gp.netGex);
+    if (absGex > maxAbsGex) {
+      maxAbsGex = absGex;
+      pinWallStrike = gp.strike;
     }
   }
 
@@ -669,6 +676,7 @@ export function computeRealtimeIndicators(
       netGex,
       regime: gammaRegime,
       flipStrike,
+      pinWallStrike,
       callGex: Number(totalCallGex.toFixed(1)),
       putGex: Number(totalPutGex.toFixed(1)),
       implication: gammaImplication,

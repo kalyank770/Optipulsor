@@ -228,7 +228,7 @@ export function HTFPredictionsWorkstation({
                 <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
                   <div className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Live NSE OHLCV</span>
+                    <span>NSE OHLCV</span>
                   </div>
                   <span className={`font-bold px-2.5 py-1 rounded-lg text-xs border ${
                     candleData.confluenceBias === 'BULLISH'

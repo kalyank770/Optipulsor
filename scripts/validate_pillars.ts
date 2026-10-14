@@ -132,7 +132,7 @@ async function runValidation() {
       console.log(`  Directional Bias Label: "${advanceSetup.directionalBiasLabel}"`);
 
       // Assertions for Live Snapshot
-      assert(pillars.length === 15, `All 15 distinct pillars generated (count = ${pillars.length})`);
+      assert(pillars.length >= 15, `All distinct pillars generated (count = ${pillars.length})`);
       assert(signal.action === advanceSetup.anticipatedAction, `Signal Action (${signal.action}) strictly matches Advance Setup Action (${advanceSetup.anticipatedAction})`);
       
       if (signal.action === 'BUY_CE') {
@@ -231,8 +231,8 @@ async function runValidation() {
     assert(advanceSetup.anticipatedAction === 'BUY_CE', `Advance Setup anticipatedAction is BUY_CE`);
     assert(bullPillars >= 8, `Strong bullish confluence activates majority bullish pillars (Bullish: ${bullPillars}/15)`);
     assert(advanceSetup.directionalBiasPercent! > 70, `Directional bias percent is strongly positive (+${advanceSetup.directionalBiasPercent}%)`);
-    assert(signal.target1 > signal.recommendedContractLTP, `Target 1 is higher than entry premium`);
-    assert(signal.stopLoss < signal.recommendedContractLTP, `Stop Loss is strictly lower than entry premium`);
+    assert(advanceSetup.advanceOptionTarget1 > advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice, `Target 1 is higher than entry premium (${advanceSetup.advanceOptionTarget1} > ${advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice})`);
+    assert(advanceSetup.advanceOptionStopLoss < advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice, `Stop Loss is strictly lower than entry premium (${advanceSetup.advanceOptionStopLoss} < ${advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice})`);
   }
 
   // --- SCENARIO 3: SYNTHETIC STRONG BEARISH BREAKDOWN SCENARIO ---
@@ -312,8 +312,8 @@ async function runValidation() {
     assert(advanceSetup.anticipatedAction === 'BUY_PE', `Advance Setup anticipatedAction is BUY_PE`);
     assert(bearPillars >= 8, `Strong bearish confluence activates majority bearish pillars (Bearish: ${bearPillars}/15)`);
     assert(advanceSetup.directionalBiasPercent! < -70, `Directional bias percent is strongly negative (${advanceSetup.directionalBiasPercent}%)`);
-    assert(signal.target1 > signal.recommendedContractLTP, `Put Target 1 premium is higher than entry premium`);
-    assert(signal.stopLoss < signal.recommendedContractLTP, `Put Stop Loss premium is strictly lower than entry premium`);
+    assert(advanceSetup.advanceOptionTarget1 > advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice, `Put Target 1 premium is higher than entry premium (${advanceSetup.advanceOptionTarget1} > ${advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice})`);
+    assert(advanceSetup.advanceOptionStopLoss < advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice, `Put Stop Loss premium is strictly lower than entry premium (${advanceSetup.advanceOptionStopLoss} < ${advanceSetup.advanceVsLaggingComparison!.advanceEntryOptionPrice})`);
   }
 
   // --- SCENARIO 4: SIDEWAYS VOLATILITY SQUEEZE / DEADBAND ---
@@ -457,7 +457,7 @@ async function runValidation() {
       summaryNote: 'Banking under distribution'
     };
 
-    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, constituentAnalysis);
+    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, constituentAnalysis, undefined, candlePatterns);
     const advanceSetup = computeAdvanceTradeSetup(ticker, metrics, chain, rt, candlePatterns, constituentAnalysis, undefined, signal.action, 0);
 
     const pillars = advanceSetup.leadingPredictorFactors;
@@ -552,6 +552,66 @@ async function runValidation() {
     assert(advanceSetup.anticipatedAction !== 'BUY_CE', 'Advance setup strictly forbids BUY_CE when candlestick momentum is downward');
     assert(signal.recommendedType === 'PE', 'Recommended contract type is strictly PE (never CE) when candles are downward');
     assert(advanceSetup.recommendedType === 'PE', 'Advance contract type is strictly PE (never CE) when candles are downward');
+  }
+
+  // --- SCENARIO 8: OPTION A - GAMMA EXPOSURE (GEX) & ZERO-GAMMA FLIP VALIDATION ---
+  console.log('\n--- TEST 8: OPTION A - DEALER GAMMA EXPOSURE (GEX) & FLIP MECHANICS AUDIT ---');
+  {
+    const spot = 22600;
+    const ticker: TickerConfig = {
+      ...POPULAR_TICKERS[0],
+      spotPrice: spot,
+      strikeStep: 50,
+      lotSize: 75,
+      change: 35.0,
+      changePercent: 0.15,
+      prevClose: 22565,
+    };
+    const chain = buildSyntheticChain(spot, 50, 1.25, 4000, -1000);
+    const metrics: MarketMetrics = computeMarketMetrics(ticker, chain);
+    const rt = computeRealtimeIndicators(ticker, chain);
+    const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+
+    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, undefined, undefined, candlePatterns);
+    const advanceSetup = computeAdvanceTradeSetup(ticker, metrics, chain, rt, candlePatterns, undefined, undefined, signal.action, 0);
+
+    console.log(`  GEX Net: ${rt.gammaExposure.netGex} | Regime: ${rt.gammaExposure.regime} | Flip Strike: ${rt.gammaExposure.flipStrike}`);
+    console.log(`  Advance GEX Data Present: ${Boolean(advanceSetup.gammaRegimeData)} | Dealer Action: ${advanceSetup.gammaRegimeData?.dealerRegimeAction}`);
+
+    assert(Boolean(advanceSetup.gammaRegimeData), 'Advance trade setup includes Option A Gamma Regime data');
+    assert(Boolean(advanceSetup.gammaRegimeData?.flipStrike), 'GEX Data includes Zero-Gamma Flip Strike');
+    assert(Boolean(advanceSetup.gammaRegimeData?.dealerRegimeAction), 'GEX Data includes Dealer Regime Action description');
+  }
+
+  // --- SCENARIO 9: OPTION C - TIMEFRAME COHERENCE & DYNAMIC ATR MATRIX VALIDATION ---
+  console.log('\n--- TEST 9: OPTION C - TIMEFRAME COHERENCE (MTCF) & DYNAMIC ATR MATRIX AUDIT ---');
+  {
+    const spot = 22600;
+    const ticker: TickerConfig = {
+      ...POPULAR_TICKERS[0],
+      spotPrice: spot,
+      strikeStep: 50,
+      lotSize: 75,
+      change: 25.0,
+      changePercent: 0.11,
+      prevClose: 22575,
+    };
+    const chain = buildSyntheticChain(spot, 50, 1.20, 3000, -500);
+    const metrics: MarketMetrics = computeMarketMetrics(ticker, chain);
+    const rt = computeRealtimeIndicators(ticker, chain);
+    const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+
+    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, undefined, undefined, candlePatterns);
+    const advanceSetup = computeAdvanceTradeSetup(ticker, metrics, chain, rt, candlePatterns, undefined, undefined, signal.action, 0);
+
+    console.log(`  Timeframe Coherence Score: ${advanceSetup.timeframeCoherence?.coherenceScore}% (${advanceSetup.timeframeCoherence?.grade})`);
+    console.log(`  Dynamic ATR-14: ${advanceSetup.dynamicVolatilityMatrix?.dynamicAtr14} pts | Regime: ${advanceSetup.dynamicVolatilityMatrix?.volatilityRegime}`);
+    console.log(`  Trailing SL Milestones: Breakeven @ ${advanceSetup.dynamicVolatilityMatrix?.trailingStopMilestones.trailToBreakevenSpot} | T1 @ ${advanceSetup.dynamicVolatilityMatrix?.trailingStopMilestones.trailToT1Spot}`);
+
+    assert(Boolean(advanceSetup.timeframeCoherence), 'Advance trade setup includes Option C Timeframe Coherence');
+    assert(Boolean(advanceSetup.dynamicVolatilityMatrix), 'Advance trade setup includes Option C Dynamic ATR Volatility Matrix');
+    assert((advanceSetup.dynamicVolatilityMatrix?.dynamicAtr14 ?? 0) > 0, 'Dynamic ATR calculation produces positive point buffer');
+    assert(Boolean(advanceSetup.dynamicVolatilityMatrix?.trailingStopMilestones.trailToBreakevenSpot), 'Trailing Stop Loss Milestones are dynamically calculated');
   }
 
   console.log('\n========================================================================');

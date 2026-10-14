@@ -212,12 +212,12 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Official NSE Feed & Reconnection Status Indicator */}
           <div className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-mono font-semibold rounded border min-h-[36px] transition-colors ${
             isFeedReconnecting 
-              ? 'bg-amber-950/70 border-amber-500/50 text-amber-300' 
+              ? 'bg-orange-950/40 border-orange-500/40 text-orange-200' 
               : 'bg-slate-900 border-slate-800 text-slate-300'
-          }`} title={isFeedReconnecting ? 'Feed paused or stale - Re-establishing session with Official NSE Endpoint...' : 'Direct Live Stream from Official NSE Endpoint'}>
-            <span className={`w-2 h-2 rounded-full ${isFeedReconnecting ? 'bg-amber-400 animate-ping' : 'bg-emerald-400 animate-pulse'}`}></span>
-            <span className="hidden xs:inline">{isFeedReconnecting ? 'Reconnecting NSE...' : 'Official NSE Feed'}</span>
-            <span className="xs:hidden">{isFeedReconnecting ? 'Reconnecting' : 'NSE Live'}</span>
+          }`} title={isFeedReconnecting ? 'Re-establishing session with Official NSE Endpoint...' : 'Direct Live Stream from Official NSE Endpoint'}>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isFeedReconnecting ? 'bg-orange-500 animate-ping' : 'bg-emerald-400 animate-pulse'}`}></span>
+            <span className="hidden xs:inline">Official NSE Feed</span>
+            <span className="xs:hidden">NSE</span>
           </div>
         </div>
       </div>

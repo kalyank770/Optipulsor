@@ -127,6 +127,7 @@ export interface RealtimePredictionIndicators {
     netGex: number; // In currency units or contracts
     regime: 'POSITIVE_GAMMA' | 'NEGATIVE_GAMMA';
     flipStrike: number;
+    pinWallStrike?: number;
     callGex: number;
     putGex: number;
     implication: string;
@@ -480,6 +481,7 @@ export type AdvanceSetupType =
   | 'HEAVYWEIGHT_FRONT_RUN_PE' 
   | 'OI_UNWINDING_THRUST_CE' 
   | 'OI_UNWINDING_THRUST_PE'
+  | 'RAPID_DIRECTIONAL_FLIP_GUARD'
   | 'EQUILIBRIUM_WAIT';
 
 export interface LeadingPredictorFactor {
@@ -499,11 +501,46 @@ export interface LeadingPredictorFactor {
     | 'INTERMARKET_TELEMETRY'
     | 'VOLUME_ANALYTICS'
     | 'HTF_ALIGNMENT'
-    | 'HYSTERESIS_STATE';
+    | 'HYSTERESIS_STATE'
+    | 'GAMMA_GEX_REGIME'
+    | 'TIMEFRAME_COHERENCE'
+    | 'DYNAMIC_ATR_BAND';
   state: 'STRONG_BULLISH' | 'MODERATE_BULLISH' | 'NEUTRAL' | 'MODERATE_BEARISH' | 'STRONG_BEARISH';
   leadTimeMinutes: number;
   valueDescription: string;
   confidenceScore: number;
+}
+
+export interface OptionAGammaRegimeData {
+  netGex: number;
+  regime: 'POSITIVE_GAMMA' | 'NEGATIVE_GAMMA';
+  flipStrike: number;
+  pinWallStrike: number;
+  dealerRegimeAction: string;
+  accelerationBoost: number;
+}
+
+export interface OptionCTimeframeCoherence {
+  coherenceScore: number; // 0 - 100%
+  grade: 'FULL_CONFLUENCE' | 'STRONG_TREND' | 'COUNTER_TREND_CHOP' | 'PULLBACK_RETEST';
+  alignedTimeframes: string[];
+  conflictingTimeframes: string[];
+  isCounterTrendBlocked: boolean;
+  summary: string;
+}
+
+export interface OptionCDynamicVolatilityMatrix {
+  dynamicAtr14: number;
+  atrPercentage: number;
+  volatilityRegime: 'HIGH_VOLATILITY' | 'NORMAL_VOLATILITY' | 'LOW_COMPRESSION';
+  spotAtrStopBuffer: number;
+  spotAtrTarget1Buffer: number;
+  spotAtrTarget2Buffer: number;
+  trailingStopMilestones: {
+    trailToBreakevenSpot: number;
+    trailToT1Spot: number;
+    runnerTargetSpot: number;
+  };
 }
 
 export interface AdvanceTradeSetup {
@@ -548,6 +585,10 @@ export interface AdvanceTradeSetup {
   pillarsBearishCount?: number;
   pillarsNeutralCount?: number;
   invalidationReason?: string;
+  // Option A & Option C quantitative upgrades
+  gammaRegimeData?: OptionAGammaRegimeData;
+  timeframeCoherence?: OptionCTimeframeCoherence;
+  dynamicVolatilityMatrix?: OptionCDynamicVolatilityMatrix;
 }
 
 export interface SignalStabilityLock {
@@ -605,6 +646,10 @@ export interface TradeSignal {
   htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
   advanceTradeSetup?: AdvanceTradeSetup;
   stabilityLock?: SignalStabilityLock;
+  // Option A & Option C quantitative upgrades
+  gammaRegimeData?: OptionAGammaRegimeData;
+  timeframeCoherence?: OptionCTimeframeCoherence;
+  dynamicVolatilityMatrix?: OptionCDynamicVolatilityMatrix;
 }
 
 export * from './htfPredictions';
