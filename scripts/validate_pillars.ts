@@ -476,6 +476,84 @@ async function runValidation() {
     assert(!advanceSetup.directionalBiasLabel?.includes('Bullish'), `Directional bias label correctly does NOT claim bullish bias`);
   }
 
+  // --- SCENARIO 6: CANDLESTICK MOMENTUM UPWARD INTEGRITY AUDIT ---
+  console.log('\n--- TEST 6: CANDLESTICK UPWARD INTEGRITY (Upward Momentum Never Recommends PE) ---');
+  {
+    const spot = 22650;
+    const ticker: TickerConfig = {
+      ...POPULAR_TICKERS[0],
+      spotPrice: spot,
+      strikeStep: 50,
+      lotSize: 75,
+      change: 35.0,
+      changePercent: 0.15,
+      prevClose: 22615,
+    };
+    // Build chain with low PCR to test if low PCR could accidentally induce a PE into upward candles
+    const chain = buildSyntheticChain(spot, 50, 0.72, 8000, 2000);
+    const metrics: MarketMetrics = computeMarketMetrics(ticker, chain);
+    metrics.pcrTotalOI = 0.72; // Bearish PCR
+    metrics.pcrVolume = 0.70;
+
+    const rt = computeRealtimeIndicators(ticker, chain);
+    const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+    candlePatterns.confluenceBias = 'BULLISH';
+    candlePatterns.confluenceScore = 5.2; // Strong upward candles
+    candlePatterns.m5Score = 6.0;
+    candlePatterns.m2Score = 5.5;
+
+    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, undefined, undefined, candlePatterns);
+    const advanceSetup = computeAdvanceTradeSetup(ticker, metrics, chain, rt, candlePatterns, undefined, undefined, signal.action, 0);
+
+    console.log(`  Candle Confluence: ${candlePatterns.confluenceBias} (+${candlePatterns.confluenceScore}) | PCR: ${metrics.pcrTotalOI}`);
+    console.log(`  Signal Action: ${signal.action} | Recommended Type: ${signal.recommendedType}`);
+    console.log(`  Advance Setup Action: ${advanceSetup.anticipatedAction} | Advance Strike Type: ${advanceSetup.recommendedType}`);
+
+    assert(signal.action !== 'BUY_PE', 'Signal engine strictly forbids BUY_PE when candlestick momentum is upward');
+    assert(advanceSetup.anticipatedAction !== 'BUY_PE', 'Advance setup strictly forbids BUY_PE when candlestick momentum is upward');
+    assert(signal.recommendedType === 'CE', 'Recommended contract type is strictly CE (never PE) when candles are upward');
+    assert(advanceSetup.recommendedType === 'CE', 'Advance contract type is strictly CE (never PE) when candles are upward');
+  }
+
+  // --- SCENARIO 7: CANDLESTICK MOMENTUM DOWNWARD INTEGRITY AUDIT ---
+  console.log('\n--- TEST 7: CANDLESTICK DOWNWARD INTEGRITY (Downward Momentum Never Recommends CE) ---');
+  {
+    const spot = 22600;
+    const ticker: TickerConfig = {
+      ...POPULAR_TICKERS[0],
+      spotPrice: spot,
+      strikeStep: 50,
+      lotSize: 75,
+      change: -40.0,
+      changePercent: -0.18,
+      prevClose: 22640,
+    };
+    // Build chain with high PCR to test if high PCR could accidentally induce a CE into downward candles
+    const chain = buildSyntheticChain(spot, 50, 1.35, -2000, 8000);
+    const metrics: MarketMetrics = computeMarketMetrics(ticker, chain);
+    metrics.pcrTotalOI = 1.35; // Bullish PCR
+    metrics.pcrVolume = 1.40;
+
+    const rt = computeRealtimeIndicators(ticker, chain);
+    const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+    candlePatterns.confluenceBias = 'BEARISH';
+    candlePatterns.confluenceScore = -5.2; // Strong downward candles
+    candlePatterns.m5Score = -6.0;
+    candlePatterns.m2Score = -5.5;
+
+    const signal = generateTradeSignal(ticker, metrics, chain, [], undefined, 0, undefined, undefined, candlePatterns);
+    const advanceSetup = computeAdvanceTradeSetup(ticker, metrics, chain, rt, candlePatterns, undefined, undefined, signal.action, 0);
+
+    console.log(`  Candle Confluence: ${candlePatterns.confluenceBias} (${candlePatterns.confluenceScore}) | PCR: ${metrics.pcrTotalOI}`);
+    console.log(`  Signal Action: ${signal.action} | Recommended Type: ${signal.recommendedType}`);
+    console.log(`  Advance Setup Action: ${advanceSetup.anticipatedAction} | Advance Strike Type: ${advanceSetup.recommendedType}`);
+
+    assert(signal.action !== 'BUY_CE', 'Signal engine strictly forbids BUY_CE when candlestick momentum is downward');
+    assert(advanceSetup.anticipatedAction !== 'BUY_CE', 'Advance setup strictly forbids BUY_CE when candlestick momentum is downward');
+    assert(signal.recommendedType === 'PE', 'Recommended contract type is strictly PE (never CE) when candles are downward');
+    assert(advanceSetup.recommendedType === 'PE', 'Advance contract type is strictly PE (never CE) when candles are downward');
+  }
+
   console.log('\n========================================================================');
   console.log(`🏁 VALIDATION RESULT: ${passedTests}/${totalTests} TESTS PASSED (${((passedTests / totalTests) * 100).toFixed(1)}%)`);
   console.log('========================================================================\n');

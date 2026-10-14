@@ -825,10 +825,14 @@ export function computeAdvanceTradeSetup(
   let probabilityScore = 55;
   let leadTimeAdvantageMinutes = 1.0;
 
+  // Real Candlestick Directional Constraints:
+  const isCandleBull = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore > 0.4;
+  const isCandleBear = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore < -0.4;
+
   // Strict multi-factor consensus: Score and pillar count must BOTH be aligned to prevent contradictory recommendations
   const minThreshold = currentSignalAction === 'WAIT_NEUTRAL' ? 2.8 : 1.6;
-  const isScoreBullish = totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.6 && !isDerivativesOrCandleBearish;
-  const isScoreBearish = totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.6 && !isDerivativesOrCandleBullish;
+  const isScoreBullish = totalBullScore >= minThreshold && totalBullScore > totalBearScore + 0.6 && !isDerivativesOrCandleBearish && !isCandleBear;
+  const isScoreBearish = totalBearScore >= minThreshold && totalBearScore > totalBullScore + 0.6 && !isDerivativesOrCandleBullish && !isCandleBull;
   const isPillarsBullishConsensus = bullPillarCount > bearPillarCount;
   const isPillarsBearishConsensus = bearPillarCount > bullPillarCount;
 
@@ -839,7 +843,7 @@ export function computeAdvanceTradeSetup(
     setupType = 'EQUILIBRIUM_WAIT';
     probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
     leadTimeAdvantageMinutes = 1.0;
-  } else if (isScoreBullish && isPillarsBullishConsensus) {
+  } else if (isScoreBullish && isPillarsBullishConsensus && !isCandleBear) {
     anticipatedAction = 'BUY_CE';
     probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBullScore * 3.8 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
@@ -853,7 +857,7 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKOUT_COILING_CE';
     }
-  } else if (isScoreBearish && isPillarsBearishConsensus) {
+  } else if (isScoreBearish && isPillarsBearishConsensus && !isCandleBull) {
     anticipatedAction = 'BUY_PE';
     probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBearScore * 3.8 + (avgFactorConf - 60) * 0.25)));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
@@ -876,10 +880,10 @@ export function computeAdvanceTradeSetup(
   }
 
   // Directional signal actions align with advance setups
-  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus) {
+  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
     anticipatedAction = 'BUY_CE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
-  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus) {
+  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus && !isCandleBull) {
     anticipatedAction = 'BUY_PE';
     if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKDOWN_COILING_PE';
   } else if (currentSignalAction === 'WAIT_NEUTRAL') {
@@ -903,15 +907,20 @@ export function computeAdvanceTradeSetup(
   // --- STRIKE, ZONE & OPTION TARGET CALCULATIONS ---
   const isBearishSkew = (
     anticipatedAction === 'BUY_PE' ||
-    (anticipatedAction === 'WAIT_NEUTRAL' && (
-      candlePatterns.confluenceBias === 'BEARISH' ||
-      candlePatterns.confluenceScore < -1.5 ||
+    (anticipatedAction === 'WAIT_NEUTRAL' && !isCandleBull && (
+      isCandleBear ||
       totalBearScore > totalBullScore + 0.8 ||
       isDerivativesOrCandleBearish
     ))
   );
 
-  const recType: OptionType = forcedType || (isBearishSkew ? 'PE' : 'CE');
+  const recType: OptionType = forcedType || (
+    anticipatedAction === 'BUY_CE' ? 'CE' :
+    anticipatedAction === 'BUY_PE' ? 'PE' :
+    isCandleBull ? 'CE' :
+    isCandleBear ? 'PE' :
+    (isBearishSkew ? 'PE' : 'CE')
+  );
   const recStrike = forcedStrike || (recType === 'PE'
     ? (spotPrice <= atmStrike - step * 0.3 ? atmStrike - step : atmStrike)
     : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike));

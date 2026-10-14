@@ -205,7 +205,8 @@ export function generateTradeSignal(
   previousSignal?: TradeSignal,
   expiryIndex: number = 0,
   liveConstituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
-  liveGlobalMacro?: import('../types/options').InterMarketTelemetry
+  liveGlobalMacro?: import('../types/options').InterMarketTelemetry,
+  injectedCandlePatterns?: import('../types/options').MultiTimeframeChartPatterns
 ): TradeSignal {
   // Sanitize previousSignal to ensure it belongs strictly to the active ticker (prevents cross-ticker hysteresis bleed)
   const activePreviousSignal = previousSignal && previousSignal.tickerSymbol === ticker.symbol 
@@ -377,7 +378,7 @@ export function generateTradeSignal(
   else if (bearishNewsCount > bullishNewsCount) score -= Math.min(1.0, (bearishNewsCount - bullishNewsCount) * 0.35);
 
   // 7. Candlestick & Multi-Timeframe Chart Patterns Confluence (2m, 5m, 15m)
-  const candlePatterns = computeMultiTimeframeChartPatterns(ticker);
+  const candlePatterns = injectedCandlePatterns || computeMultiTimeframeChartPatterns(ticker);
   score += (candlePatterns.confluenceScore * 0.4);
   if (candlePatterns.orbStatus === 'BULLISH_ORB_BREAKOUT') {
     score += 1.2;
@@ -678,8 +679,14 @@ export function generateTradeSignal(
   const netBullEdge = bullMatches - bearMatches;
 
   // Candlestick multi-timeframe directional bias & score:
-  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore <= -1.6;
-  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore >= 1.6;
+  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore <= -0.8;
+  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore >= 0.8;
+
+  // Real Candlestick Directional Lock:
+  // If real candlesticks are moving UPWARD (score > 0.3 or BULLISH), NEVER recommend BUY_PE.
+  // If real candlesticks are moving DOWNWARD (score < -0.3 or BEARISH), NEVER recommend BUY_CE.
+  const isCandleUpward = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore > 0.3;
+  const isCandleDownward = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore < -0.3;
 
   // Add candlestick confluence to match tallies:
   if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.5) bullMatches++;
@@ -701,10 +708,10 @@ export function generateTradeSignal(
     (constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 20 ? 1 : 0)
   );
 
-  // Candlestick Veto: If candles are firmly bearish, NEVER issue BUY_CE.
-  // If candles are firmly bullish, NEVER issue BUY_PE.
-  const isHardBearishVeto = isCandleBearish || bearContradictionCount >= 2 || (isContinuousFall && score < 0);
-  const isHardBullishVeto = isCandleBullish || bullContradictionCount >= 2 || (isMarketRaising && score > 0);
+  // Candlestick Veto: If candles are pointing downward, NEVER issue BUY_CE.
+  // If candles are pointing upward, NEVER issue BUY_PE.
+  const isHardBearishVeto = isCandleDownward || bearContradictionCount >= 2 || (isContinuousFall && score < 0);
+  const isHardBullishVeto = isCandleUpward || bullContradictionCount >= 2 || (isMarketRaising && score > 0);
 
   if (score >= 0.7 && netBullEdge >= 1 && !isHardBearishVeto) {
     // BULLISH MOMENTUM / RECOVERY REGIME: Recommend Call Option (BUY_CE)
@@ -726,10 +733,10 @@ export function generateTradeSignal(
     if (!capitalProtectionReason) {
       if (Math.abs(score) < 0.7) {
         capitalProtectionReason = `Consolidation Deadband: Multi-factor composite score (${score > 0 ? '+' : ''}${score.toFixed(1)}) is in neutral equilibrium (-0.7 to +0.7). Lacking institutional directional edge; stand aside in WAIT_NEUTRAL.`;
-      } else if (score > 0 && isCandleBearish) {
-        capitalProtectionReason = `Candlestick Divergence: Spot price has positive drift, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'bearish pressure'}) indicate supply distribution. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
-      } else if (score < 0 && isCandleBullish) {
-        capitalProtectionReason = `Candlestick Divergence: Spot is pulling back, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'bullish accumulation'}) indicate institutional buying support. High risk of short trap; stand aside in WAIT_NEUTRAL.`;
+      } else if (score > 0 && isCandleDownward) {
+        capitalProtectionReason = `Candlestick Divergence: Spot price has positive drift, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'downward pressure'}) indicate supply distribution. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
+      } else if (score < 0 && isCandleUpward) {
+        capitalProtectionReason = `Candlestick Divergence: Spot is pulling back, but multi-timeframe candlesticks (${candlePatterns.confluencePattern || 'upward accumulation'}) indicate institutional buying support. High risk of short trap; stand aside in WAIT_NEUTRAL.`;
       } else if (score > 0 && isHardBearishVeto) {
         capitalProtectionReason = `Signal Divergence: Spot price is positive, but derivatives flow (PCR ${pcrTotalOI.toFixed(2)}, Order Flow ${rt.orderFlow.sentiment}) or heavyweights show confirmed supply drag. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
       } else if (score < 0 && isHardBullishVeto) {
@@ -755,15 +762,19 @@ export function generateTradeSignal(
   // Determine recommended contract type:
   // If BUY_CE -> 'CE'
   // If BUY_PE -> 'PE'
-  // If WAIT_NEUTRAL -> align with prevailing technical skew for watchlist reference
+  // If WAIT_NEUTRAL -> strictly align reference watchlist contract with active real candlestick momentum
   let recommendedType: OptionType = 'CE';
   if (action === 'BUY_PE') {
     recommendedType = 'PE';
   } else if (action === 'BUY_CE') {
     recommendedType = 'CE';
   } else {
-    // WAIT_NEUTRAL: Choose reference watchlist contract strictly based on directional tilt
-    if (netBullEdge > 0 || score > 0.3) {
+    // WAIT_NEUTRAL: Prioritize active real candlestick momentum for reference watchlist contract
+    if (isCandleUpward) {
+      recommendedType = 'CE';
+    } else if (isCandleDownward) {
+      recommendedType = 'PE';
+    } else if (netBullEdge > 0 || score > 0.3) {
       recommendedType = 'CE';
     } else if (netBullEdge < 0 || score < -0.3) {
       recommendedType = 'PE';
@@ -1564,6 +1575,23 @@ export function generateTradeSignal(
   // Show the strike price that will hit tomorrow once the market opens based on today's full day chart + aftermarket analysis
   if (!marketStatus.isOpen && afterMarketAnalytics.tomorrowHitStrike) {
     const hit = afterMarketAnalytics.tomorrowHitStrike;
+
+    // Strict Candlestick Momentum Alignment: Prevent overnight model from inverting live candlestick momentum
+    const isCandleUpward = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore > 0.3;
+    const isCandleDownward = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore < -0.3;
+
+    if (isCandleUpward && hit.type === 'PE') {
+      // Candlesticks are upward: align reference contract strictly to CE
+      hit.type = 'CE';
+      hit.strike = Math.ceil((ticker.spotPrice + ticker.strikeStep * 0.4) / ticker.strikeStep) * ticker.strikeStep;
+      if (hit.action === 'BUY_PE') hit.action = 'WAIT_FIRST_15M';
+    } else if (isCandleDownward && hit.type === 'CE') {
+      // Candlesticks are downward: align reference contract strictly to PE
+      hit.type = 'PE';
+      hit.strike = Math.floor((ticker.spotPrice - ticker.strikeStep * 0.4) / ticker.strikeStep) * ticker.strikeStep;
+      if (hit.action === 'BUY_CE') hit.action = 'WAIT_FIRST_15M';
+    }
+
     targetStrike = hit.strike;
     recommendedType = hit.type;
 

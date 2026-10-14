@@ -195,16 +195,20 @@ export function computeAfterMarketOpeningAnalytics(
   const supFloor = metrics?.majorSupportStrike || (spotClose - step);
   const resWall = metrics?.majorResistanceStrike || (spotClose + step);
 
+  // Real Candlestick Directional Bias:
+  const isCandleBull = candlePatterns?.confluenceBias === 'BULLISH' || (candlePatterns?.confluenceScore ?? 0) > 0.4;
+  const isCandleBear = candlePatterns?.confluenceBias === 'BEARISH' || (candlePatterns?.confluenceScore ?? 0) < -0.4;
+
   // Determine directional bias from candlestick confluence, GIFT Nifty, VWAP alignment & PCR
-  const isBearishSkew = (
-    candlePatterns?.confluenceBias === 'BEARISH' || 
+  const isBearishSkew = !isCandleBull && (
+    isCandleBear || 
     (candlePatterns?.confluenceScore ?? 0) <= -1.2 || 
     openMomentumScore <= -1.2 ||
     (metrics?.pcrTotalOI ?? 1.0) <= 0.82
   );
 
-  const isBullishSkew = (
-    candlePatterns?.confluenceBias === 'BULLISH' ||
+  const isBullishSkew = !isCandleBear && (
+    isCandleBull ||
     (candlePatterns?.confluenceScore ?? 0) >= 1.2 ||
     openMomentumScore >= 1.2 ||
     (metrics?.pcrTotalOI ?? 1.0) >= 1.18
@@ -213,7 +217,7 @@ export function computeAfterMarketOpeningAnalytics(
   const isStrongBullishOpening = predictedOpeningType === 'GAP_UP_OPENING' || (openMomentumScore >= 1.2 && openMomentumScore > Math.abs(Math.min(0, openMomentumScore)));
   const isStrongBearishOpening = predictedOpeningType === 'GAP_DOWN_OPENING' || (openMomentumScore <= -1.2 && Math.abs(openMomentumScore) > Math.max(0, openMomentumScore));
 
-  if (isStrongBullishOpening && (!isStrongBearishOpening || openMomentumScore > 0)) {
+  if (isStrongBullishOpening && (!isStrongBearishOpening || openMomentumScore > 0) && !isCandleBear) {
     // Bullish Opening: Market will rally/gap up and hit an overhead Call strike
     tomorrowAction = 'BUY_CE';
     tomorrowType = 'CE';
@@ -233,7 +237,7 @@ export function computeAfterMarketOpeningAnalytics(
     hitReason = isAboveResWall
       ? `Synthesizing today's strong closing structure (+${closeVsVwapPoints} pts above VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts): Spot is projected to gap above the ${ticker.currency}${resWall.toLocaleString()} Call OI Resistance wall towards ${tomorrowStrike} CE. If spot sustains above ${ticker.currency}${resWall.toLocaleString()} in the opening 15 minutes, trapped Call writers will be forced into short covering, driving spot to ${projectedSpotAtHit}. If rejected at open, watch for a gap fade back to ${ticker.currency}${spotClose.toLocaleString()}.`
       : `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts) below the ${ticker.currency}${resWall.toLocaleString()} OI resistance wall, spot will drive upward at 09:15 AM open to test ${tomorrowStrike} CE.`;
-  } else if (isStrongBearishOpening) {
+  } else if (isStrongBearishOpening && !isCandleBull) {
     // Bearish Opening: Market will slide/gap down and hit a lower Put strike
     tomorrowAction = 'BUY_PE';
     tomorrowType = 'PE';
@@ -254,19 +258,20 @@ export function computeAfterMarketOpeningAnalytics(
       ? `Synthesizing today's weak closing structure (${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts): Spot is projected to gap down below the ${ticker.currency}${supFloor.toLocaleString()} Put OI Support floor towards ${tomorrowStrike} PE. If breakdown sustains below ${ticker.currency}${supFloor.toLocaleString()} in the first 15 minutes, long unwinding will accelerate spot to ${projectedSpotAtHit}.`
       : `Synthesizing today's chart (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}, closed ${closeVsVwapPoints} pts vs VWAP) with overnight GIFT Nifty (${giftNiftyChangePoints >= 0 ? '+' : ''}${giftNiftyChangePoints} pts), spot will test ${tomorrowStrike} PE at 09:15 AM open.`;
   } else {
-    // FLAT OPENING / NEUTRAL ORB PROTOCOL:
-    // On flat openings (within ±0.15% or ±25 pts), buying naked calls or puts at 09:15 AM open
-    // statistically leads to theta decay and IV crush. Prudent quantitative protocol mandates
+    // FLAT OPENING / DIVERGENCE / NEUTRAL ORB PROTOCOL:
+    // On flat openings or when overnight drift diverges from closing candlestick momentum,
+    // buying naked options at 09:15 AM risks theta decay and IV crush. Prudent quantitative protocol mandates
     // standing aside for the first 15-minute Opening Range Breakout (ORB) post-09:30 AM.
-    if (openMomentumScore >= 2.6 && isBullishSkew && !isBearishSkew) {
+    if (openMomentumScore >= 2.6 && isBullishSkew && !isBearishSkew && !isCandleBear) {
       tomorrowAction = 'BUY_CE';
       tomorrowType = 'CE';
-    } else if (openMomentumScore <= -2.6 && isBearishSkew && !isBullishSkew) {
+    } else if (openMomentumScore <= -2.6 && isBearishSkew && !isBullishSkew && !isCandleBull) {
       tomorrowAction = 'BUY_PE';
       tomorrowType = 'PE';
     } else {
       tomorrowAction = 'WAIT_FIRST_15M';
-      tomorrowType = isBearishSkew ? 'PE' : (spotClose >= (metrics?.realtimeIndicators?.vwap?.value || spotClose) ? 'CE' : 'PE');
+      // Strictly align tomorrowType with real candlestick momentum
+      tomorrowType = isCandleBull ? 'CE' : isCandleBear ? 'PE' : (isBullishSkew ? 'CE' : isBearishSkew ? 'PE' : (spotClose >= (metrics?.realtimeIndicators?.vwap?.value || spotClose) ? 'CE' : 'PE'));
     }
     tomorrowStrike = Math.round(spotClose / step) * step;
     projectedSpotAtHit = predictedOpeningSpot;
