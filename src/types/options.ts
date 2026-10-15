@@ -170,6 +170,7 @@ export interface InterMarketTelemetry {
   usdInr: GlobalMacroMarketItem;
   dxyIndex: GlobalMacroMarketItem;
   brentCrude: GlobalMacroMarketItem;
+  mcxCrude?: GlobalMacroMarketItem;
   us10yYield: GlobalMacroMarketItem;
   nikkei225: GlobalMacroMarketItem;
   globalCompositeScore: number; // -100 to +100

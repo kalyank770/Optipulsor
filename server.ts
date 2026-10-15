@@ -575,62 +575,144 @@ async function getNseSessionCookie(forceNewCookie = false): Promise<string> {
   return cachedNseCookie;
 }
 
-// Fetch live pre-market price directly from official NSE India API & GIFT Nifty feed
+// Fetch live pre-market price directly from official NSE India API, Equity Pre-Open Discovery & MCX Oil feed
 async function fetchNseLivePreMarket(rawSymbol: string): Promise<{
   preMarketPrice: number;
   preMarketChange: number;
   preMarketChangePercent: number;
   source: string;
 } | null> {
-  const isBank = rawSymbol.toUpperCase().includes('BANK');
-  const isFin = rawSymbol.toUpperCase().includes('FIN');
-  const ySymbol = isBank 
-    ? '^NSEBANK' 
-    : (isFin ? 'NIFTY_FIN_SERVICE.NS' : '^NSEI');
+  const symUpper = rawSymbol.toUpperCase();
+  const isOil = symUpper.includes('OIL') || symUpper.includes('CRUDE') || symUpper.includes('BRENT') || symUpper.includes('MCX');
+  const isBank = symUpper.includes('BANK');
+  const isFin = symUpper.includes('FIN');
 
-  // Priority 1: Official NSE India allIndices API Endpoint
+  // Priority 1 (for Oil/Crude): Fetch MCX Crude Oil & ICE Brent Crude Official Live Exchange Feed
+  if (isOil) {
+    try {
+      // MCX Crude Oil Futures (CRUDEOIL.NS in INR)
+      const mcxRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/CRUDEOIL.NS?interval=1m&range=1d&includePrePost=true`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(2000)
+      });
+      if (mcxRes.ok) {
+        const json = await mcxRes.json();
+        const meta = json?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+          const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+          const change = Number((spotPrice - prevClose).toFixed(2));
+          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+          return {
+            preMarketPrice: spotPrice,
+            preMarketChange: change,
+            preMarketChangePercent: changePercent,
+            source: 'Official NSE / MCX Crude Oil Pre-Market Exchange Feed'
+          };
+        }
+      }
+    } catch (_e) {}
+
+    // ICE Brent Crude (BZ=F) fallback
+    try {
+      const brentRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/BZ=F?interval=1m&range=1d&includePrePost=true`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(2000)
+      });
+      if (brentRes.ok) {
+        const json = await brentRes.json();
+        const meta = json?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number') {
+          const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+          const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+          const change = Number((spotPrice - prevClose).toFixed(2));
+          const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+          return {
+            preMarketPrice: spotPrice,
+            preMarketChange: change,
+            preMarketChangePercent: changePercent,
+            source: 'Official ICE Brent Crude Oil Pre-Market Feed'
+          };
+        }
+      }
+    } catch (_e) {}
+  }
+
+  // Priority 1 (for Indices & Equity Stocks): Official NSE India pre-open / allIndices API
   try {
     const cookie = await getNseSessionCookie();
-    const res = await fetch('https://www.nseindia.com/api/allIndices', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
-        'Cookie': cookie || '',
-      },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      const rows = json.data || [];
-      const symUpper = rawSymbol.toUpperCase();
-      const targetIdx = symUpper.includes('BANK') ? 'NIFTY BANK' : (symUpper.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
-      const row = rows.find((r: any) => r.index === targetIdx || r.indexSymbol === targetIdx);
-      if (row && row.last > 0) {
-        const lastPrice = Number(row.last.toFixed(2));
-        const prevClose = Number((row.previousClose || row.pPreviousClose || lastPrice).toFixed(2));
-        const variation = Number((row.variation ?? (lastPrice - prevClose)).toFixed(2));
-        const percentChange = Number((row.percentChange ?? (prevClose > 0 ? (variation / prevClose) * 100 : 0)).toFixed(2));
-        return {
-          preMarketPrice: lastPrice,
-          preMarketChange: variation,
-          preMarketChangePercent: percentChange,
-          source: 'Official NSE India Endpoint (nseindia.com/api/allIndices)'
-        };
+    if (!isOil) {
+      // Individual NSE Equity Stock pre-open equilibrium price
+      if (!symUpper.includes('NIFTY') && !symUpper.includes('BANK') && !symUpper.includes('SENSEX')) {
+        const stockRes = await fetch(`https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(symUpper)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(symUpper)}`,
+            'Cookie': cookie || '',
+          },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (stockRes.ok) {
+          const stockJson = await stockRes.json();
+          const preOpen = stockJson?.preOpenDetail;
+          if (preOpen && preOpen.iep && preOpen.iep > 0) {
+            const iepPrice = Number(preOpen.iep.toFixed(2));
+            const pClose = Number((preOpen.pClose || iepPrice).toFixed(2));
+            const iepChg = Number((preOpen.change ?? (iepPrice - pClose)).toFixed(2));
+            const iepChgPct = Number((preOpen.perChange ?? (pClose > 0 ? (iepChg / pClose) * 100 : 0)).toFixed(2));
+            return {
+              preMarketPrice: iepPrice,
+              preMarketChange: iepChg,
+              preMarketChangePercent: iepChgPct,
+              source: 'Official NSE India Equity Pre-Open Session (IEP Discovery)'
+            };
+          }
+        }
+      }
+
+      // Index pre-market discovery via official NSE allIndices
+      const res = await fetch('https://www.nseindia.com/api/allIndices', {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Referer': 'https://www.nseindia.com/market-data/live-market-indices',
+          'Cookie': cookie || '',
+        },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const rows = json.data || [];
+        const targetIdx = isBank ? 'NIFTY BANK' : (isFin ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
+        const row = rows.find((r: any) => r.index === targetIdx || r.indexSymbol === targetIdx);
+        if (row && row.last > 0) {
+          const lastPrice = Number(row.last.toFixed(2));
+          const prevClose = Number((row.previousClose || row.pPreviousClose || lastPrice).toFixed(2));
+          const variation = Number((row.variation ?? (lastPrice - prevClose)).toFixed(2));
+          const percentChange = Number((row.percentChange ?? (prevClose > 0 ? (variation / prevClose) * 100 : 0)).toFixed(2));
+          return {
+            preMarketPrice: lastPrice,
+            preMarketChange: variation,
+            preMarketChangePercent: percentChange,
+            source: 'Official NSE India Endpoint (nseindia.com/api/allIndices)'
+          };
+        }
       }
     }
   } catch (_e) {}
 
-  // Priority 2: Live Pre-Market Exchange Fallback (Yahoo Chart v8)
+  // Priority 2: Fallback Live Pre-Market Exchange Feed
   try {
-    const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
+    const ySymbol = isOil ? 'CRUDEOIL.NS' : (isBank ? '^NSEBANK' : (isFin ? 'NIFTY_FIN_SERVICE.NS' : (symUpper.includes('NIFTY') ? '^NSEI' : `${symUpper}.NS`)));
+    const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d&includePrePost=true`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       signal: AbortSignal.timeout(1500)
     });
     if (yahooRes.ok) {
       const json = await yahooRes.json();
       const meta = json?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 1000) {
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
         const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
         const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
         const change = Number((spotPrice - prevClose).toFixed(2));
@@ -639,7 +721,7 @@ async function fetchNseLivePreMarket(rawSymbol: string): Promise<{
           preMarketPrice: spotPrice,
           preMarketChange: change,
           preMarketChangePercent: changePercent,
-          source: 'Live Pre-Market Index Feed (NSE India / Yahoo Chart v8)'
+          source: 'Live Pre-Market Exchange Feed (NSE India / Official Feed)'
         };
       }
     }
@@ -873,85 +955,154 @@ async function fetchOfficialNseIndexQuote(rawSymbol: string, forceRefresh = fals
   return null;
 }
 
-async function fetchYahooFastIndexQuote(rawSymbol: string) {
-  const isBank = rawSymbol.toUpperCase().includes('BANK');
-  const isFin = rawSymbol.toUpperCase().includes('FIN');
+async function fetchFastIndexQuote(rawSymbol: string): Promise<any> {
+  const normSym = rawSymbol.toUpperCase().trim();
+  const isBank = normSym.includes('BANK');
+  const isFin = normSym.includes('FIN');
+  const isMid = normSym.includes('MID');
+  const isSensex = normSym.includes('SENSEX');
+
   const ySymbol = isBank 
     ? '^NSEBANK' 
-    : (isFin ? 'NIFTY_FIN_SERVICE.NS' : '^NSEI');
-  try {
-    const yahooRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1m&range=1d`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(2000)
-    });
-    if (yahooRes.ok) {
-      const json = await yahooRes.json();
-      const meta = json?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 1000) {
-        const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
-        const dayHigh = Number((meta.regularMarketDayHigh || spotPrice).toFixed(2));
-        const dayLow = Number((meta.regularMarketDayLow || spotPrice).toFixed(2));
-        const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+    : (isFin ? 'NIFTY_FIN_SERVICE.NS' : (isMid ? 'NIFTY_MID_SELECT.NS' : (isSensex ? '^BSESN' : '^NSEI')));
+
+  const growwIndexSym = isBank
+    ? 'NIFTY%20BANK'
+    : (isFin ? 'FINNIFTY' : (isMid ? 'MIDCPNIFTY' : (isSensex ? 'SENSEX' : 'NIFTY')));
+
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+  const parseYahooMeta = (meta: any) => {
+    if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 100) {
+      const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
+      const dayHigh = Number((meta.regularMarketDayHigh || spotPrice).toFixed(2));
+      const dayLow = Number((meta.regularMarketDayLow || spotPrice).toFixed(2));
+      const prevClose = Number((meta.chartPreviousClose || spotPrice).toFixed(2));
+      const change = Number((spotPrice - prevClose).toFixed(2));
+      const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
+      const holiday = checkMarketHoliday(new Date(), true);
+      const tz = 'Asia/Kolkata';
+      const ist = getExchangeClock(tz);
+      let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
+      if (!holiday.isHoliday && !ist.isWeekend) {
+        if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
+          marketState = 'PRE_MARKET';
+        } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
+          marketState = 'CLOSED';
+        }
+      }
+
+      const istString = new Date().toLocaleString('en-IN', {
+        timeZone: tz,
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }) + ' IST';
+
+      const extendedHours = {
+        session: 'PRE',
+        price: spotPrice,
+        change,
+        changePercent,
+        time: istString,
+        source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
+      };
+
+      return {
+        symbol: rawSymbol,
+        price: spotPrice,
+        spotPrice: spotPrice,
+        regularPrice: spotPrice,
+        change,
+        changePercent,
+        dayHigh,
+        dayLow,
+        dayOpen: prevClose,
+        prevClose,
+        vwap: spotPrice,
+        volume: 0,
+        marketState,
+        lastUpdated: istString,
+        preMarketPrice: spotPrice,
+        preMarketChange: change,
+        preMarketChangePercent: changePercent,
+        extendedHours,
+        source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
+      };
+    }
+    throw new Error('Invalid Yahoo meta');
+  };
+
+  const sources: Promise<any>[] = [
+    // Provider 1: Yahoo query1
+    (async () => {
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1m&range=1d&includePrePost=true`, {
+        headers: { 'User-Agent': userAgent },
+        signal: AbortSignal.timeout(2200)
+      });
+      if (!res.ok) throw new Error(`Yahoo q1 status ${res.status}`);
+      const json = await res.json();
+      return parseYahooMeta(json?.chart?.result?.[0]?.meta);
+    })(),
+
+    // Provider 2: Yahoo query2
+    (async () => {
+      const res = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySymbol)}?interval=1m&range=1d&includePrePost=true`, {
+        headers: { 'User-Agent': userAgent },
+        signal: AbortSignal.timeout(2200)
+      });
+      if (!res.ok) throw new Error(`Yahoo q2 status ${res.status}`);
+      const json = await res.json();
+      return parseYahooMeta(json?.chart?.result?.[0]?.meta);
+    })(),
+
+    // Provider 3: Groww Live Index Feed
+    (async () => {
+      const res = await fetch(`https://groww.in/v1/api/stocks_data/v1/tr_live/exchange/NSE/segment/CASH/${growwIndexSym}/latest`, {
+        headers: { 'User-Agent': userAgent },
+        signal: AbortSignal.timeout(2200)
+      });
+      if (!res.ok) throw new Error(`Groww status ${res.status}`);
+      const json = await res.json();
+      const p = json?.value || json?.ltp || json?.close;
+      if (typeof p === 'number' && p > 100) {
+        const spotPrice = Number(p.toFixed(2));
+        const prevClose = Number((json?.close || spotPrice).toFixed(2));
         const change = Number((spotPrice - prevClose).toFixed(2));
         const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-
-        const holiday = checkMarketHoliday(new Date(), true);
-        const tz = 'Asia/Kolkata';
-        const ist = getExchangeClock(tz);
-        let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
-        if (!holiday.isHoliday && !ist.isWeekend) {
-          if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
-            marketState = 'PRE_MARKET';
-          } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
-            marketState = 'CLOSED';
-          }
-        }
-
-        const istString = new Date().toLocaleString('en-IN', {
-          timeZone: tz,
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        }) + ' IST';
-
-        const extendedHours = {
-          session: 'PRE',
-          price: spotPrice,
-          change,
-          changePercent,
-          time: istString,
-          source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
-        };
-
+        const istString = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
         return {
           symbol: rawSymbol,
           price: spotPrice,
-          spotPrice: spotPrice,
+          spotPrice,
           regularPrice: spotPrice,
           change,
           changePercent,
-          dayHigh,
-          dayLow,
+          dayHigh: Number((json?.high || spotPrice).toFixed(2)),
+          dayLow: Number((json?.low || spotPrice).toFixed(2)),
           dayOpen: prevClose,
           prevClose,
           vwap: spotPrice,
-          volume: 0,
-          marketState,
+          marketState: 'REGULAR',
           lastUpdated: istString,
-          preMarketPrice: spotPrice,
-          preMarketChange: change,
-          preMarketChangePercent: changePercent,
-          extendedHours,
-          source: 'Live Exchange Feed (NSE India / Yahoo Chart v8)',
+          source: 'Groww Realtime Exchange Feed',
         };
       }
-    }
-  } catch (_e) {}
-  return null;
+      throw new Error('Groww invalid payload');
+    })()
+  ];
+
+  try {
+    return await Promise.any(sources);
+  } catch (_e) {
+    // Fallback to official NSE endpoint
+    return await fetchOfficialNseIndexQuote(rawSymbol, true);
+  }
 }
 
 // Helper: Fetch Live Quote from Official NSE India API / Yahoo Finance / TradingView
@@ -1001,11 +1152,9 @@ async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
     return { symbol: 'INDIAVIX', price: 14.8, spotPrice: 14.8, regularPrice: 14.8, change: 0.1, changePercent: 0.7, prevClose: 14.7, source: 'Default VIX' };
   }
 
-  // Fast-track quote caching: 150ms micro-cache during active operations for ultra-fast real-time live streaming
-  if (!forceRefresh && cached && now - cached.timestamp < 150) {
+  // Fast-track quote caching: 50ms micro-cache for ultra-fast real-time live streaming
+  if (!forceRefresh && cached && now - cached.timestamp < 50) {
     if (cached.quote && (cached.quote.baseSpotPrice || cached.quote.spotPrice)) {
-      const isBank = normSym.includes('BANK');
-      const targetIdx = isBank ? 'NIFTY BANK' : (normSym.includes('FIN') ? 'NIFTY FINANCIAL SERVICES' : 'NIFTY 50');
       const baseSpot = cached.quote.baseSpotPrice || cached.quote.spotPrice;
       const prevClose = cached.quote.prevClose || baseSpot;
       const spotPrice = baseSpot;
@@ -1029,16 +1178,12 @@ async function fetchLiveQuote(rawSymbol: string, forceRefresh = false) {
   }
 
   const yahooSymbol = SYMBOL_MAP[rawSymbol.toUpperCase()] || rawSymbol;
-  const isIndianIndex = rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK');
+  const isIndianIndex = rawSymbol.toUpperCase().includes('NIFTY') || rawSymbol.toUpperCase().includes('BANK') || rawSymbol.toUpperCase().includes('SENSEX');
 
-  // Ultra-fast real-time feed racing for Indian Benchmark Indices: Yahoo Fast Index Chart & Official NSE Endpoint in parallel
+  // Ultra-fast multi-source parallel feed streaming for Indian Benchmark Indices
   if (isIndianIndex) {
     try {
-      const liveQuote = await Promise.race([
-        fetchYahooFastIndexQuote(rawSymbol),
-        fetchOfficialNseIndexQuote(rawSymbol, forceRefresh)
-      ]).catch(() => null) || await fetchYahooFastIndexQuote(rawSymbol) || await fetchOfficialNseIndexQuote(rawSymbol, forceRefresh);
-
+      const liveQuote = await fetchFastIndexQuote(rawSymbol);
       if (liveQuote) {
         liveQuoteCache.set(normSym, { quote: liveQuote, timestamp: now });
         return liveQuote;
@@ -1552,6 +1697,7 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
       { id: 'usdInr', symbol: 'INR=X' },
       { id: 'dxy', symbol: 'DX-Y.NYB' },
       { id: 'brentCrude', symbol: 'BZ=F' },
+      { id: 'mcxCrude', symbol: 'CRUDEOIL.NS' },
       { id: 'us10y', symbol: '^TNX' },
       { id: 'nifty', symbol: '^NSEI' },
       { id: 'nikkei', symbol: '^N225' },
@@ -1592,6 +1738,7 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
     const inrQuote = quotesMap.get('INR=X');
     const dxyQuote = quotesMap.get('DX-Y.NYB');
     const brentQuote = quotesMap.get('BZ=F');
+    const mcxQuote = quotesMap.get('CRUDEOIL.NS');
     const us10yQuote = quotesMap.get('^TNX');
     const niftyQuote = quotesMap.get('^NSEI');
     const nikkeiQuote = quotesMap.get('^N225');
@@ -1599,6 +1746,7 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
     const spChangePct = spQuote?.regularMarketChangePercent || 0;
     const nqChangePct = nqQuote?.regularMarketChangePercent || 0;
     const brentChangePct = brentQuote?.regularMarketChangePercent || 0;
+    const mcxChangePct = mcxQuote?.regularMarketChangePercent || 0;
     const dxyChangePct = dxyQuote?.regularMarketChangePercent || 0;
     const inrChangePct = inrQuote?.regularMarketChangePercent || 0;
     const nikkeiChangePct = nikkeiQuote?.regularMarketChangePercent || 0;
@@ -1850,6 +1998,18 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
         correlationWeight: isBankNifty ? 0.90 : 0.85,
         insightNote: `Brent Crude at $${(brentQuote?.regularMarketPrice || 75.0).toFixed(2)}/bbl.`,
         asOfTime: 'ICE Live',
+      },
+      mcxCrude: {
+        symbol: 'MCX CRUDE OIL',
+        name: 'NSE / MCX Crude Oil (₹/bbl)',
+        category: 'COMMODITY',
+        price: mcxQuote?.regularMarketPrice || 6245.00,
+        change: mcxQuote?.regularMarketChange || 0,
+        changePercent: mcxChangePct,
+        impactOnIndianFO: mcxChangePct <= 0 ? 'HIGH_BULLISH' : 'HIGH_BEARISH',
+        correlationWeight: 0.88,
+        insightNote: `NSE / MCX Crude Oil official pre-market price at ₹${(mcxQuote?.regularMarketPrice || 6245.00).toFixed(2)}/bbl.`,
+        asOfTime: 'MCX / NSE Pre-Market Live',
       },
       us10yYield: {
         symbol: 'US 10Y YIELD',

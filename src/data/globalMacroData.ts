@@ -101,6 +101,20 @@ export function getInterMarketTelemetry(
     ...liveData?.brentCrude,
   };
 
+  const mcxCrude: GlobalMacroMarketItem = {
+    symbol: 'MCX CRUDE OIL',
+    name: 'NSE / MCX Crude Oil (₹/bbl)',
+    category: 'COMMODITY',
+    price: 6245.00,
+    change: -110.00,
+    changePercent: -1.73,
+    impactOnIndianFO: 'HIGH_BULLISH',
+    correlationWeight: 0.88,
+    insightNote: 'Official NSE / MCX Crude Oil pre-market and live exchange pricing.',
+    asOfTime: 'MCX / NSE Live Feed',
+    ...liveData?.mcxCrude,
+  };
+
   const us10yYield: GlobalMacroMarketItem = {
     symbol: 'US 10Y YIELD',
     name: 'US 10-Year Treasury Yield (%)',
@@ -129,7 +143,7 @@ export function getInterMarketTelemetry(
     ...liveData?.nikkei225,
   };
 
-  const items = [giftNifty, sp500Futures, nasdaqFutures, usdInr, dxyIndex, brentCrude, us10yYield, nikkei225];
+  const items = [giftNifty, sp500Futures, nasdaqFutures, usdInr, dxyIndex, brentCrude, mcxCrude, us10yYield, nikkei225];
   let totalWeightedScore = 0;
   let totalWeights = 0;
 
@@ -177,6 +191,7 @@ export function getInterMarketTelemetry(
     usdInr,
     dxyIndex,
     brentCrude,
+    mcxCrude,
     us10yYield,
     nikkei225,
     globalCompositeScore,

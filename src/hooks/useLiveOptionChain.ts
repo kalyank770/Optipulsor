@@ -605,12 +605,13 @@ export function useLiveOptionChain() {
     try {
       let url = `/api/option-chain/${encodeURIComponent(activeTicker.symbol)}`;
       const params = new URLSearchParams();
+      params.set('_t', String(Date.now()));
       if (customDateTimestamp) {
         params.set('date', String(customDateTimestamp));
       } else if (activeTimestamps[activeExpIndex]) {
         params.set('date', String(activeTimestamps[activeExpIndex]));
       }
-      if (isManual) {
+      if (isManual || activeIsLive) {
         params.set('refresh', 'true');
       }
       const qs = params.toString();

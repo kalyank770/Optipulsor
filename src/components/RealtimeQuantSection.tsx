@@ -304,6 +304,15 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
               </span>
             </div>
 
+            {/* NSE / MCX Crude */}
+            <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
+              <span className="text-[9px] text-amber-400 font-semibold block uppercase">NSE/MCX CRUDE</span>
+              <span className="font-bold text-white block mt-0.5">{telemetry?.mcxCrude?.price ? `₹${telemetry.mcxCrude.price.toLocaleString()}` : '—'}</span>
+              <span className={`text-[9.5px] font-bold ${(telemetry?.mcxCrude?.changePercent || 0) <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(telemetry?.mcxCrude?.changePercent || 0) >= 0 ? '+' : ''}{(telemetry?.mcxCrude?.changePercent || 0).toFixed(2)}%
+              </span>
+            </div>
+
             {/* Brent Crude */}
             <div className="p-1.5 rounded bg-slate-900 border border-slate-800">
               <span className="text-[9px] text-slate-500 block">BRENT CRUDE</span>
