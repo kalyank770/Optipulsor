@@ -15,7 +15,10 @@ import {
   computeDaysReportSummary,
   getTradeDateKey,
   formatTradeDateDisplay,
-  deduplicateTrades
+  formatDateKeyDisplay,
+  formatTradeTime,
+  deduplicateTrades,
+  isTimestampInLiveMarketHours
 } from '../utils/daysReportEngine';
 import { isMarketAutoRefreshActive } from '../utils/marketHours';
 import { MoneynessBadge } from './MoneynessBadge';
@@ -106,17 +109,20 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
     setTrades(prev => deduplicateTrades(updateDaysReportWithLiveTicks(prev, ticker, chain), ticker));
   }, [chain, ticker.spotPrice]);
 
-  // Automatically record live predictions from the engine in real-time strictly during active market hours
+  // Automatically record live predictions from the engine in real-time
+  // Strictly gates recording to active live market trading hours on official trading sessions
   useEffect(() => {
-    const marketStatus = isMarketAutoRefreshActive(ticker);
-    if (marketStatus.isActive && signal && signal.recommendedStrike && signal.action !== 'WAIT_NEUTRAL') {
-      setTrades(prev => {
-        const updated = addLiveSignalToReport(prev, signal, ticker);
-        saveDaysReport(ticker.symbol, updated);
-        return updated;
-      });
+    if (signal && signal.recommendedStrike && (signal.action === 'BUY_CE' || signal.action === 'BUY_PE')) {
+      const isIndian = !ticker.symbol.includes('SPY') && !ticker.symbol.includes('QQQ') && !ticker.symbol.includes('AAPL') && !ticker.symbol.includes('NVDA');
+      if (isTimestampInLiveMarketHours(Date.now(), isIndian)) {
+        setTrades(prev => {
+          const updated = addLiveSignalToReport(prev, signal, ticker);
+          saveDaysReport(ticker.symbol, updated);
+          return updated;
+        });
+      }
     }
-  }, [signal.recommendedStrike, signal.action, ticker.symbol, ticker]);
+  }, [signal.recommendedStrike, signal.action, signal.recommendedType, ticker.symbol, ticker.spotPrice]);
 
   // Active Market Session Auto-Refresh Loop
   useEffect(() => {
@@ -168,7 +174,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
       const groupTrades = map.get(dateKey)!;
       const firstTrade = groupTrades[0];
       const isIndian = !ticker.symbol.includes('SPY') && !ticker.symbol.includes('QQQ') && !ticker.symbol.includes('AAPL') && !ticker.symbol.includes('NVDA');
-      const dateInfo = formatTradeDateDisplay(firstTrade.timestamp, isIndian);
+      const dateInfo = formatDateKeyDisplay(dateKey, isIndian);
 
       const ceCount = groupTrades.filter(t => t.optionType === 'CE').length;
       const peCount = groupTrades.filter(t => t.optionType === 'PE').length;
@@ -248,6 +254,15 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                 <p className="text-xs text-slate-400 mt-0.5">
                   Strictly read-only 1-week audit trail comparing model trade recommendations against realized market execution.
                 </p>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Active Market Hours Only (09:15 AM – 03:30 PM IST)
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-slate-400 bg-slate-800/80 border border-slate-700/80">
+                    Weekends &amp; Exchange Holidays Excluded
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -495,7 +510,7 @@ export const DaysReportTab: React.FC<DaysReportTabProps> = ({
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-950 text-slate-300 font-bold border border-slate-800 flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
-                                <span>{trade.timeFormatted}</span>
+                                <span>{trade.timestamp ? formatTradeTime(trade.timestamp, isIndian) : trade.timeFormatted}</span>
                               </span>
 
                               <span className={`px-2.5 py-0.5 rounded text-xs font-mono font-black border flex items-center gap-1 ${

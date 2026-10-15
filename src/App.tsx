@@ -12,6 +12,13 @@ import { RealtimeQuantSection } from './components/RealtimeQuantSection';
 import { GroundedPayoffSection } from './components/GroundedPayoffSection';
 import { HTFPredictionsWorkstation } from './components/HTFPredictionsWorkstation';
 import { DaysReportTab } from './components/DaysReportTab';
+import { 
+  loadDaysReport, 
+  saveDaysReport, 
+  addLiveSignalToReport, 
+  updateDaysReportWithLiveTicks,
+  isTimestampInLiveMarketHours 
+} from './utils/daysReportEngine';
 import { PaperTradingTab } from './components/PaperTradingTab';
 import { LiveFeedMetricsCard } from './components/LiveFeedMetricsCard';
 import { usePaperTrading } from './hooks/usePaperTrading';
@@ -102,6 +109,20 @@ export default function App() {
       localStorage.removeItem('optipulse-theme');
     } catch (e) {}
   }, []);
+
+  // Continuously trace active trade recommendations into the 1-Week Audit Trail across all tabs
+  // Strictly gates recording to active live market trading hours on official trading sessions
+  useEffect(() => {
+    if (signal && signal.recommendedStrike && (signal.action === 'BUY_CE' || signal.action === 'BUY_PE')) {
+      const isIndian = !selectedTicker.symbol.includes('SPY') && !selectedTicker.symbol.includes('QQQ') && !selectedTicker.symbol.includes('AAPL') && !selectedTicker.symbol.includes('NVDA');
+      if (isTimestampInLiveMarketHours(Date.now(), isIndian)) {
+        const existing = loadDaysReport(selectedTicker, chain);
+        const updated = addLiveSignalToReport(existing, signal, selectedTicker);
+        const refreshed = updateDaysReportWithLiveTicks(updated, selectedTicker, chain);
+        saveDaysReport(selectedTicker.symbol, refreshed);
+      }
+    }
+  }, [signal.recommendedStrike, signal.action, signal.recommendedType, signal.recommendedContractLTP, selectedTicker.symbol, selectedTicker.spotPrice]);
 
   // Primary Workstation Tab State
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('chain');
