@@ -1,96 +1,81 @@
-# Audit Tab Refactoring: Read-Only 1-Week Trade History
+# Implementation Plan: Dynamic Intraday Trend Reversal & Prediction Engine Tuning
 
-Refactor the **Audit Tab** ("Audit & Accuracy") into a clean, strictly read-only historical verification workstation that compares **Suggested Trades vs. Actual Trades** for the last 1 week (grouped by date with the current day expanded on top), while removing all diagnostic triggers, calibration drawers, and manual controls without altering the core prediction engine.
+## 1. Problem Diagnosis: Why the Recommendation Remained Stuck on CE
 
----
+In today's trading session, the market rallied in the morning but reversed downward in the afternoon. Despite a continuous selloff from the day's peak, the trade recommendation engine continued recommending Call options (`BUY_CE`). The root causes identified within the codebase include:
 
-## User Review & Confirmed Decisions
+1. **Previous-Close Anchor Bias (`prevCloseTrendScore`)**:
+   - The engine calculated `spotChangePct = ticker.changePercent` (net change relative to yesterday's closing price).
+   - When the market opens with a gap up or morning rally (+0.8%), even after an afternoon drop of 100–150 points from the session high, `changePercent` remains positive (e.g. +0.20%).
+   - As a result, the daily trend score remained bullish throughout the afternoon, continuously injecting positive score points into the final composite calculation.
 
-> [!IMPORTANT]
-> The following decisions were explicitly selected in Turn 1 and govern the refactoring of the Audit tab:
+2. **Asymmetric "Recovery-Only" Price Action Metric**:
+   - Intraday price action only measured `recoveryRatio = (spotPrice - dayLow) / dayRange`.
+   - It measured distance from `dayLow`, but completely ignored rejection and distance from `dayHigh` (intraday selloff magnitude).
+   - When spot pulled back from 23,200 to 23,050 (day low at 22,800), `recoveryRatio` remained at ~0.62 (> 0.50), causing the system to misclassify the afternoon drop as a bullish "recovery rally".
 
-- **Confirmed Decision 1 (Layout & Grouping)**: Clean date-grouped history view with the current trading day ("Today") expanded at the top and prior days collapsed by default.
-- **Confirmed Decision 2 (Controls & Interactivity)**: Strictly read-only history table with **no header action buttons** (all buttons like "Trigger Self-Healing Calibration", "Reset Seed Data", manual trade inputs, and filter drawers are removed).
-- **Confirmed Decision 3 (Metrics & Table Display)**: Comprehensive trade comparison row showing **Suggested Entry**, **Actual Entry**, **Target / Stop Loss**, **Exit Price**, and **Net Points P&L** (Spot & Option points).
+3. **Hard Bullish Veto Locking PE Recommendations**:
+   - The engine enforced `isHardBullishVeto = isCandleUpward || bullContradictionCount >= 2 || (isMarketRaising && score > 0)`.
+   - Because `isMarketRaising` evaluated `(isAboveDayOpen || spotChangePct >= 0.05)`, it remained true all day, strictly prohibiting `BUY_PE` from ever triggering even when volume and prices were collapsing.
 
----
+4. **Synthetic Candle Upward Drift Bias**:
+   - When real exchange candles are absent or forming, synthetic rolling candle generation defaulted to `isUptrend = changePct >= 0`, generating green candles pointing upward for an index that is declining intraday.
 
-## 1. Overview & Core Concept
-
-- **What It Does**: Provides an accurate, non-polluted 1-week historical audit log comparing the prediction engine's suggested trades against real market execution outcomes for NIFTY, BANKNIFTY, and FINNIFTY.
-- **Target Audience**: Quantitative traders and institutional users verifying the algorithm's real-world accuracy and P&L performance across the past 5–7 trading sessions.
-- **Key Value**: Zero visual clutter, no false entries, and flawless financial tracking with tabular numeral alignment.
-
----
-
-## 2. User Experience & Visual Design
-
-- **Layout Hierarchy**:
-  1. **Daily Summary Ribbon**: Single top row displaying aggregate 1-week metrics (Total Trades, Win Rate %, Net Option Points, Net Spot Points).
-  2. **Current Day Group ("Today")**: Positioned at the top with a subtle green border and live indicator, auto-expanded to display today's live/logged trades.
-  3. **Historical Date Groups (Past 6 Sessions)**: Collapsible date accordions displaying day-by-day suggested vs. actual trades, win counts, and daily net P&L.
-- **Table Column Structure**:
-  - **Timestamp & Type**: Execution time (e.g. `09:20 AM`) & Signal Action (`BUY CALL (CE)` / `BUY PUT (PE)`).
-  - **Suggested Trade**: Recommended Entry LTP, Target 1 / Target 2, and Stop Loss.
-  - **Actual Execution**: Realized Entry LTP, Subsequent Peak/Low LTP, Exit Price.
-  - **Outcome**: Target Status badge (`TARGET 2 HIT`, `TARGET 1 HIT`, `STOP LOSS HIT`) & Time to Target.
-  - **P&L Performance**: Net Spot Points and Net Option Premium Points (bold green for profit, red for loss).
-- **Visual Style**: Clean dark theme with tabular numbers (`tabular-nums font-mono`), WCAG AA contrast, unboxed date metadata, and hairline borders (`border-slate-800`).
+5. **Trade Persistence Without Reversal Invalidation**:
+   - Ongoing trades maintained their state until numerical stop-loss or targets were reached, failing to recognize when the macro intraday regime reversed against the position.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 2. User-Selected Requirements & Architecture Decisions
 
-- **Decision 1: Removal of Interactive Diagnostic Controls**:
-  - *Chosen Approach*: Remove "Self-Healing Calibration Drawer", "Reset Audit Data" button, "Manual Trade Entry" forms, and multi-select filter bars from `DaysReportTab.tsx`.
-  - *Why*: User requested a strictly read-only history table without extra buttons or complex diagnostic overlays.
-- **Decision 2: Retention of Underlying Prediction Math & Log Engine**:
-  - *Chosen Approach*: Keep `daysReportEngine.ts` and `selfHealingEngine.ts` functions intact in background utilities so prediction models, confidence scoring, and trade history calculation remain 100% operational.
-  - *Why*: Ensures removing UI buttons does NOT break or alter any prediction algorithms.
+Based on your clarifying choices:
+- **Trend Balancing**: Prioritize intraday price action, swing momentum, and rolling VWAP/EMA dynamics over previous close (down-weighting previous close to <= 10% or using relative intraday velocity).
+- **Directional Transition**: Require strong multi-timeframe consensus (5m, 15m, 1h candle alignments, order flow delta, heavyweight breadth) before allowing a directional flip (CE -> PE), transitioning cleanly through `WAIT_NEUTRAL` to protect capital.
+- **Active Trade Invalidation**: When the intraday trend reverses and contradicts an ongoing trade recommendation, issue an immediate reversal alert, set `tradeStage` to `STOP_LOSS_HIT` / `INVALIDATED_REVERSAL`, and reset the setup to protect capital.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+## 3. Proposed Changes
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             OptiPulse V10 App                               │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                    ┌──────────────────┴──────────────────┐
-                    ▼                                     ▼
-      ┌───────────────────────────┐         ┌───────────────────────────┐
-      │     Live Option Chain     │         │   HTF Prediction Engine   │
-      └─────────────┬─────────────┘         └─────────────┬─────────────┘
-                    │                                     │
-                    └──────────────────┬──────────────────┘
-                                       │
-                                       ▼
-                    ┌─────────────────────────────────────┐
-                    │     daysReportEngine.ts / Logger    │
-                    │   (Calculates Suggested vs Actual)  │
-                    └──────────────────┬──────────────────┘
-                                       │
-                                       ▼
-                    ┌─────────────────────────────────────┐
-                    │     DaysReportTab.tsx (Refactored)  │
-                    │  - Read-Only Date Accordion Groups  │
-                    │  - Current Day Expanded at Top      │
-                    │  - Suggested vs Actual Price Table  │
-                    └─────────────────────────────────────┘
-```
+### Component 1: `src/utils/signalEngine.ts` (Core Decision & Scoring Engine)
+- **Symmetric Intraday Price Action**:
+  - Replace one-sided `recoveryRatio` with a two-way intraday swing metric:
+    - `highRejectionRatio = (dayHigh - spotPrice) / dayRange` (measures afternoon supply breakdown from peak).
+    - `lowRecoveryRatio = (spotPrice - dayLow) / dayRange` (measures morning absorption from low).
+    - `intradayNetSwing = lowRecoveryRatio - highRejectionRatio` (-1.0 at day low to +1.0 at day high).
+  - Deprecate static `prevCloseTrendScore` influence during active regular market sessions; price action will reflect current session dynamics (VWAP distance, intraday high/low breakdown, and 15m/5m price velocity).
+- **Remove Hard One-Way Vetoes**:
+  - Replace rigid `isHardBullishVeto` / `isHardBearishVeto` with symmetric multi-factor confluence checks.
+  - Allow `BUY_PE` to trigger when price breaks below VWAP and EMA stack, even if the net daily change against yesterday is still slightly positive.
+- **Multi-Timeframe Consensus Verification**:
+  - Enforce a strict multi-timeframe consensus gate: before flipping from a previous `BUY_CE` to `BUY_PE`, require confirmation across 5m/15m chart patterns, VWAP breakdown (`spot < VWAP`), and order flow delta or heavyweight breadth.
+  - If conditions are mixed during the reversal transition, route through `WAIT_NEUTRAL` with explicit capital preservation reasons.
+- **Active Ongoing Trade Invalidation**:
+  - In `generateTradeSignal`, check if an ongoing trade (`previousSignal.action === 'BUY_CE'`) faces confirmed bearish reversal conditions (`spot < VWAP` with bearish EMA/candles).
+  - Trigger `tradeStage = 'STOP_LOSS_HIT'`, update notes to `⚠️ Trend Reversal Invalidation: Intraday trend flipped to bearish; exit remaining positions`, and unlock the engine to seek the next valid setup.
 
-- **File Modifications**:
-  - `src/components/DaysReportTab.tsx`: Refactor layout to render clean date-grouped trade history tables, removing headers, self-healing drawers, filter buttons, and manual forms.
-  - `src/utils/daysReportEngine.ts`: Verify that 1-week seed trade records and live trade logs contain accurate spot and option price calculations without false/duplicate entries.
+### Component 2: `src/utils/candlestickEngine.ts` (Chart Patterns & Rolling Candles)
+- Update `generateRollingCandles`:
+  - Determine `isUptrend` / `isDowntrend` using live intraday swing velocity, current spot position relative to session VWAP, and distance from `dayHigh` rather than solely `changePct >= 0`.
+  - Ensure synthetic candles accurately illustrate the afternoon decline when spot drops off the high of the day.
+
+### Component 3: `src/utils/technicalIndicators.ts` (VWAP & Dynamic Indicators)
+- Ensure intraday session VWAP and EMA stack accurately track rolling 5m candle volume and price transitions.
+- If the spot price is below the 9 and 21 EMA with negative slope, classify EMA alignment as `BEARISH_STACK` regardless of opening gap-up percentages.
 
 ---
 
-## Plan Verification Checklist
+## 4. Verification & Testing Plan
 
-- [ ] Remove header action buttons (Self-Healing trigger, Reset button, Manual forms).
-- [ ] Group trade history strictly by date (last 7 days).
-- [ ] Expand current trading day ("Today") at the top by default; collapse previous days.
-- [ ] Display Suggested Entry, Actual Entry, Target/SL, Exit Price, and Net Points P&L in table rows.
-- [ ] Preserve underlying prediction algorithms in `daysReportEngine.ts`.
-- [ ] Validate compilation (`compile_applet`) and TypeScript linting (`lint_applet`).
+1. **Compilation Check**:
+   - Run `compile_applet` to verify TypeScript types, imports, and clean builds.
+2. **Scenario Simulation Testing**:
+   - Run automated headless script evaluating simulated session scenarios:
+     - **Scenario A (Morning Gap-up & Rally)**: Spot opens +0.5% higher, trades above VWAP, EMA bullish -> Verify algorithm recommends `BUY_CE` with high confidence.
+     - **Scenario B (Afternoon Trend Reversal)**: Market drops 120 points from morning high; spot falls below VWAP and 9 EMA; `changePercent` remains +0.15% vs yesterday's close -> Verify algorithm:
+       1. Immediately invalidates the morning CE trade stage (`Trend Reversal Exit`).
+       2. Transitions through `WAIT_NEUTRAL` / `BUY_PE` as multi-timeframe consensus confirms.
+       3. NEVER remains stuck on CE.
+     - **Scenario C (Chop & False Breakdown)**: Price oscillates around VWAP with mixed indicators -> Verify algorithm holds `WAIT_NEUTRAL` to protect against theta bleed.
+3. **End-to-End Dev Server Check**:
+   - Restart dev server and verify UI responsiveness, latency indicators, and live trade recommendation card behavior.

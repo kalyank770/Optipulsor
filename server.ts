@@ -1542,8 +1542,10 @@ app.get('/api/heavyweights', async (req: Request, res: Response) => {
       const niftyContributionPoints = Number(((changePercent * weightToUse * pointMultiplier) / 10).toFixed(1));
 
       const buildup = change >= 0 ? 'Long Buildup' : 'Short Buildup';
-      const pcr = Number((0.80 + (changePercent > 0 ? 0.25 : -0.15) + (Math.sin(spotPrice) * 0.1)).toFixed(2));
-      const deliveryPercent = Number((55 + (Math.cos(spotPrice) * 12)).toFixed(1));
+      const pcr = Number(Math.max(0.40, Math.min(1.80, 1.0 + (changePercent / 3.0))).toFixed(2));
+      const deliveryPercent = q?.averageDailyVolume10Day && volume > 0 
+        ? Number(Math.min(85, Math.max(30, Math.round((q.averageDailyVolume10Day / volume) * 52))).toFixed(1))
+        : 52.0;
 
       if (weightToUse > 0) {
         if (changePercent > 0.05) {
@@ -1752,13 +1754,21 @@ app.get('/api/global-macro', async (req: Request, res: Response) => {
     const nikkeiChangePct = nikkeiQuote?.regularMarketChangePercent || 0;
 
     // Live GIFT Nifty Feed: Priority 1 Official Moneycontrol Live Stream, Priority 2 NSE IX TradingView Scanner
+    const liveNiftySpot = niftyQuote?.regularMarketPrice;
+    if (liveNiftySpot && liveNiftySpot > 10000 && (!lastKnownLiveGiftNifty.isLiveReal || Math.abs(lastKnownLiveGiftNifty.price - liveNiftySpot) > 800)) {
+      lastKnownLiveGiftNifty.price = liveNiftySpot;
+      lastKnownLiveGiftNifty.prevClose = niftyQuote?.regularMarketPreviousClose || liveNiftySpot;
+      lastKnownLiveGiftNifty.change = 0;
+      lastKnownLiveGiftNifty.changePercent = 0;
+    }
+
     let giftNiftyPrice = lastKnownLiveGiftNifty.price;
     let giftNiftyDelta = lastKnownLiveGiftNifty.change;
     let giftNiftyChangePercent = lastKnownLiveGiftNifty.changePercent;
-    let officialGiftPrevClose = lastKnownLiveGiftNifty.prevClose || niftyQuote?.prevClose || niftyQuote?.regularMarketPreviousClose || 22363.35;
-    let officialGiftHigh = lastKnownLiveGiftNifty.high;
-    let officialGiftLow = lastKnownLiveGiftNifty.low;
-    let officialGiftOpen = lastKnownLiveGiftNifty.open;
+    let officialGiftPrevClose = lastKnownLiveGiftNifty.prevClose || niftyQuote?.prevClose || niftyQuote?.regularMarketPreviousClose || liveNiftySpot || 22960;
+    let officialGiftHigh = lastKnownLiveGiftNifty.high || (giftNiftyPrice + 15);
+    let officialGiftLow = lastKnownLiveGiftNifty.low || (giftNiftyPrice - 15);
+    let officialGiftOpen = lastKnownLiveGiftNifty.open || officialGiftPrevClose;
     let isLiveFeedActive = false;
     let giftFeedSource = lastKnownLiveGiftNifty.source || 'Moneycontrol Live Feed';
 

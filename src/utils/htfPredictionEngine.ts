@@ -1191,7 +1191,10 @@ export function computeMultiTimeframePredictions(
   if (strikeAnalytics?.cumulativeTrend) {
     const isCE = strikeAnalytics.cumulativeTrend.dominantAction === 'BULLISH_CE';
     const alignScore = (strikeAnalytics.cumulativeTrend.alignmentScore - 50) * 0.15;
-    baseConfluence += isCE ? alignScore : -alignScore;
+    const isBelowVwap = ticker.vwap ? ticker.spotPrice < ticker.vwap : false;
+    if (!(isCE && isBelowVwap)) {
+      baseConfluence += isCE ? alignScore : -alignScore;
+    }
   }
 
   const confluenceScore = Math.round(Math.min(100, Math.max(-100, baseConfluence)));

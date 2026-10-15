@@ -387,13 +387,18 @@ export function computeRealtimeIndicators(
   const rollingVwap = cumulativeVol > 0 ? cumulativeTypicalVol / cumulativeVol : S;
 
   let vwap: number;
+  const rollingTypicalAvg = candles.length > 0 ? candles.reduce((acc, c) => acc + (c.high + c.low + c.close) / 3, 0) / candles.length : S;
   if (typeof ticker.vwap === 'number' && ticker.vwap > 0) {
     vwap = Number(ticker.vwap.toFixed(2));
-  } else if (ticker.dayHigh && ticker.dayLow && ticker.dayHigh >= ticker.dayLow && ticker.dayHigh > S * 0.5) {
-    // Official Institutional Full-Session Benchmark Typical Price: (High + Low + Close) / 3
-    vwap = Number(((ticker.dayHigh + ticker.dayLow + S) / 3).toFixed(2));
-  } else {
+  } else if (cumulativeVol > 0) {
+    // True volume-weighted average price from active candles
     vwap = Number(rollingVwap.toFixed(2));
+  } else if (ticker.dayHigh && ticker.dayLow && ticker.dayHigh >= ticker.dayLow && ticker.dayHigh > S * 0.5) {
+    // Responsive blend of session extreme typical price (40%) and recent rolling candle flow (60%)
+    const sessionPivot = (ticker.dayHigh + ticker.dayLow + S) / 3;
+    vwap = Number((sessionPivot * 0.40 + rollingTypicalAvg * 0.60).toFixed(2));
+  } else {
+    vwap = Number(rollingTypicalAvg.toFixed(2));
   }
 
   // VWAP Variance & Standard Deviation Bands

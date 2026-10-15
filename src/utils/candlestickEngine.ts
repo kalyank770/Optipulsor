@@ -120,16 +120,21 @@ export function generateRollingCandles(
   const now = Date.now();
   const tfMs = timeframeMinutes * 60 * 1000;
 
-  // Determine true intraday direction:
+  // Determine true intraday direction with symmetric two-way swing detection:
   const dayHigh = ticker.dayHigh && ticker.dayHigh > S ? ticker.dayHigh : S + step * 0.7;
   const dayLow = ticker.dayLow && ticker.dayLow < S ? ticker.dayLow : S - step * 0.7;
   const dayRange = Math.max(step * 0.5, dayHigh - dayLow);
   const recoveryRatio = (S - dayLow) / dayRange; // 0 = at low, 1.0 = at high
   const recoveryFromLow = S - dayLow;
+  const rejectionFromHigh = dayHigh - S;
+  const highRejectionRatio = rejectionFromHigh / dayRange; // 0 = at high, 1.0 = at low
 
-  const isIntradayBreakdown = recoveryRatio <= 0.32;
-  const isIntradayRecovery = !isIntradayBreakdown && (recoveryRatio >= 0.50 || (recoveryRatio >= 0.38 && recoveryFromLow >= step * 0.75));
-  const isUptrend = isIntradayBreakdown ? false : (isIntradayRecovery ? true : changePct >= 0);
+  // Symmetric Intraday Reversal & Breakdown Detection:
+  // If price has rejected 40%+ from the day's peak or broken below the day midpoint, it is in an intraday downturn
+  const isIntradayDownturn = highRejectionRatio >= 0.40 || (highRejectionRatio >= 0.28 && rejectionFromHigh >= step * 0.65);
+  const isIntradayBreakdown = recoveryRatio <= 0.35 || isIntradayDownturn;
+  const isIntradayRecovery = !isIntradayBreakdown && (recoveryRatio >= 0.60 && highRejectionRatio <= 0.35);
+  const isUptrend = isIntradayBreakdown ? false : (isIntradayRecovery ? true : (highRejectionRatio <= 0.35 && changePct >= 0));
 
   // Typical candle volatility scaled to timeframe
   const tfMult = timeframeMinutes === 2 ? 0.75 : timeframeMinutes === 5 ? 1.0 : 1.45;

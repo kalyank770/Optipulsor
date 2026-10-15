@@ -289,10 +289,11 @@ export function analyzeNiftyConstituents(
 
   const isBankNifty = symbol.includes('BANK');
 
-  // If parentChangePercent is provided, shift constituent movements so they accurately track the parent index
-  // (base mock array has an average +0.15% bias; shifting aligns them with the live spot movement)
-  const deltaShift = typeof parentChangePercent === 'number' 
-    ? Number((parentChangePercent - (isBankNifty ? 0.45 : 0.15)).toFixed(2)) 
+  // If using the fallback static array, shift movements so they reflect the live index change;
+  // If real live exchange constituent quotes are provided, preserve authentic live changes without alteration (deltaShift = 0)
+  const isFallbackData = constituents === NIFTY_DERIVATIVE_COMPANIES;
+  const deltaShift = (isFallbackData && typeof parentChangePercent === 'number') 
+    ? Number((parentChangePercent).toFixed(2)) 
     : 0;
 
   for (const c of constituents) {

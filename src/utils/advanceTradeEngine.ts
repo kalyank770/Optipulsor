@@ -47,10 +47,9 @@ export function computeAdvanceTradeSetup(
   const isBankNifty = ticker.symbol.includes('BANK');
 
   // --- 1. FACTOR 1: OI SHIFT & UNWINDING VELOCITY ---
-  // Check ATM, ATM+1, and ATM-1 for aggressive Call or Put unwinding
   const atmRow = chain.find(r => r.strike === atmStrike);
-  const itmRow = chain.find(r => r.strike === (isBankNifty ? atmStrike - 100 : atmStrike - 50));
-  const otmRow = chain.find(r => r.strike === (isBankNifty ? atmStrike + 100 : atmStrike + 50));
+  const itmRow = chain.find(r => r.strike === (atmStrike - step));
+  const otmRow = chain.find(r => r.strike === (atmStrike + step));
 
   const nearRows = [itmRow, atmRow, otmRow].filter(Boolean) as OptionChainRow[];
   const totalNearCeOiChange = nearRows.reduce((acc, r) => acc + (r.ce.oiChange || 0), 0);
@@ -245,6 +244,8 @@ export function computeAdvanceTradeSetup(
   // --- 4. FACTOR 4: VOLATILITY COMPRESSION & PRE-BREAKOUT SQUEEZE ---
   let sqFactor: LeadingPredictorFactor;
   let isCoiling = false;
+  let sqBullScore = 0;
+  let sqBearScore = 0;
 
   const m5 = candlePatterns.m5;
   const isRangeCompressed = m5.swingRange !== undefined && m5.atr > 0 && m5.swingRange < m5.atr * 1.35;
@@ -257,6 +258,9 @@ export function computeAdvanceTradeSetup(
       : (oiBearScore + hwBearScore + ofBearScore) > (oiBullScore + hwBullScore + ofBullScore)
       ? 'STRONG_BEARISH'
       : 'NEUTRAL';
+
+    if (directionBias === 'STRONG_BULLISH') sqBullScore = 1.4;
+    else if (directionBias === 'STRONG_BEARISH') sqBearScore = 1.4;
 
     sqFactor = {
       name: 'Pre-Breakout Volatility Squeeze Coiling',
@@ -462,25 +466,45 @@ export function computeAdvanceTradeSetup(
   let rsiFactor: LeadingPredictorFactor;
   let rsiBullScore = 0;
   let rsiBearScore = 0;
-  if (rt.rsi.divergence === 'BULLISH_DIVERGENCE' || rt.rsi.condition === 'OVERSOLD') {
-    rsiBullScore = rt.rsi.divergence === 'BULLISH_DIVERGENCE' ? 1.8 : 1.1;
+  if (rt.rsi.divergence === 'BULLISH_DIVERGENCE') {
+    rsiBullScore = 1.8;
     rsiFactor = {
-      name: '5M RSI Bullish Momentum & Divergence',
+      name: '5M RSI Bullish Divergence',
       category: 'RSI_MOMENTUM',
-      state: rt.rsi.divergence === 'BULLISH_DIVERGENCE' ? 'STRONG_BULLISH' : 'MODERATE_BULLISH',
+      state: 'STRONG_BULLISH',
       leadTimeMinutes: 2.5,
-      valueDescription: `RSI ${rt.rsi.value.toFixed(1)} ${rt.rsi.divergence === 'BULLISH_DIVERGENCE' ? 'showing strong bullish divergence vs price' : 'in oversold reversal territory'}`,
-      confidenceScore: 82
+      valueDescription: `RSI ${rt.rsi.value.toFixed(1)} showing strong bullish divergence vs price`,
+      confidenceScore: 85
     };
-  } else if (rt.rsi.divergence === 'BEARISH_DIVERGENCE' || rt.rsi.condition === 'OVERBOUGHT') {
-    rsiBearScore = rt.rsi.divergence === 'BEARISH_DIVERGENCE' ? 1.8 : 1.1;
+  } else if (rt.rsi.divergence === 'BEARISH_DIVERGENCE') {
+    rsiBearScore = 1.8;
     rsiFactor = {
-      name: '5M RSI Bearish Momentum & Divergence',
+      name: '5M RSI Bearish Divergence',
       category: 'RSI_MOMENTUM',
-      state: rt.rsi.divergence === 'BEARISH_DIVERGENCE' ? 'STRONG_BEARISH' : 'MODERATE_BEARISH',
+      state: 'STRONG_BEARISH',
       leadTimeMinutes: 2.5,
-      valueDescription: `RSI ${rt.rsi.value.toFixed(1)} ${rt.rsi.divergence === 'BEARISH_DIVERGENCE' ? 'showing strong bearish divergence vs price' : 'in overbought exhaustion territory'}`,
-      confidenceScore: 82
+      valueDescription: `RSI ${rt.rsi.value.toFixed(1)} showing strong bearish divergence vs price`,
+      confidenceScore: 85
+    };
+  } else if (rt.rsi.value <= 35) {
+    rsiBearScore = 1.2;
+    rsiFactor = {
+      name: '5M RSI Bearish Downside Momentum',
+      category: 'RSI_MOMENTUM',
+      state: 'MODERATE_BEARISH',
+      leadTimeMinutes: 2.0,
+      valueDescription: `RSI depressed at ${rt.rsi.value.toFixed(1)} confirming heavy downside momentum`,
+      confidenceScore: 78
+    };
+  } else if (rt.rsi.value >= 65) {
+    rsiBullScore = 1.2;
+    rsiFactor = {
+      name: '5M RSI Bullish Upside Momentum',
+      category: 'RSI_MOMENTUM',
+      state: 'MODERATE_BULLISH',
+      leadTimeMinutes: 2.0,
+      valueDescription: `RSI elevated at ${rt.rsi.value.toFixed(1)} confirming strong upside momentum`,
+      confidenceScore: 78
     };
   } else {
     rsiFactor = {
@@ -652,22 +676,27 @@ export function computeAdvanceTradeSetup(
   if (rt.volumeAnalytics) {
     const mult = rt.volumeAnalytics.totalVolumeMultiplier;
     const div = rt.volumeAnalytics.volumeDivergence;
-    if (div === 'BULLISH_VOLUME_EXPANSION' || mult >= 1.4) {
-      volumeBullScore = div === 'BULLISH_VOLUME_EXPANSION' ? 1.8 : 1.1;
+    const isBearishFlow = div === 'BEARISH_VOLUME_EXPANSION' || 
+      rt.volumeAnalytics.buyerSellerPressureDelta < -10 || 
+      rt.volumeAnalytics.volumeBuildupLabel.toLowerCase().includes('short') ||
+      rt.volumeAnalytics.volumeBuildupLabel.toLowerCase().includes('unwinding');
+
+    if (div === 'BEARISH_VOLUME_EXPANSION' || (mult >= 1.35 && isBearishFlow)) {
+      volumeBearScore = div === 'BEARISH_VOLUME_EXPANSION' ? 1.8 : 1.2;
       volumeFactor = {
-        name: 'Institutional Volume Spike & Expansion',
+        name: 'Institutional Volume Liquidation Spike',
         category: 'VOLUME_ANALYTICS',
-        state: div === 'BULLISH_VOLUME_EXPANSION' ? 'STRONG_BULLISH' : 'MODERATE_BULLISH',
+        state: div === 'BEARISH_VOLUME_EXPANSION' ? 'STRONG_BEARISH' : 'MODERATE_BEARISH',
         leadTimeMinutes: 2.5,
         valueDescription: `Volume multiplier ${mult.toFixed(2)}x vs 20MA (${rt.volumeAnalytics.volumeBuildupLabel})`,
         confidenceScore: 83
       };
-    } else if (div === 'BEARISH_VOLUME_EXPANSION') {
-      volumeBearScore = 1.8;
+    } else if (div === 'BULLISH_VOLUME_EXPANSION' || (mult >= 1.35 && !isBearishFlow)) {
+      volumeBullScore = div === 'BULLISH_VOLUME_EXPANSION' ? 1.8 : 1.2;
       volumeFactor = {
-        name: 'Institutional Volume Liquidation Spike',
+        name: 'Institutional Volume Spike & Expansion',
         category: 'VOLUME_ANALYTICS',
-        state: 'STRONG_BEARISH',
+        state: div === 'BULLISH_VOLUME_EXPANSION' ? 'STRONG_BULLISH' : 'MODERATE_BULLISH',
         leadTimeMinutes: 2.5,
         valueDescription: `Volume multiplier ${mult.toFixed(2)}x vs 20MA (${rt.volumeAnalytics.volumeBuildupLabel})`,
         confidenceScore: 83
@@ -765,7 +794,10 @@ export function computeAdvanceTradeSetup(
   let hysteresisFactor: LeadingPredictorFactor;
   let hystBullScore = 0;
   let hystBearScore = 0;
-  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish) {
+  const isAfternoonDownturn = (ticker.dayHigh && spotPrice < ticker.dayHigh - step * 0.6) || spotPrice < rt.vwap.value;
+  const isAfternoonRecovery = (ticker.dayLow && spotPrice > ticker.dayLow + step * 0.6) || spotPrice > rt.vwap.value;
+
+  if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && !isAfternoonDownturn) {
     hystBullScore = 0.3;
     hysteresisFactor = {
       name: 'Anti-Whipsaw Momentum Lock (CE Active)',
@@ -775,7 +807,7 @@ export function computeAdvanceTradeSetup(
       valueDescription: `Long position persistence filter active with deadband momentum buffer`,
       confidenceScore: 75
     };
-  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish) {
+  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && !isAfternoonRecovery) {
     hystBearScore = 0.3;
     hysteresisFactor = {
       name: 'Anti-Whipsaw Momentum Lock (PE Active)',
@@ -784,6 +816,26 @@ export function computeAdvanceTradeSetup(
       leadTimeMinutes: 1.5,
       valueDescription: `Short position persistence filter active with deadband momentum buffer`,
       confidenceScore: 75
+    };
+  } else if (currentSignalAction === 'BUY_CE' && isAfternoonDownturn) {
+    hystBearScore = 0.8;
+    hysteresisFactor = {
+      name: 'Trend Reversal Invalidation Alert',
+      category: 'HYSTERESIS_STATE',
+      state: 'STRONG_BEARISH',
+      leadTimeMinutes: 1.5,
+      valueDescription: `Active CE recommendation contradicted by breakdown below VWAP/high rejection. Stand aside or prepare PE flip.`,
+      confidenceScore: 85
+    };
+  } else if (currentSignalAction === 'BUY_PE' && isAfternoonRecovery) {
+    hystBullScore = 0.8;
+    hysteresisFactor = {
+      name: 'Trend Reversal Invalidation Alert',
+      category: 'HYSTERESIS_STATE',
+      state: 'STRONG_BULLISH',
+      leadTimeMinutes: 1.5,
+      valueDescription: `Active PE recommendation contradicted by recovery above VWAP/low absorption. Stand aside or prepare CE flip.`,
+      confidenceScore: 85
     };
   } else {
     hysteresisFactor = {
@@ -796,20 +848,28 @@ export function computeAdvanceTradeSetup(
     };
   }
 
-  // --- SYNTHESIZE ALL 15 LEADING CONFIRMATION SCORES ---
-  const totalBullScore = oiBullScore + hwBullScore + ofBullScore + swBullScore + macroBullScore + sectorBullScore + rsiBullScore + macdBullScore + pcrBullScore + vixBullScore + interMarketBullScore + volumeBullScore + htfBullScore + hystBullScore + (isCoiling && (oiBullScore > 0 || hwBullScore > 0 || ofBullScore > 0 || macroBullScore > 0) ? 1.0 : 0);
-  const totalBearScore = oiBearScore + hwBearScore + ofBearScore + swBearScore + macroBearScore + sectorBearScore + rsiBearScore + macdBearScore + pcrBearScore + vixBearScore + interMarketBearScore + volumeBearScore + htfBearScore + hystBearScore + (isCoiling && (oiBearScore > 0 || hwBearScore > 0 || ofBearScore > 0 || macroBearScore > 0) ? 1.0 : 0);
-
-  // --- OPTION A: FACTOR 16 - GAMMA EXPOSURE (GEX) REGIME ---
+  // --- FACTOR 16: GAMMA EXPOSURE (GEX) REGIME ---
   const netGexVal = rt.gammaExposure?.netGex ?? 0;
   const isNegGex = rt.gammaExposure?.regime === 'NEGATIVE_GAMMA' || spotPrice < (rt.gammaExposure?.flipStrike || atmStrike);
-  
+  let gexBullScore = 0;
+  let gexBearScore = 0;
+  let gexState: LeadingPredictorFactor['state'] = 'NEUTRAL';
+
+  if (isNegGex && (spotPrice < rt.vwap.value || spotPrice < (rt.gammaExposure?.flipStrike || atmStrike))) {
+    gexState = 'STRONG_BEARISH';
+    gexBearScore = 1.8;
+  } else if (!isNegGex && spotPrice > rt.vwap.value && rt.gammaExposure?.regime === 'POSITIVE_GAMMA') {
+    gexState = 'MODERATE_BULLISH';
+    gexBullScore = 1.2;
+  } else if (isNegGex && spotPrice > rt.vwap.value) {
+    gexState = 'STRONG_BULLISH';
+    gexBullScore = 1.8;
+  }
+
   const gexFactor: LeadingPredictorFactor = {
     name: 'Option Gamma (GEX) Dealer Regime',
     category: 'GAMMA_GEX_REGIME',
-    state: isNegGex
-      ? (totalBearScore > totalBullScore ? 'STRONG_BEARISH' : 'STRONG_BULLISH')
-      : 'NEUTRAL',
+    state: gexState,
     leadTimeMinutes: 2.5,
     valueDescription: isNegGex
       ? `Short Gamma Accelerator (Net GEX ${netGexVal > 0 ? '+' : ''}${netGexVal.toLocaleString()} | Flip: ${ticker.currency}${rt.gammaExposure?.flipStrike ?? atmStrike}): Dealer hedging accelerates directional breakouts`
@@ -817,7 +877,7 @@ export function computeAdvanceTradeSetup(
     confidenceScore: isNegGex ? 88 : 65,
   };
 
-  // --- OPTION C: FACTOR 17 - MULTI-TIMEFRAME TREND COHERENCE ---
+  // --- FACTOR 17: MULTI-TIMEFRAME TREND COHERENCE ---
   const tfTrendsArr = [
     { tf: '1m', trend: candlePatterns.m1?.trend || 'SIDEWAYS' },
     { tf: '2m', trend: candlePatterns.m2?.trend || 'SIDEWAYS' },
@@ -830,14 +890,72 @@ export function computeAdvanceTradeSetup(
   const bearTfCount = tfTrendsArr.filter(t => t.trend === 'BEARISH').length;
   const coherenceScoreVal = Math.round((Math.max(bullTfCount, bearTfCount) / tfTrendsArr.length) * 100);
 
+  let coherenceBullScore = 0;
+  let coherenceBearScore = 0;
+  let coherenceState: LeadingPredictorFactor['state'] = 'NEUTRAL';
+  if (bullTfCount >= 4) {
+    coherenceState = 'STRONG_BULLISH';
+    coherenceBullScore = 2.2;
+  } else if (bullTfCount >= 3) {
+    coherenceState = 'MODERATE_BULLISH';
+    coherenceBullScore = 1.3;
+  } else if (bearTfCount >= 4) {
+    coherenceState = 'STRONG_BEARISH';
+    coherenceBearScore = 2.2;
+  } else if (bearTfCount >= 3) {
+    coherenceState = 'MODERATE_BEARISH';
+    coherenceBearScore = 1.3;
+  }
+
   const coherenceFactor: LeadingPredictorFactor = {
     name: 'Multi-Timeframe Trend Coherence (MTCF)',
     category: 'TIMEFRAME_COHERENCE',
-    state: bullTfCount >= 4 ? 'STRONG_BULLISH' : bullTfCount >= 3 ? 'MODERATE_BULLISH' : bearTfCount >= 4 ? 'STRONG_BEARISH' : bearTfCount >= 3 ? 'MODERATE_BEARISH' : 'NEUTRAL',
+    state: coherenceState,
     leadTimeMinutes: 3.0,
     valueDescription: `${coherenceScoreVal}% Trend Coherence across 6 timeframes (${bullTfCount} Bullish, ${bearTfCount} Bearish, ${tfTrendsArr.length - bullTfCount - bearTfCount} Sideways)`,
     confidenceScore: Math.min(95, Math.max(50, coherenceScoreVal)),
   };
+
+  // --- SYNTHESIZE ALL 17 LEADING CONFIRMATION SCORES ---
+  const totalBullScore = Number((
+    oiBullScore +          // 1. OI Velocity
+    hwBullScore +          // 2. Heavyweight Lead
+    ofBullScore +          // 3. Order Flow Delta
+    sqBullScore +          // 4. Volatility Squeeze
+    swBullScore +          // 5. Liquidity Sweep
+    macroBullScore +       // 6. GIFT Nifty Drift
+    sectorBullScore +      // 7. Sectoral Breadth
+    rsiBullScore +         // 8. RSI Momentum
+    macdBullScore +        // 9. MACD Expansion
+    pcrBullScore +         // 10. PCR Divergence
+    vixBullScore +         // 11. VIX Velocity
+    interMarketBullScore + // 12. Inter-Market Telemetry
+    volumeBullScore +      // 13. Volume Analytics
+    htfBullScore +         // 14. HTF Alignment
+    hystBullScore +        // 15. Hysteresis State
+    gexBullScore +         // 16. Option Gamma GEX Regime
+    coherenceBullScore     // 17. Timeframe Coherence
+  ).toFixed(2));
+
+  const totalBearScore = Number((
+    oiBearScore +          // 1. OI Velocity
+    hwBearScore +          // 2. Heavyweight Lead
+    ofBearScore +          // 3. Order Flow Delta
+    sqBearScore +          // 4. Volatility Squeeze
+    swBearScore +          // 5. Liquidity Sweep
+    macroBearScore +       // 6. GIFT Nifty Drift
+    sectorBearScore +      // 7. Sectoral Breadth
+    rsiBearScore +         // 8. RSI Momentum
+    macdBearScore +        // 9. MACD Expansion
+    pcrBearScore +         // 10. PCR Divergence
+    vixBearScore +         // 11. VIX Velocity
+    interMarketBearScore + // 12. Inter-Market Telemetry
+    volumeBearScore +      // 13. Volume Analytics
+    htfBearScore +         // 14. HTF Alignment
+    hystBearScore +        // 15. Hysteresis State
+    gexBearScore +         // 16. Option Gamma GEX Regime
+    coherenceBearScore     // 17. Timeframe Coherence
+  ).toFixed(2));
 
   const leadingFactors: LeadingPredictorFactor[] = [
     oiFactor,          // 1. OI Velocity
