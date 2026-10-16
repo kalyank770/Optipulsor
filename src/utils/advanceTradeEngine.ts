@@ -290,25 +290,85 @@ export function computeAdvanceTradeSetup(
   const hasLowerWick = patternStr.includes('lower shadow') || patternStr.includes('hammer') || patternStr.includes('absorption');
   const hasUpperWick = patternStr.includes('upper shadow') || patternStr.includes('shooting star') || patternStr.includes('rejection');
 
-  if (hasLowerWick && (spotPrice <= metrics.majorSupportStrike + step * 0.4 || spotPrice <= (ticker.dayLow || spotPrice) + step * 0.3)) {
-    swBullScore = 2.2;
+  const m5Candle = candlePatterns.m5.latestCandle;
+  const dayHigh = ticker.dayHigh || spotPrice;
+  const dayLow = ticker.dayLow || spotPrice;
+  const candleRange = Math.max(0.1, m5Candle.high - m5Candle.low);
+  const upperWick = m5Candle.high - Math.max(m5Candle.open, m5Candle.close);
+  const lowerWick = Math.min(m5Candle.open, m5Candle.close) - m5Candle.low;
+  const bodySize = Math.max(0.05, Math.abs(m5Candle.close - m5Candle.open));
+  const upperWickRatio = Math.min(100, Math.round((upperWick / candleRange) * 100));
+  const lowerWickRatio = Math.min(100, Math.round((lowerWick / candleRange) * 100));
+
+  // Smart Money Concept (SMC) High Liquidity Sweep: Wick pierced above major resistance/day high, but body rejected back inside range
+  const isHighLiquiditySweep = (
+    (m5Candle.high >= metrics.majorResistanceStrike - step * 0.15 || m5Candle.high >= dayHigh - step * 0.15) &&
+    (upperWick >= candleRange * 0.30 || upperWickRatio >= 30)
+  ) || (hasUpperWick && (spotPrice >= metrics.majorResistanceStrike - step * 0.4 || spotPrice >= dayHigh - step * 0.3));
+
+  // Smart Money Concept (SMC) Low Liquidity Sweep: Wick pierced below major support/day low, but body absorbed back inside range
+  const isLowLiquiditySweep = (
+    (m5Candle.low <= metrics.majorSupportStrike + step * 0.15 || m5Candle.low <= dayLow + step * 0.15) &&
+    (lowerWick >= candleRange * 0.30 || lowerWickRatio >= 30)
+  ) || (hasLowerWick && (spotPrice <= metrics.majorSupportStrike + step * 0.4 || spotPrice <= dayLow + step * 0.3));
+
+  let liquiditySweep: import('../types/options').LiquiditySweepAnalysis;
+
+  if (isLowLiquiditySweep) {
+    swBullScore = 2.4;
     swFactor = {
-      name: 'Liquidity Sweep of Lows & Bullish Absorption',
+      name: 'SMC Liquidity Sweep of Lows & Bullish Absorption',
       category: 'LIQUIDITY_SWEEP',
       state: 'STRONG_BULLISH',
       leadTimeMinutes: 3.0,
-      valueDescription: `Stop-loss liquidity sweep below key support followed by aggressive lower wick pin absorption`,
-      confidenceScore: 85,
+      valueDescription: `Retail stop-loss liquidity sweep below key support (${ticker.currency}${dayLow.toFixed(1)}) followed by aggressive institutional buyer delta pin absorption`,
+      confidenceScore: 88,
     };
-  } else if (hasUpperWick && (spotPrice >= metrics.majorResistanceStrike - step * 0.4 || spotPrice >= (ticker.dayHigh || spotPrice) - step * 0.3)) {
-    swBearScore = 2.2;
+    liquiditySweep = {
+      isSweepDetected: true,
+      sweepType: 'SELL_SIDE_LIQUIDITY_SWEEP',
+      direction: 'BULLISH_ABSORPTION',
+      sweptPriceLevel: Number(dayLow.toFixed(2)),
+      sweptLevelType: m5Candle.low <= metrics.majorSupportStrike ? 'MAJOR_SUPPORT' : 'DAY_LOW',
+      wickRatioPercent: lowerWickRatio,
+      reversalDeltaScore: 88,
+      leadTimeAdvantageMinutes: 3.0,
+      statusLabel: `🎯 Sell-Side Liquidity (SSL) Swept at ${ticker.currency}${dayLow.toFixed(1)} — Institutional Buyer Delta Absorption`,
+      actionImpact: 'CONFIRMED_BUY_CE',
+      details: {
+        stopHuntDistancePoints: Number(Math.max(0, dayLow - m5Candle.low).toFixed(1)),
+        wickToBodyRatio: Number((lowerWick / bodySize).toFixed(2)),
+        isFakeBreakoutTrap: false,
+        institutionalAbsorptionNote: `Institutional buyers absorbed retail stop orders below ${ticker.currency}${dayLow.toFixed(1)}. Pin bar lower wick represents ${lowerWickRatio}% of candle range.`,
+      },
+    };
+  } else if (isHighLiquiditySweep) {
+    swBearScore = 2.4;
     swFactor = {
-      name: 'Liquidity Sweep of Highs & Bearish Rejection',
+      name: 'SMC Liquidity Sweep of Highs & Bearish Rejection',
       category: 'LIQUIDITY_SWEEP',
       state: 'STRONG_BEARISH',
       leadTimeMinutes: 3.0,
-      valueDescription: `Stop-loss liquidity sweep above resistance followed by immediate upper wick supply rejection`,
-      confidenceScore: 85,
+      valueDescription: `Retail buy-stop liquidity sweep above key resistance (${ticker.currency}${dayHigh.toFixed(1)}) followed by immediate institutional upper wick supply rejection`,
+      confidenceScore: 88,
+    };
+    liquiditySweep = {
+      isSweepDetected: true,
+      sweepType: 'BUY_SIDE_LIQUIDITY_SWEEP',
+      direction: 'BEARISH_REJECTION',
+      sweptPriceLevel: Number(dayHigh.toFixed(2)),
+      sweptLevelType: m5Candle.high >= metrics.majorResistanceStrike ? 'MAJOR_RESISTANCE' : 'DAY_HIGH',
+      wickRatioPercent: upperWickRatio,
+      reversalDeltaScore: 88,
+      leadTimeAdvantageMinutes: 3.0,
+      statusLabel: `🚨 Buy-Side Liquidity (BSL) Swept at ${ticker.currency}${dayHigh.toFixed(1)} — Institutional Upper Wick Supply Rejection`,
+      actionImpact: 'CONFIRMED_BUY_PE',
+      details: {
+        stopHuntDistancePoints: Number(Math.max(0, m5Candle.high - dayHigh).toFixed(1)),
+        wickToBodyRatio: Number((upperWick / bodySize).toFixed(2)),
+        isFakeBreakoutTrap: true,
+        institutionalAbsorptionNote: `Institutional sellers trapped retail breakout buyers above ${ticker.currency}${dayHigh.toFixed(1)}. Upper wick rejected ${upperWickRatio}% of candle range.`,
+      },
     };
   } else if (rt.rsi.divergence === 'BULLISH_DIVERGENCE') {
     swBullScore = 1.6;
@@ -320,6 +380,24 @@ export function computeAdvanceTradeSetup(
       valueDescription: `Price making equal/lower low while RSI indicator velocity diverges upward`,
       confidenceScore: 80,
     };
+    liquiditySweep = {
+      isSweepDetected: true,
+      sweepType: 'EQUAL_LOWS_SWEEP',
+      direction: 'BULLISH_ABSORPTION',
+      sweptPriceLevel: Number(dayLow.toFixed(2)),
+      sweptLevelType: 'EQUAL_LOWS',
+      wickRatioPercent: lowerWickRatio,
+      reversalDeltaScore: 80,
+      leadTimeAdvantageMinutes: 2.5,
+      statusLabel: `🎯 Equal Lows Divergence Sweep at ${ticker.currency}${dayLow.toFixed(1)} — RSI Bullish Velocity Divergence`,
+      actionImpact: 'CONFIRMED_BUY_CE',
+      details: {
+        stopHuntDistancePoints: Number((step * 0.1).toFixed(1)),
+        wickToBodyRatio: Number((lowerWick / bodySize).toFixed(2)),
+        isFakeBreakoutTrap: false,
+        institutionalAbsorptionNote: `RSI momentum velocity diverging upward near structural equal lows.`,
+      },
+    };
   } else if (rt.rsi.divergence === 'BEARISH_DIVERGENCE') {
     swBearScore = 1.6;
     swFactor = {
@@ -330,6 +408,24 @@ export function computeAdvanceTradeSetup(
       valueDescription: `Price making equal/higher high while RSI indicator velocity diverges downward`,
       confidenceScore: 80,
     };
+    liquiditySweep = {
+      isSweepDetected: true,
+      sweepType: 'EQUAL_HIGHS_SWEEP',
+      direction: 'BEARISH_REJECTION',
+      sweptPriceLevel: Number(dayHigh.toFixed(2)),
+      sweptLevelType: 'EQUAL_HIGHS',
+      wickRatioPercent: upperWickRatio,
+      reversalDeltaScore: 80,
+      leadTimeAdvantageMinutes: 2.5,
+      statusLabel: `🚨 Equal Highs Divergence Sweep at ${ticker.currency}${dayHigh.toFixed(1)} — RSI Bearish Velocity Divergence`,
+      actionImpact: 'CONFIRMED_BUY_PE',
+      details: {
+        stopHuntDistancePoints: Number((step * 0.1).toFixed(1)),
+        wickToBodyRatio: Number((upperWick / bodySize).toFixed(2)),
+        isFakeBreakoutTrap: true,
+        institutionalAbsorptionNote: `RSI momentum velocity diverging downward near structural equal highs.`,
+      },
+    };
   } else {
     swFactor = {
       name: 'Normal Structure Without Sweeps',
@@ -338,6 +434,24 @@ export function computeAdvanceTradeSetup(
       leadTimeMinutes: 1.0,
       valueDescription: `Price adhering to standard range structure without extreme sweep traps`,
       confidenceScore: 50,
+    };
+    liquiditySweep = {
+      isSweepDetected: false,
+      sweepType: 'NO_SWEEP',
+      direction: 'NEUTRAL',
+      sweptPriceLevel: Number(spotPrice.toFixed(2)),
+      sweptLevelType: 'NONE',
+      wickRatioPercent: Math.max(upperWickRatio, lowerWickRatio),
+      reversalDeltaScore: 50,
+      leadTimeAdvantageMinutes: 1.0,
+      statusLabel: `🛡️ Structure Intact — No Active Liquidity Sweep or Stop-Hunt Trap`,
+      actionImpact: 'NEUTRAL_MONITOR',
+      details: {
+        stopHuntDistancePoints: 0,
+        wickToBodyRatio: Number(((upperWick + lowerWick) / bodySize).toFixed(2)),
+        isFakeBreakoutTrap: false,
+        institutionalAbsorptionNote: `Price action is respecting key support/resistance boundaries without extreme wick sweeps.`,
+      },
     };
   }
 
@@ -1383,6 +1497,7 @@ export function computeAdvanceTradeSetup(
     pillarsBullishCount: bullPillarCount,
     pillarsBearishCount: bearPillarCount,
     pillarsNeutralCount: neutralPillarCount,
+    liquiditySweep,
     gammaRegimeData: gexRegimeData,
     timeframeCoherence,
     dynamicVolatilityMatrix,

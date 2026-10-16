@@ -232,7 +232,7 @@ export function generateTradeSignal(
 
   // Global News, Gift Nifty & Macro Sentiment impact
   const safeNews = Array.isArray(newsItems) ? newsItems : [];
-  const relevantNews = safeNews.filter(n => n.relatedTickers.includes(ticker.symbol) || n.category === 'Macro' || n.category === 'Geopolitics');
+  const relevantNews = safeNews.filter(n => (n.relatedTickers && n.relatedTickers.includes(ticker.symbol)) || n.category === 'Macro' || n.category === 'Geopolitics');
   const giftNiftyNews = relevantNews.filter(n => n.title.toLowerCase().includes('gift nifty') || n.title.toLowerCase().includes('sgx') || n.title.toLowerCase().includes('global') || n.title.toLowerCase().includes('wall street'));
   const bullishNewsCount = relevantNews.filter(n => n.sentiment === 'BULLISH').length;
   const bearishNewsCount = relevantNews.filter(n => n.sentiment === 'BEARISH').length;
@@ -1940,6 +1940,16 @@ export function generateTradeSignal(
     recommendedType
   );
 
+  // Attach Liquidity Sweep Indicator Rationale Point if a active sweep or trap was detected
+  if (advanceTradeSetup.liquiditySweep && advanceTradeSetup.liquiditySweep.isSweepDetected) {
+    const sw = advanceTradeSetup.liquiditySweep;
+    rationalePoints.push({
+      title: `SMC Liquidity Sweep Indicator (${sw.sweepType.replace(/_/g, ' ')})`,
+      verdict: sw.direction === 'BULLISH_ABSORPTION' ? 'BULLISH' : 'BEARISH',
+      description: `${sw.statusLabel}. ${sw.details.institutionalAbsorptionNote} (Reversal Delta Score: ${sw.reversalDeltaScore}%).`,
+    });
+  }
+
   // Pillar Consensus Validation: Prevent issuing BUY_CE when bearish pillars dominate, or BUY_PE when bullish pillars dominate
   const bullPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BULLISH')).length || 0;
   const bearPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BEARISH')).length || 0;
@@ -2178,6 +2188,7 @@ export function generateTradeSignal(
     sidewaysMarketAnalysis,
     htfPredictions,
     advanceTradeSetup,
+    liquiditySweep: advanceTradeSetup.liquiditySweep,
     gammaRegimeData: advanceTradeSetup.gammaRegimeData,
     timeframeCoherence: advanceTradeSetup.timeframeCoherence,
     dynamicVolatilityMatrix: advanceTradeSetup.dynamicVolatilityMatrix,

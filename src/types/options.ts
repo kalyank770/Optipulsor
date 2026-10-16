@@ -548,6 +548,25 @@ export interface OptionCDynamicVolatilityMatrix {
   };
 }
 
+export interface LiquiditySweepAnalysis {
+  isSweepDetected: boolean;
+  sweepType: 'BUY_SIDE_LIQUIDITY_SWEEP' | 'SELL_SIDE_LIQUIDITY_SWEEP' | 'EQUAL_HIGHS_SWEEP' | 'EQUAL_LOWS_SWEEP' | 'NO_SWEEP';
+  direction: 'BULLISH_ABSORPTION' | 'BEARISH_REJECTION' | 'NEUTRAL';
+  sweptPriceLevel: number;
+  sweptLevelType: 'DAY_HIGH' | 'DAY_LOW' | 'MAJOR_RESISTANCE' | 'MAJOR_SUPPORT' | 'EQUAL_HIGHS' | 'EQUAL_LOWS' | 'NONE';
+  wickRatioPercent: number; // Upper/Lower wick % of total candle range
+  reversalDeltaScore: number; // 0 - 100
+  leadTimeAdvantageMinutes: number;
+  statusLabel: string;
+  actionImpact: 'CONFIRMED_BUY_CE' | 'CONFIRMED_BUY_PE' | 'VETOED_TRAP' | 'NEUTRAL_MONITOR';
+  details: {
+    stopHuntDistancePoints: number;
+    wickToBodyRatio: number;
+    isFakeBreakoutTrap: boolean;
+    institutionalAbsorptionNote: string;
+  };
+}
+
 export interface AdvanceTradeSetup {
   isAvailable: boolean;
   setupType: AdvanceSetupType;
@@ -590,6 +609,7 @@ export interface AdvanceTradeSetup {
   pillarsBearishCount?: number;
   pillarsNeutralCount?: number;
   invalidationReason?: string;
+  liquiditySweep?: LiquiditySweepAnalysis;
   // Option A & Option C quantitative upgrades
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;
@@ -651,6 +671,7 @@ export interface TradeSignal {
   htfPredictions?: import('./htfPredictions').MultiTimeframePredictionSuite;
   advanceTradeSetup?: AdvanceTradeSetup;
   stabilityLock?: SignalStabilityLock;
+  liquiditySweep?: LiquiditySweepAnalysis;
   // Option A & Option C quantitative upgrades
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;
