@@ -241,6 +241,8 @@ export interface TimeframeCandleAnalysis {
   vwapProximity?: number;
   breakoutStatus?: 'BULLISH_BREAKOUT' | 'BEARISH_BREAKOUT' | 'PULLBACK_RETEST' | 'CONSOLIDATION';
   measuredMoveTarget: number;
+  isPersistent40mFall?: boolean;
+  isPersistent40mRise?: boolean;
 }
 
 export interface MultiTimeframeChartPatterns {
@@ -261,6 +263,8 @@ export interface MultiTimeframeChartPatterns {
   tacticalSwingPoints?: number;
   structuralSwingPoints?: number;
   invalidationPoints?: number;
+  isPersistent40mFall?: boolean;
+  isPersistent40mRise?: boolean;
   confluencePattern: string;
   confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   confluenceScore: number;

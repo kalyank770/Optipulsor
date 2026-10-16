@@ -91,7 +91,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const liveOption = setup.recommendedType === 'CE' ? contractRow?.ce : contractRow?.pe;
   const currentLTP = liveOption && liveOption.ltp > 0.05
     ? liveOption.ltp
-    : (signal?.recommendedContractLTP && signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : (setup.advanceEntryOptionRange[0] || 105));
+    : (signal?.recommendedContractLTP && signal.recommendedContractLTP > 0.05 ? signal.recommendedContractLTP : (setup.advanceEntryOptionRange?.[0] || 50.00));
 
   // Harmonize Entry Range, Stop Loss, and Targets directly with the signal engine's anchored levels
   const optEntryLow = signal?.entryRange ? signal.entryRange[0] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[0] : currentLTP);

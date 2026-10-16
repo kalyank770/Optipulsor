@@ -1015,11 +1015,21 @@ export function computeAdvanceTradeSetup(
     // strictly enforce WAIT_NEUTRAL in advance setup to eliminate contradictory signals
     anticipatedAction = 'WAIT_NEUTRAL';
     setupType = 'EQUILIBRIUM_WAIT';
-    probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
+    const conflict = Math.min(bullPillarCount, bearPillarCount);
+    probabilityScore = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillarCount - bearPillarCount) * 1.1 + (avgFactorConf - 50) * 0.15)));
     leadTimeAdvantageMinutes = 1.0;
   } else if (isScoreBullish && isPillarsBullishConsensus && !isCandleBear) {
     anticipatedAction = 'BUY_CE';
-    probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBullScore * 3.8 + (avgFactorConf - 60) * 0.25)));
+    const dirPillars = bullPillarCount + bearPillarCount;
+    const consensusRatio = dirPillars > 0 ? bullPillarCount / dirPillars : 0.5;
+    const netAdv = bullPillarCount - bearPillarCount;
+    probabilityScore = Math.min(94, Math.max(68, Math.round(
+      64 + 
+      (consensusRatio - 0.5) * 20 + 
+      netAdv * 1.3 + 
+      Math.min(6, totalBullScore * 0.75) + 
+      (avgFactorConf - 60) * 0.15
+    )));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
     if (swBullScore >= 2.0) {
@@ -1033,7 +1043,16 @@ export function computeAdvanceTradeSetup(
     }
   } else if (isScoreBearish && isPillarsBearishConsensus && !isCandleBull) {
     anticipatedAction = 'BUY_PE';
-    probabilityScore = Math.min(96, Math.max(68, Math.round(70 + totalBearScore * 3.8 + (avgFactorConf - 60) * 0.25)));
+    const dirPillars = bullPillarCount + bearPillarCount;
+    const consensusRatio = dirPillars > 0 ? bearPillarCount / dirPillars : 0.5;
+    const netAdv = bearPillarCount - bullPillarCount;
+    probabilityScore = Math.min(94, Math.max(68, Math.round(
+      64 + 
+      (consensusRatio - 0.5) * 20 + 
+      netAdv * 1.3 + 
+      Math.min(6, totalBearScore * 0.75) + 
+      (avgFactorConf - 60) * 0.15
+    )));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
 
     if (swBearScore >= 2.0) {
@@ -1049,7 +1068,8 @@ export function computeAdvanceTradeSetup(
     // True Stand-Aside / Capital Preservation Equilibrium / Divergence
     anticipatedAction = 'WAIT_NEUTRAL';
     setupType = 'EQUILIBRIUM_WAIT';
-    probabilityScore = Math.min(68, Math.max(48, Math.round(52 + (avgFactorConf - 50) * 0.25)));
+    const conflict = Math.min(bullPillarCount, bearPillarCount);
+    probabilityScore = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillarCount - bearPillarCount) * 1.1 + (avgFactorConf - 50) * 0.15)));
     leadTimeAdvantageMinutes = 1.0;
   }
 

@@ -630,8 +630,8 @@ export function useLiveOptionChain() {
         
         const hoursStatus = getMarketHoursStatus(activeTicker);
         const isHoliday = Boolean(hoursStatus.isHoliday || data.isHoliday);
-        const isMarketOpen = !isHoliday && data.marketState !== 'CLOSED' && hoursStatus.isOpen;
-        const currentSession = isHoliday ? 'CLOSED' : (data.marketState === 'CLOSED' ? 'CLOSED' : (data.marketState || hoursStatus.session));
+        const isMarketOpen = !isHoliday && hoursStatus.isOpen;
+        const currentSession = isHoliday ? 'CLOSED' : (hoursStatus.isOpen ? (data.marketState === 'CLOSED' ? 'REGULAR' : (data.marketState || hoursStatus.session || 'REGULAR')) : (hoursStatus.session || 'CLOSED'));
 
         // Immediately sync market hours state
         setMarketStatus(prev => ({

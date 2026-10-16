@@ -316,12 +316,40 @@ export function analyzeTimeframeCandles(
   const greenCount = last4.filter(c => c.close >= c.open).length;
   const redCount = last4.filter(c => c.close < c.open).length;
 
-  // 7. Trend determination using dual EMAs (9 & 21) + displacement
+  // 6c. Multi-Candle Persistent Flow (30 - 45 Minutes Window: 6 to 8 candles)
+  const window40mSize = Math.min(8, cleanCandles.length);
+  const window40m = cleanCandles.slice(-window40mSize);
+  const highOf40m = Math.max(...window40m.map(c => c.high));
+  const lowOf40m = Math.min(...window40m.map(c => c.low));
+  const start40m = window40m[0].open;
+  const net40mDisplacement = latest.close - start40m;
+  const dropFrom40mHigh = highOf40m - latest.close;
+  const bounceFrom40mLow = latest.close - lowOf40m;
+  const redCount40m = window40m.filter(c => c.close < c.open).length;
+  const greenCount40m = window40m.filter(c => c.close >= c.open).length;
+
+  const isPersistent40mFall = (timeframe === '5m' || timeframe === '2m' || timeframe === '15m') && (
+    (dropFrom40mHigh >= ticker.strikeStep * 0.40 && (net40mDisplacement < -ticker.strikeStep * 0.15 || redCount40m >= 5)) ||
+    (redCount40m >= 4 && net40mDisplacement < -ticker.strikeStep * 0.30) ||
+    (dropFrom40mHigh >= atr * 1.3 && redCount40m > greenCount40m)
+  );
+
+  const isPersistent40mRise = (timeframe === '5m' || timeframe === '2m' || timeframe === '15m') && (
+    (bounceFrom40mLow >= ticker.strikeStep * 0.40 && (net40mDisplacement > ticker.strikeStep * 0.15 || greenCount40m >= 5)) ||
+    (greenCount40m >= 4 && net40mDisplacement > ticker.strikeStep * 0.30) ||
+    (bounceFrom40mLow >= atr * 1.3 && greenCount40m > redCount40m)
+  );
+
+  // 7. Trend determination using dual EMAs (9 & 21) + displacement + 40m persistent flow
   let trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' = 'SIDEWAYS';
   const isEmaBullishStack = ema9 >= ema21 && latest.close >= ema9 - atr * 0.15;
   const isEmaBearishStack = ema9 <= ema21 && latest.close <= ema9 + atr * 0.15;
 
-  if (isEmaBullishStack && multiBarDisplacement >= -atr * 0.2) {
+  if (isPersistent40mFall && latest.close <= highOf40m - atr * 0.3) {
+    trend = 'BEARISH';
+  } else if (isPersistent40mRise && latest.close >= lowOf40m + atr * 0.3) {
+    trend = 'BULLISH';
+  } else if (isEmaBullishStack && multiBarDisplacement >= -atr * 0.2) {
     trend = 'BULLISH';
   } else if (isEmaBearishStack && multiBarDisplacement <= atr * 0.2) {
     trend = 'BEARISH';
@@ -499,13 +527,13 @@ export function analyzeTimeframeCandles(
   }
   // Pattern Q: Default Trend Alignment with Velocity Scaling
   else if (trend === 'BULLISH') {
-    pattern = `${timeframe} Ascending Channel Continuation`;
+    pattern = isPersistent40mRise ? `${timeframe} Persistent Intraday Rally (40m Upward Flow)` : `${timeframe} Ascending Channel Continuation`;
     patternBias = 'BULLISH';
-    momentumScore = Number(Math.min(8.8, Math.max(2.2, 5.0 + candleVelocity * 1.2 + multiBarVelocity * 0.6)).toFixed(1));
+    momentumScore = Number(Math.min(9.0, Math.max(3.2, 5.2 + candleVelocity * 1.2 + multiBarVelocity * 0.6 + (bounceFrom40mLow / Math.max(0.1, atr)) * 0.6)).toFixed(1));
   } else if (trend === 'BEARISH') {
-    pattern = `${timeframe} Descending Channel Continuation`;
+    pattern = isPersistent40mFall ? `${timeframe} Persistent Intraday Sell-Off (40m Downward Flow)` : `${timeframe} Descending Channel Continuation`;
     patternBias = 'BEARISH';
-    momentumScore = Number(Math.max(-8.8, Math.min(-2.2, -5.0 + candleVelocity * 1.2 + multiBarVelocity * 0.6)).toFixed(1));
+    momentumScore = Number(Math.max(-9.0, Math.min(-3.2, -5.2 + candleVelocity * 1.2 + multiBarVelocity * 0.6 - (dropFrom40mHigh / Math.max(0.1, atr)) * 0.6)).toFixed(1));
   } else {
     pattern = `${timeframe} Range Bound Oscillation`;
     patternBias = 'NEUTRAL';
@@ -543,6 +571,8 @@ export function analyzeTimeframeCandles(
     vwapProximity,
     breakoutStatus,
     measuredMoveTarget,
+    isPersistent40mFall: Boolean(isPersistent40mFall),
+    isPersistent40mRise: Boolean(isPersistent40mRise),
   };
 }
 
@@ -614,7 +644,7 @@ export function computeMultiTimeframeChartPatterns(
   if (orbStatus === 'BULLISH_ORB_BREAKOUT') orbAdjustment = 1.0;
   else if (orbStatus === 'BEARISH_ORB_BREAKDOWN') orbAdjustment = -1.0;
 
-  const confluenceScore = Number(Math.max(-10, Math.min(10, aggregateMomentumIndex + orbAdjustment)).toFixed(1));
+  let confluenceScore = Number(Math.max(-10, Math.min(10, aggregateMomentumIndex + orbAdjustment)).toFixed(1));
 
   let confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   let momentumAlignment: MultiTimeframeChartPatterns['momentumAlignment'] = 'NEUTRAL_MIXED';
@@ -622,18 +652,54 @@ export function computeMultiTimeframeChartPatterns(
   if (confluenceScore >= 4.0 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
-  } else if (confluenceScore >= 1.6 && m5Score >= 0) {
+  } else if (confluenceScore >= 1.6 && m5Score >= 0 && m5.trend !== 'BEARISH') {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'MODERATE_BULLISH';
   } else if (confluenceScore <= -4.0 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
-  } else if (confluenceScore <= -1.6 && m5Score <= 0) {
+  } else if (confluenceScore <= -1.6 && m5Score <= 0 && m5.trend !== 'BULLISH') {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'MODERATE_BEARISH';
   } else {
     confluenceBias = 'NEUTRAL';
     momentumAlignment = 'NEUTRAL_MIXED';
+  }
+
+  // 6d. 40-Minute Persistent Flow Synthesis across active timeframes
+  const isPersistent40mFall = Boolean(m5.isPersistent40mFall || m15.isPersistent40mFall || m2.isPersistent40mFall);
+  const isPersistent40mRise = Boolean(m5.isPersistent40mRise || m15.isPersistent40mRise || m2.isPersistent40mRise);
+
+  // Persistent 40m Flow Override: If market has been continuously falling over 30-45 minutes,
+  // strictly enforce BEARISH bias, negative score, and full confluence regardless of opening gap
+  if (isPersistent40mFall) {
+    confluenceBias = 'BEARISH';
+    confluenceScore = Number(Math.min(-2.8, confluenceScore).toFixed(1));
+    momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
+  } else if (isPersistent40mRise) {
+    confluenceBias = 'BULLISH';
+    confluenceScore = Number(Math.max(2.8, confluenceScore).toFixed(1));
+    momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
+  } else if ((m5.trend === 'BEARISH' || m5Score <= -2.5) && m15Score <= 0.5) {
+    // Tactical Intraday Override: If tactical 5m & 15m are actively trending down,
+    // do not allow macro 1D/1H opening gap to falsely force a BULLISH bias during an intraday fall
+    if (confluenceBias === 'BULLISH') {
+      confluenceBias = 'NEUTRAL';
+      momentumAlignment = 'NEUTRAL_MIXED';
+    }
+    if (m5Score <= -3.0 || m15.trend === 'BEARISH') {
+      confluenceBias = 'BEARISH';
+      momentumAlignment = 'MODERATE_BEARISH';
+    }
+  } else if ((m5.trend === 'BULLISH' || m5Score >= 2.5) && m15Score >= -0.5) {
+    if (confluenceBias === 'BEARISH') {
+      confluenceBias = 'NEUTRAL';
+      momentumAlignment = 'NEUTRAL_MIXED';
+    }
+    if (m5Score >= 3.0 || m15.trend === 'BULLISH') {
+      confluenceBias = 'BULLISH';
+      momentumAlignment = 'MODERATE_BULLISH';
+    }
   }
 
   // Build descriptive confluence pattern headline factoring all timeframes
@@ -705,6 +771,8 @@ export function computeMultiTimeframeChartPatterns(
     tacticalSwingPoints,
     structuralSwingPoints,
     invalidationPoints,
+    isPersistent40mFall,
+    isPersistent40mRise,
     confluencePattern,
     confluenceBias,
     confluenceScore,

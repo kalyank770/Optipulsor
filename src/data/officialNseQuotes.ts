@@ -71,7 +71,7 @@ export function resolveNextExpiryContractQuote(
   targetStrike: number,
   recommendedType: 'CE' | 'PE',
   expiryIndex: number = 0,
-  currentSpot: number = 22721.95
+  currentSpot: number = 23119.00
 ): { ltp: number; change: number; changePercent: number; bid: number; ask: number; iv: number; moneyness: 'ITM' | 'ATM' | 'OTM'; expiryDate: string } {
   // Check exact live exchange cross-expiry overrides for 22850 / 22900
   if (targetStrike === 22850) {

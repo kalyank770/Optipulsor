@@ -385,20 +385,30 @@ export function computeRealtimeIndicators(
     cumulativeVol += c.volume;
   }
   const rollingVwap = cumulativeVol > 0 ? cumulativeTypicalVol / cumulativeVol : S;
+  const rollingTypicalAvg = candles.length > 0 
+    ? candles.reduce((sum, c) => sum + (c.high + c.low + c.close) / 3, 0) / candles.length 
+    : S;
+
+  const sessionPivot = (ticker.dayHigh && ticker.dayLow && ticker.dayHigh >= ticker.dayLow && ticker.dayHigh > S * 0.5)
+    ? (ticker.dayHigh + ticker.dayLow + S) / 3
+    : S;
 
   let vwap: number;
-  const rollingTypicalAvg = candles.length > 0 ? candles.reduce((acc, c) => acc + (c.high + c.low + c.close) / 3, 0) / candles.length : S;
-  if (typeof ticker.vwap === 'number' && ticker.vwap > 0) {
-    vwap = Number(ticker.vwap.toFixed(2));
-  } else if (cumulativeVol > 0) {
+  // Ticker vwap is valid only if current and close to session pivot (not stale from prior days)
+  const isTickerVwapCurrent = typeof ticker.vwap === 'number' && ticker.vwap > 0 && 
+    Math.abs(ticker.vwap - sessionPivot) <= Math.max(ticker.strikeStep * 2.0, S * 0.008) &&
+    Math.abs(ticker.vwap - S) <= Math.max(ticker.strikeStep * 3.0, S * 0.015);
+
+  if (cumulativeVol > 0) {
     // True volume-weighted average price from active candles
     vwap = Number(rollingVwap.toFixed(2));
-  } else if (ticker.dayHigh && ticker.dayLow && ticker.dayHigh >= ticker.dayLow && ticker.dayHigh > S * 0.5) {
-    // Responsive blend of session extreme typical price (40%) and recent rolling candle flow (60%)
-    const sessionPivot = (ticker.dayHigh + ticker.dayLow + S) / 3;
-    vwap = Number((sessionPivot * 0.40 + rollingTypicalAvg * 0.60).toFixed(2));
+  } else if (isTickerVwapCurrent) {
+    vwap = Number(ticker.vwap!.toFixed(2));
+  } else if (candles.length > 0) {
+    // Blend of session high-low pivot and candle typical flow
+    vwap = Number((sessionPivot * 0.45 + rollingTypicalAvg * 0.55).toFixed(2));
   } else {
-    vwap = Number(rollingTypicalAvg.toFixed(2));
+    vwap = Number(sessionPivot.toFixed(2));
   }
 
   // VWAP Variance & Standard Deviation Bands
