@@ -464,6 +464,13 @@ export function useLiveOptionChain() {
   const chainRef = useRef<OptionChainRow[]>(chain);
   chainRef.current = chain;
 
+  // Anti-Whipsaw Confirmation Tracker: Requires consecutive tick confirmation before flipping directional actions
+  const pendingActionRef = useRef<{ action: SignalAction; count: number; firstProposedTime: number }>({
+    action: signal.action,
+    count: 0,
+    firstProposedTime: 0,
+  });
+
   // Dynamic Lock Duration: 30s during live market (9:00 AM - 03:40 PM), 5 mins (300s) during non-market hours
   const getTargetLockDurationSeconds = useCallback((tickerToUse?: TickerConfig): number => {
     const activeT = tickerToUse || selectedTickerRef.current || POPULAR_TICKERS[0];
@@ -471,9 +478,55 @@ export function useLiveOptionChain() {
     return autoRefresh.isActive ? 30 : 300;
   }, []);
 
-  // Signal execution engine: Trade recommendations update directly according to live market metrics
-  const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, _bypassDebounce = false): TradeSignal => {
-    return proposedSignal;
+  // Signal execution engine: Trade recommendations update dynamically with anti-whipsaw confirmation
+  const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
+    const currentAction = signalRef.current?.action || 'WAIT_NEUTRAL';
+
+    // 1. Immediate execution: Bypass debounce for manual user actions, ticker/expiry switches, or stop-loss/target triggers
+    const isUrgentExecution = bypassDebounce || 
+      proposedSignal.tradeStage === 'STOP_LOSS_HIT' || 
+      proposedSignal.tradeStage === 'TARGET_1_HIT' || 
+      proposedSignal.tradeStage === 'TARGET_2_HIT';
+
+    if (isUrgentExecution || proposedSignal.action === currentAction) {
+      pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
+      return proposedSignal;
+    }
+
+    // 2. Action Flip Proposed: Verify with consecutive tick confirmation to buffer out single-tick exchange feed spikes
+    if (pendingActionRef.current.action === proposedSignal.action) {
+      pendingActionRef.current.count += 1;
+      const elapsedMs = Date.now() - pendingActionRef.current.firstProposedTime;
+
+      // Confirmed across consecutive ticks or sustained over > 3 seconds: Apply the confirmed action
+      if (pendingActionRef.current.count >= 2 || elapsedMs >= 3000) {
+        pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
+        return proposedSignal;
+      }
+
+      // Buffer the single anomalous tick, preserving the previous stable action
+      return {
+        ...proposedSignal,
+        action: currentAction,
+        recommendedStrike: signalRef.current?.recommendedStrike || proposedSignal.recommendedStrike,
+        recommendedType: signalRef.current?.recommendedType || proposedSignal.recommendedType,
+      };
+    } else {
+      // First tick proposing a directional flip: Start confirmation timer
+      pendingActionRef.current = {
+        action: proposedSignal.action,
+        count: 1,
+        firstProposedTime: Date.now(),
+      };
+
+      // Hold previous stable action for 1 tick while confirming persistence
+      return {
+        ...proposedSignal,
+        action: currentAction,
+        recommendedStrike: signalRef.current?.recommendedStrike || proposedSignal.recommendedStrike,
+        recommendedType: signalRef.current?.recommendedType || proposedSignal.recommendedType,
+      };
+    }
   }, []);
 
   // Strike History and Derived Profitability Trends State

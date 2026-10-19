@@ -579,56 +579,55 @@ export function generateTradeSignal(
 
   // =========================================================================
   // CAPITAL PROTECTION & QUANT GUARD RAILS (Prevent False Trades & Traps)
+  // Bounded Quant Capital Protection: Dampens signals on caution conditions,
+  // but caps maximum cumulative dampening at 0.72 (max 28% total reduction)
+  // to eliminate cascading multiplier annihilation and erratic recommendation flips!
   // =========================================================================
   let capitalProtectionReason = '';
+  let cumulativeGuardDampen = 1.0;
+
+  const applyCautionGuard = (factor: number, reason: string) => {
+    cumulativeGuardDampen = Math.max(0.72, cumulativeGuardDampen * factor);
+    if (!capitalProtectionReason) {
+      capitalProtectionReason = reason;
+    }
+  };
 
   // GUARD RAIL 0: Nifty Derivative Heavyweight Divergence Protection
-  if (constituentAnalysis) {
+  if (constituentAnalysis && Array.isArray(constituentAnalysis.sectoralBreakdown)) {
     const bankingSector = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking');
-    const itSector = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT');
-    const isHeavyweightBullish = constituentAnalysis.overallHeavyweightBias.includes('BULLISH');
-    const isHeavyweightBearish = constituentAnalysis.overallHeavyweightBias.includes('BEARISH');
+    const isHeavyweightBearish = (constituentAnalysis.overallHeavyweightBias || '').includes('BEARISH');
 
     // If top banking heavyweights are actively rallying with Long Buildup, soften PE signals (unless market is falling intraday)
     if (bankingSector && bankingSector.sentiment === 'BULLISH' && constituentAnalysis.netNiftyPointImpact > 18 && score < 0 && !isContinuousFall && highRejectionRatio < 0.35) {
-      score = score * 0.5; // Dampen signal instead of hard block
-      capitalProtectionReason = `Capital Protection: Key banking heavyweights (HDFC Bank, ICICI Bank, SBI) are advancing (+${constituentAnalysis.netNiftyPointImpact} pts). Selling or buying puts against institutional banking accumulation has high risk.`;
+      applyCautionGuard(0.78, `Capital Protection: Key banking heavyweights (HDFC Bank, ICICI Bank, SBI) are advancing (+${constituentAnalysis.netNiftyPointImpact} pts). Selling or buying puts against institutional banking accumulation has high risk.`);
     }
 
     // If heavyweights are in broad selloff, soften CE signals
     if (isHeavyweightBearish && constituentAnalysis.netNiftyPointImpact < -18 && score > 0) {
-      score = score * 0.5; // Dampen signal instead of hard block
-      capitalProtectionReason = `Capital Protection: Derivative heavyweights are lagging (A/D: ${constituentAnalysis.advances}/${constituentAnalysis.declines}, ${constituentAnalysis.netNiftyPointImpact} pts). Buying calls into broad constituent supply drag has poor probability.`;
+      applyCautionGuard(0.78, `Capital Protection: Derivative heavyweights are lagging (A/D: ${constituentAnalysis.advances}/${constituentAnalysis.declines}, ${constituentAnalysis.netNiftyPointImpact} pts). Buying calls into broad constituent supply drag has poor probability.`);
     }
   }
 
-
   // GUARD RAIL 1: Trend Alignment with Institutional VWAP (Symmetric & Zero-Bias)
   if (isAboveVWAP && score < -1.0 && pcrTotalOI >= 0.95 && candlePatterns.confluenceBias !== 'BEARISH' && !isContinuousFall && dropFromPeak < ticker.strikeStep * 0.5) {
-    // Spot is holding above VWAP support, soften aggressive put buying but DO NOT manufacture an artificial BUY_CE call
-    score = score * 0.4;
-    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Buying puts directly against VWAP support has unfavorable odds.`;
+    applyCautionGuard(0.75, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Buying puts directly against VWAP support has unfavorable odds.`);
   } else if (isBelowVWAP && score > 1.0 && pcrTotalOI <= 0.95 && candlePatterns.confluenceBias !== 'BULLISH' && !isMarketRaising && bounceFromFloor < ticker.strikeStep * 0.5) {
-    // Spot is trading below VWAP resistance, soften aggressive call buying
-    score = score * 0.4;
-    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading below Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Buying calls into VWAP overhead supply has unfavorable odds.`;
+    applyCautionGuard(0.75, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading below Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}). Buying calls into VWAP overhead supply has unfavorable odds.`);
   }
 
   // GUARD RAIL 1B: Closing Bell Proximity & Late-Session 0-DTE Protection (Final 45 Minutes)
   if (isClosingSoon && !isContinuousFall && highRejectionRatio < 0.40 && !isMarketRaising && lowRecoveryRatio < 0.40) {
     if (Math.abs(score) < 2.5) {
-      score = score * 0.5;
-      capitalProtectionReason = `Capital Protection: Closing bell proximity (${minutesToClose} mins left). Accelerated 0-DTE theta bleed active; stand aside in WAIT_NEUTRAL unless high-velocity breakout is established.`;
+      applyCautionGuard(0.80, `Capital Protection: Closing bell proximity (${minutesToClose} mins left). Accelerated 0-DTE theta bleed active; stand aside in WAIT_NEUTRAL unless high-velocity breakout is established.`);
     }
   }
 
   // GUARD RAIL 2: Extreme PCR Reversal Trap (Do not short oversold extremes / do not buy calls at overbought peaks)
   if (pcrTotalOI <= 0.65 && score < 0) {
-    score = score * 0.5; // Soften signal
-    capitalProtectionReason = `Capital Protection: PCR is deeply oversold at ${pcrTotalOI.toFixed(2)} (<0.65). Extreme short-covering squeeze risk; avoid buying puts at climax lows.`;
+    applyCautionGuard(0.80, `Capital Protection: PCR is deeply oversold at ${pcrTotalOI.toFixed(2)} (<0.65). Extreme short-covering squeeze risk; avoid buying puts at climax lows.`);
   } else if (pcrTotalOI >= 1.50 && score > 0) {
-    score = score * 0.5; // Soften signal
-    capitalProtectionReason = `Capital Protection: PCR is heavily overbought at ${pcrTotalOI.toFixed(2)} (>1.50). High risk of Call writing wall rejections and institutional profit-taking.`;
+    applyCautionGuard(0.80, `Capital Protection: PCR is heavily overbought at ${pcrTotalOI.toFixed(2)} (>1.50). High risk of Call writing wall rejections and institutional profit-taking.`);
   }
 
   // Institutional Trend Momentum Velocity Flags (Breakout Authorization)
@@ -638,87 +637,63 @@ export function generateTradeSignal(
   // GUARD RAIL 3: Overhead Call Wall / Support Put Wall Proximity Trap (Breakout vs Exhaustion Filter)
   const distToCallWall = majorResistanceStrike - spotPrice;
   if (score >= 0.8 && distToCallWall > 0 && distToCallWall <= ticker.strikeStep * 0.35) {
-    if (isStrongBullMomentum) {
-      // High-velocity institutional breakout: Call Wall is being absorbed by aggressive buyers
-    } else {
-      score = score * 0.65; // Soften signal moderately instead of complete wipeout
-      capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToCallWall.toFixed(1)} pts of Major Call Wall (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Chasing CE right under heavy institutional call writers has poor risk-reward; wait for clean breakout.`;
+    if (!isStrongBullMomentum) {
+      applyCautionGuard(0.82, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToCallWall.toFixed(1)} pts of Major Call Wall (${ticker.currency}${majorResistanceStrike.toLocaleString()}). Chasing CE right under heavy institutional call writers has poor risk-reward; wait for clean breakout.`);
     }
   }
 
   const distToPutWall = spotPrice - majorSupportStrike;
   if (score <= -0.8 && distToPutWall > 0 && distToPutWall <= ticker.strikeStep * 0.35) {
-    if (isStrongBearMomentum) {
-      // High-velocity institutional breakdown: Put Wall is cracking under aggressive sellers
-    } else {
-      score = score * 0.65; // Soften signal moderately instead of complete wipeout
-      capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToPutWall.toFixed(1)} pts of Major Put Wall (${ticker.currency}${majorSupportStrike.toLocaleString()}). Chasing PE right onto heavy institutional put writing floor risks sudden relief bounces.`;
+    if (!isStrongBearMomentum) {
+      applyCautionGuard(0.82, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is within ${distToPutWall.toFixed(1)} pts of Major Put Wall (${ticker.currency}${majorSupportStrike.toLocaleString()}). Chasing PE right onto heavy institutional put writing floor risks sudden relief bounces.`);
     }
   }
 
   // GUARD RAIL 3B: Low-Volume Lunch Lull & Narrow Deadband Consolidation Trap
-  // Directional options decay rapidly with zero trend velocity when volume is compressed
   const isVolumeCompressed = Boolean(rt.volumeAnalytics && rt.volumeAnalytics.totalVolumeMultiplier < 0.65);
   const isDeadbandConsolidation = Math.abs(spotChangePct) < 0.20 && Math.abs(recoveryRatio - 0.50) < 0.15;
   if (isVolumeCompressed && isDeadbandConsolidation && Math.abs(score) < 3.0) {
-    score = score * 0.5;
-    capitalProtectionReason = `Capital Protection: Market is in a low-volume consolidation deadband (Volume: ${((rt.volumeAnalytics?.totalVolumeMultiplier || 0.6) * 100).toFixed(0)}% of 20MA). Directional option buying during compressed volume leads to severe theta bleed; stand aside in WAIT.`;
+    applyCautionGuard(0.78, `Capital Protection: Market is in a low-volume consolidation deadband (Volume: ${((rt.volumeAnalytics?.totalVolumeMultiplier || 0.6) * 100).toFixed(0)}% of 20MA). Directional option buying during compressed volume leads to severe theta bleed; stand aside in WAIT.`);
   }
 
   // GUARD RAIL 4: Day High / Day Low Breakout / Exhaustion Trap
   if (score >= 2.0 && (dayHigh - spotPrice) <= ticker.strikeStep * 0.15 && recoveryRatio >= 0.92) {
-    if (isStrongBullMomentum) {
-      // Bypassed: This is a genuine high-momentum day high breakout expansion!
-    } else {
-      score = score * 0.7; // Soften signal
-      capitalProtectionReason = `Capital Protection: Spot is trading at session day high (${ticker.currency}${dayHigh.toLocaleString()}). Avoid FOMO buying at the peak of the daily range without strong constituent confirmation.`;
+    if (!isStrongBullMomentum) {
+      applyCautionGuard(0.85, `Capital Protection: Spot is trading at session day high (${ticker.currency}${dayHigh.toLocaleString()}). Avoid FOMO buying at the peak of the daily range without strong constituent confirmation.`);
     }
   }
   if (score <= -2.0 && (spotPrice - dayLow) <= ticker.strikeStep * 0.15 && recoveryRatio <= 0.08) {
-    if (isStrongBearMomentum) {
-      // Bypassed: This is a genuine high-momentum day low breakdown expansion!
-    } else {
-      score = score * 0.7; // Soften signal
-      capitalProtectionReason = `Capital Protection: Spot is trading at session day low (${ticker.currency}${dayLow.toLocaleString()}). Avoid breakdown selling into the absolute floor without constituent confirmation.`;
+    if (!isStrongBearMomentum) {
+      applyCautionGuard(0.85, `Capital Protection: Spot is trading at session day low (${ticker.currency}${dayLow.toLocaleString()}). Avoid breakdown selling into the absolute floor without constituent confirmation.`);
     }
   }
 
   // GUARD RAIL 5: 5m RSI Overbought / Oversold Trap
   if (score >= 2.0 && rt.rsi.value >= 75) {
-    if (isStrongBullMomentum) {
-      // Bypassed: Strong institutional trending momentum sustains high RSI during trend days
-    } else {
-      score = score * 0.7; // Soften signal
-      capitalProtectionReason = `Capital Protection: 5m RSI is overbought at ${rt.rsi.value.toFixed(1)} (>75). High risk of bull trap / exhaustion stall; wait for pullback to VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) or 9 EMA.`;
+    if (!isStrongBullMomentum) {
+      applyCautionGuard(0.85, `Capital Protection: 5m RSI is overbought at ${rt.rsi.value.toFixed(1)} (>75). High risk of bull trap / exhaustion stall; wait for pullback to VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) or 9 EMA.`);
     }
   }
   if (score <= -2.0 && rt.rsi.value <= 25) {
-    if (isStrongBearMomentum) {
-      // Bypassed: Strong institutional trending breakdown sustains low RSI during trend days
-    } else {
-      score = score * 0.7; // Soften signal
-      capitalProtectionReason = `Capital Protection: 5m RSI is deeply oversold at ${rt.rsi.value.toFixed(1)} (<25). High risk of violent short-covering snapback; avoid shorting the climax floor.`;
+    if (!isStrongBearMomentum) {
+      applyCautionGuard(0.85, `Capital Protection: 5m RSI is deeply oversold at ${rt.rsi.value.toFixed(1)} (<25). High risk of violent short-covering snapback; avoid shorting the climax floor.`);
     }
   }
 
   // GUARD RAIL 6: VWAP & EMA Alignment Trap
   if (score >= 2.0 && spotPrice < rt.vwap.value - ticker.strikeStep * 0.15 && rt.ema.alignment === 'BEARISH_STACK') {
-    score = score * 0.65; // Soften signal
-    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading below Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) under a Bearish 9/21 EMA Stack. Wait for confirmed VWAP reclaim before entering calls.`;
+    applyCautionGuard(0.80, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is trading below Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) under a Bearish 9/21 EMA Stack. Wait for confirmed VWAP reclaim before entering calls.`);
   }
   if (score <= -2.0 && spotPrice > rt.vwap.value + ticker.strikeStep * 0.15 && rt.ema.alignment === 'BULLISH_STACK') {
-    score = score * 0.65; // Soften signal
-    capitalProtectionReason = `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding firmly above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) with Bullish EMA Stack. Avoid buying puts against institutional VWAP support floor.`;
+    applyCautionGuard(0.80, `Capital Protection: Spot (${ticker.currency}${spotPrice.toLocaleString()}) is holding firmly above Intraday VWAP (${ticker.currency}${rt.vwap.value.toLocaleString()}) with Bullish EMA Stack. Avoid buying puts against institutional VWAP support floor.`);
   }
 
-  // GUARD RAIL 7: Rejection Wick Shadow Trap (Upper Shadow Rejection for CE / Lower Shadow Rejection for PE)
+  // GUARD RAIL 7: Rejection Wick Shadow Trap
   if (score >= 2.0 && candlePatterns.m5.pattern.toLowerCase().includes('upper shadow')) {
-    score = score * 0.7; // Soften signal
-    capitalProtectionReason = `Capital Protection: 5m candle shows Upper Wick Rejection near resistance. Sellers are capping upside; wait for confirmed breakout before buying calls.`;
+    applyCautionGuard(0.85, `Capital Protection: 5m candle shows Upper Wick Rejection near resistance. Sellers are capping upside; wait for confirmed breakout before buying calls.`);
   }
   if (score <= -2.0 && candlePatterns.m5.pattern.toLowerCase().includes('lower shadow')) {
-    score = score * 0.7; // Soften signal
-    capitalProtectionReason = `Capital Protection: 5m candle shows Lower Wick Absorption near support. Institutional buyers are absorbing selling pressure; wait for breakdown before buying puts.`;
+    applyCautionGuard(0.85, `Capital Protection: 5m candle shows Lower Wick Absorption near support. Institutional buyers are absorbing selling pressure; wait for breakdown before buying puts.`);
   }
 
   // GUARD RAIL 8: High Implied Volatility (IV Crush) Environment Protection
@@ -729,6 +704,9 @@ export function generateTradeSignal(
         : `Capital Protection Notice: High Implied Volatility (IV Rank ${ivRank}%, VIX ${vix.toFixed(1)}). Extrinsic option premiums are inflated; ITM strike recommended to preserve intrinsic value floor against IV crush.`;
     }
   }
+
+  // Apply bounded dampening without destroying the trade direction
+  score = Number((score * cumulativeGuardDampen).toFixed(2));
 
   // =========================================================================
   // INSTITUTIONAL ANTI-WHIPSAW HYSTERESIS STATE MACHINE
@@ -809,48 +787,134 @@ export function generateTradeSignal(
   const isHardBullishVeto = isCandleUpward || bullContradictionCount >= 2 || (isMarketRaising && score > 0) || isIntradayBounceVeto;
 
   // Multi-Timeframe Consensus Requirement for Directional Flips (CE -> PE or PE -> CE):
-  // When reversing from a previous active directional trade, require strong multi-timeframe consensus.
-  // If conditions are turning against the previous position but consensus is forming, transition to WAIT_NEUTRAL.
-  const hasBearConsensusForFlip = (score <= -0.7 || isContinuousFall || (highRejectionRatio >= 0.35 && dropFromPeak >= ticker.strikeStep * 0.45)) &&
-    (isBelowVWAP || highRejectionRatio >= 0.35 || isCandleDownward || bearMatches >= 3);
-  const hasBullConsensusForFlip = (score >= 0.7 || isMarketRaising || (lowRecoveryRatio >= 0.35 && bounceFromFloor >= ticker.strikeStep * 0.45)) &&
-    (isAboveVWAP || lowRecoveryRatio >= 0.35 || isCandleUpward || bullMatches >= 3);
+  // =========================================================================
+  // INSTITUTIONAL ACTIVE TRADE HOLDING & ANTI-CHURN CONTROLLER
+  // =========================================================================
+  // When a trader enters an options trade (e.g., 22900 CE), that trade enters ACTIVE HOLDING.
+  // Minor 1m/2m pullbacks within the trade's defined risk boundaries (Stop Loss)
+  // are NORMAL market behavior and MUST NOT cause the algorithm to flip to the opposite direction (BUY_PE)!
+  // Direct flip-flop (BUY_CE -> BUY_PE or BUY_PE -> BUY_CE) is STRICTLY PROHIBITED.
+  // =========================================================================
 
-  const isFlippingFromCeToPe = prevAction === 'BUY_CE';
-  const isFlippingFromPeToCe = prevAction === 'BUY_PE';
+  const hasOngoingCeTrade = Boolean(
+    activePreviousSignal &&
+    activePreviousSignal.action === 'BUY_CE' &&
+    activePreviousSignal.tradeStage !== 'STOP_LOSS_HIT' &&
+    activePreviousSignal.tradeStage !== 'TARGET_2_HIT'
+  );
 
-  if (score >= 0.7 && netBullEdge >= 1 && !isHardBearishVeto && (!isFlippingFromPeToCe || hasBullConsensusForFlip)) {
-    // BULLISH MOMENTUM / RECOVERY REGIME: Recommend Call Option (BUY_CE)
+  const hasOngoingPeTrade = Boolean(
+    activePreviousSignal &&
+    activePreviousSignal.action === 'BUY_PE' &&
+    activePreviousSignal.tradeStage !== 'STOP_LOSS_HIT' &&
+    activePreviousSignal.tradeStage !== 'TARGET_2_HIT'
+  );
+
+  // Check if active trade invalidation (Stop Loss) has been triggered:
+  let isOngoingCeInvalidated = false;
+  if (hasOngoingCeTrade && activePreviousSignal) {
+    const ceStrike = activePreviousSignal.recommendedStrike;
+    const ceRow = chain.find(r => r.strike === ceStrike);
+    const ceLtp = ceRow?.ce?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
+    const ceSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
+    const ceSpotSl = activePreviousSignal.spotStopLoss;
+    // Stop loss breached if spot breaks below spot SL floor OR option premium drops below trailing SL
+    if ((ceSpotSl && spotPrice <= ceSpotSl) || (ceSl > 0 && ceLtp > 0 && ceLtp <= ceSl)) {
+      isOngoingCeInvalidated = true;
+    }
+  }
+
+  let isOngoingPeInvalidated = false;
+  if (hasOngoingPeTrade && activePreviousSignal) {
+    const peStrike = activePreviousSignal.recommendedStrike;
+    const peRow = chain.find(r => r.strike === peStrike);
+    const peLtp = peRow?.pe?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
+    const peSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
+    const peSpotSl = activePreviousSignal.spotStopLoss;
+    if ((peSpotSl && spotPrice >= peSpotSl) || (peSl > 0 && peLtp > 0 && peLtp <= peSl)) {
+      isOngoingPeInvalidated = true;
+    }
+  }
+
+  const isCandleBearishVeto = candlePatterns.confluenceBias === 'BEARISH' && (candlePatterns.confluenceScore <= -2.0 || candlePatterns.m5.trend === 'BEARISH');
+  const isCandleBullishVeto = candlePatterns.confluenceBias === 'BULLISH' && (candlePatterns.confluenceScore >= 2.0 || candlePatterns.m5.trend === 'BULLISH');
+
+  // Condition 1: Active CE Trade Holding Phase (Do NOT flip to PE on normal pullbacks!)
+  if (hasOngoingCeTrade && !isOngoingCeInvalidated && activePreviousSignal) {
     action = 'BUY_CE';
-    strength = (bullMatches >= 4 || score >= 2.0) ? 'STRONG' : 'MODERATE';
-    confidence = Math.min(96, Math.max(70, 72 + bullMatches * 3 + Math.round(score * 2.5)));
-    capitalProtectionReason = '';
-  } else if (score <= -0.7 && netBullEdge <= -1 && !isHardBullishVeto && (!isFlippingFromCeToPe || hasBearConsensusForFlip)) {
-    // BEARISH MOMENTUM / BREAKDOWN REGIME: Recommend Put Option (BUY_PE)
+    const isBelowVwapPullback = isBelowVWAP;
+    const isPullback = score < 0.20 || netBullEdge <= 0 || isBelowVwapPullback;
+    const isSidewaysChop = Math.abs(score) < 0.6 && Math.abs(spotPrice - rt.vwap.value) < ticker.strikeStep * 0.25;
+    
+    strength = (isPullback || isSidewaysChop) ? 'CAUTION' : (bullMatches >= 4 || score >= 1.8) ? 'STRONG' : 'MODERATE';
+    confidence = Math.min(94, Math.max(68, isPullback ? activePreviousSignal.confidence - 4 : activePreviousSignal.confidence));
+    
+    if (isSidewaysChop) {
+      capitalProtectionReason = `Holding Active Position: Spot is consolidating in a sideways deadband near VWAP. Position is active with SL intact (₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Caution: Option buyers face theta bleed in sideways consolidation; maintain strict SL discipline.`;
+    } else if (isPullback) {
+      capitalProtectionReason = `Holding Active Position: Spot is in a tactical pullback/retest. Trade is active within valid risk bounds (SL: ₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Hold position with stop loss discipline.`;
+    }
+  } 
+  // Condition 2: Active PE Trade Holding Phase (Do NOT flip to CE on normal relief bounces!)
+  else if (hasOngoingPeTrade && !isOngoingPeInvalidated && activePreviousSignal) {
     action = 'BUY_PE';
-    strength = (bearMatches >= 4 || score <= -2.0) ? 'STRONG' : 'MODERATE';
-    confidence = Math.min(96, Math.max(70, 72 + bearMatches * 3 + Math.round(Math.abs(score) * 2.5)));
-    capitalProtectionReason = '';
-  } else {
-    // EQUILIBRIUM / CONSOLIDATION / CHOP OR REVERSAL TRANSITION: Strict Stand-Aside & Capital Preservation
+    const isAboveVwapBounce = isAboveVWAP;
+    const isPullback = score > -0.20 || netBullEdge >= 0 || isAboveVwapBounce;
+    const isSidewaysChop = Math.abs(score) < 0.6 && Math.abs(spotPrice - rt.vwap.value) < ticker.strikeStep * 0.25;
+    
+    strength = (isPullback || isSidewaysChop) ? 'CAUTION' : (bearMatches >= 4 || score <= -1.8) ? 'STRONG' : 'MODERATE';
+    confidence = Math.min(94, Math.max(68, isPullback ? activePreviousSignal.confidence - 4 : activePreviousSignal.confidence));
+    
+    if (isSidewaysChop) {
+      capitalProtectionReason = `Holding Active Position: Spot is consolidating in a sideways deadband near VWAP. Position is active with SL intact (₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Caution: Option buyers face theta bleed in sideways consolidation; maintain strict SL discipline.`;
+    } else if (isPullback) {
+      capitalProtectionReason = `Holding Active Position: Spot is in a tactical relief bounce/retest. Trade is active within valid risk bounds (SL: ₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Hold position with stop loss discipline.`;
+    }
+  }
+  // Condition 3: Active Trade Just Stopped Out -> Enforce Mandatory WAIT_NEUTRAL Cooldown
+  else if (isOngoingCeInvalidated && activePreviousSignal) {
     action = 'WAIT_NEUTRAL';
-    strength = 'MODERATE';
-    confidence = Math.min(68, Math.max(48, Math.round(52 + Math.abs(score) * 2)));
-    if (!capitalProtectionReason) {
-      if (isFlippingFromCeToPe && (isBelowVWAP || highRejectionRatio >= 0.38 || isCandleDownward)) {
-        capitalProtectionReason = `Trend Reversal Invalidation: Morning CE setup has broken down (Spot ${ticker.currency}${spotPrice.toLocaleString()} is below VWAP with top rejection). Previous CE invalidated to preserve capital; stand aside in WAIT_NEUTRAL while multi-timeframe consensus for fresh PE entry builds.`;
-      } else if (isFlippingFromPeToCe && (isAboveVWAP || lowRecoveryRatio >= 0.38 || isCandleUpward)) {
-        capitalProtectionReason = `Trend Reversal Invalidation: Morning PE setup has broken upward (Spot ${ticker.currency}${spotPrice.toLocaleString()} reclaimed VWAP with buying absorption). Previous PE invalidated to preserve capital; stand aside in WAIT_NEUTRAL while multi-timeframe consensus for fresh CE entry builds.`;
-      } else if (Math.abs(score) < 0.7) {
-        capitalProtectionReason = `Consolidation Deadband: Multi-factor composite score (${score > 0 ? '+' : ''}${score.toFixed(1)}) is in neutral equilibrium (-0.7 to +0.7). Lacking institutional directional edge; stand aside in WAIT_NEUTRAL.`;
-      } else if (score > 0 && (isCandleDownward || isIntradayRejectionVeto)) {
-        capitalProtectionReason = `Top Rejection Divergence: Spot price has positive daily change, but intraday price action (${dropFromPeak.toFixed(1)} pts off peak, below VWAP) indicates supply distribution. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
-      } else if (score < 0 && (isCandleUpward || isIntradayBounceVeto)) {
-        capitalProtectionReason = `Support Absorption Divergence: Spot is pulling back, but intraday price action (${bounceFromFloor.toFixed(1)} pts off low, above VWAP) indicates institutional buying support. High risk of short trap; stand aside in WAIT_NEUTRAL.`;
-      } else if (score > 0 && isHardBearishVeto) {
-        capitalProtectionReason = `Signal Divergence: Derivatives flow (PCR ${pcrTotalOI.toFixed(2)}, Order Flow ${rt.orderFlow.sentiment}) or heavyweights show confirmed supply drag. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
-      } else if (score < 0 && isHardBullishVeto) {
-        capitalProtectionReason = `Signal Divergence: Spot pullback is met with institutional Put writing floor (PCR ${pcrTotalOI.toFixed(2)}) and banking absorption. High risk of snapback squeeze; stand aside in WAIT_NEUTRAL.`;
+    strength = 'CAUTION';
+    confidence = 50;
+    capitalProtectionReason = `🛑 Active CE Stop Loss Triggered: Technical invalidation floor breached. Close ${activePreviousSignal.recommendedStrike} CE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
+  }
+  else if (isOngoingPeInvalidated && activePreviousSignal) {
+    action = 'WAIT_NEUTRAL';
+    strength = 'CAUTION';
+    confidence = 50;
+    capitalProtectionReason = `🛑 Active PE Stop Loss Triggered: Technical invalidation ceiling breached. Close ${activePreviousSignal.recommendedStrike} PE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
+  }
+  // Condition 4: No Active Trade (Flat Position) -> Standard High-Conviction Fresh Entry Evaluation
+  else {
+    const isFreshBuyCe = score >= 0.75 && netBullEdge >= 1 && !isHardBearishVeto && !isCandleBearishVeto && prevAction !== 'BUY_PE';
+    const isFreshBuyPe = score <= -0.75 && netBullEdge <= -1 && !isHardBullishVeto && !isCandleBullishVeto && prevAction !== 'BUY_CE';
+
+    if (isFreshBuyCe) {
+      action = 'BUY_CE';
+      strength = (bullMatches >= 4 || score >= 1.8) ? 'STRONG' : 'MODERATE';
+      confidence = Math.min(96, Math.max(70, 72 + bullMatches * 3 + Math.round(score * 2.5)));
+      capitalProtectionReason = '';
+    } else if (isFreshBuyPe) {
+      action = 'BUY_PE';
+      strength = (bearMatches >= 4 || score <= -1.8) ? 'STRONG' : 'MODERATE';
+      confidence = Math.min(96, Math.max(70, 72 + bearMatches * 3 + Math.round(Math.abs(score) * 2.5)));
+      capitalProtectionReason = '';
+    } else {
+      action = 'WAIT_NEUTRAL';
+      strength = 'MODERATE';
+      confidence = Math.min(68, Math.max(48, Math.round(52 + Math.abs(score) * 2)));
+      if (!capitalProtectionReason) {
+        if (Math.abs(score) < 0.7) {
+          capitalProtectionReason = `Consolidation Deadband: Multi-factor composite score (${score > 0 ? '+' : ''}${score.toFixed(1)}) is in neutral equilibrium (-0.7 to +0.7). Lacking institutional directional edge; stand aside in WAIT_NEUTRAL.`;
+        } else if (score > 0 && (isCandleDownward || isIntradayRejectionVeto)) {
+          capitalProtectionReason = `Top Rejection Divergence: Spot price has positive daily change, but intraday price action (${dropFromPeak.toFixed(1)} pts off peak, below VWAP) indicates supply distribution. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
+        } else if (score < 0 && (isCandleUpward || isIntradayBounceVeto)) {
+          capitalProtectionReason = `Support Absorption Divergence: Spot is pulling back, but intraday price action (${bounceFromFloor.toFixed(1)} pts off low, above VWAP) indicates institutional buying support. High risk of short trap; stand aside in WAIT_NEUTRAL.`;
+        } else if (score > 0 && isHardBearishVeto) {
+          capitalProtectionReason = `Signal Divergence: Derivatives flow (PCR ${pcrTotalOI.toFixed(2)}, Order Flow ${rt.orderFlow.sentiment}) or heavyweights show confirmed supply drag. High risk of bull trap; stand aside in WAIT_NEUTRAL.`;
+        } else if (score < 0 && isHardBullishVeto) {
+          capitalProtectionReason = `Signal Divergence: Spot pullback is met with institutional Put writing floor (PCR ${pcrTotalOI.toFixed(2)}) and banking absorption. High risk of snapback squeeze; stand aside in WAIT_NEUTRAL.`;
+        }
       }
     }
   }
@@ -895,8 +959,24 @@ export function generateTradeSignal(
 
   // Select target strike:
   // Standard recommended strike for directional retail option buying is ATM
-  // Dynamic ATM Strike strictly based on CURRENT live spot price
-  const currentAtmStrike = Math.round(spotPrice / ticker.strikeStep) * ticker.strikeStep;
+  // Dynamic ATM Strike with ±15% Deadband Hysteresis to eliminate boundary jumping
+  const rawAtmStrike = Math.round(spotPrice / ticker.strikeStep) * ticker.strikeStep;
+  let currentAtmStrike = rawAtmStrike;
+
+  // If previous signal recommended a valid strike, enforce a hysteresis deadband so spot oscillating 
+  // near the 50% boundary (e.g. 23,124 - 23,126) does NOT jump strikes every 2 seconds!
+  if (activePreviousSignal && activePreviousSignal.recommendedStrike) {
+    const prevS = activePreviousSignal.recommendedStrike;
+    const distToPrev = spotPrice - prevS;
+    if (distToPrev > ticker.strikeStep * 0.65) {
+      currentAtmStrike = prevS + ticker.strikeStep;
+    } else if (distToPrev < -ticker.strikeStep * 0.65) {
+      currentAtmStrike = prevS - ticker.strikeStep;
+    } else {
+      currentAtmStrike = prevS;
+    }
+  }
+
   let targetStrike = currentAtmStrike;
 
   // Integrated Self-Healing Calibration: If High IV Rank (>70), high VIX (>22), or Self-Healing ITM Bias (>0.58), switch to ITM strike to shield against IV Crush
@@ -909,19 +989,14 @@ export function generateTradeSignal(
     targetStrike = currentAtmStrike - ticker.strikeStep;
   }
 
-  // Persistent Strike Anchoring:
-  // Strictly keep strike locked ONLY IF:
-  // 1. Same directional action AND same contract type (BUY_CE stays BUY_CE, BUY_PE stays BUY_PE)
-  // 2. Position has NOT completed Target 1, Target 2, or Stop Loss
-  // 3. Current spot is within 0.85 strike step of the previous strike (prevents stale strikes 50+ pts away)
-  // 4. Contract is still valid and liquid in chain
+  // Persistent Strike Anchoring for Active Trade
   const isPreviousTradeCompleted = activePreviousSignal?.tradeStage === 'TARGET_1_HIT' || 
                                    activePreviousSignal?.tradeStage === 'TARGET_2_HIT' || 
                                    activePreviousSignal?.tradeStage === 'STOP_LOSS_HIT';
-  if (activePreviousSignal && action === activePreviousSignal.action && (action as string) !== 'WAIT_NEUTRAL' && 
+  if (activePreviousSignal && action === activePreviousSignal.action && 
       activePreviousSignal.recommendedType === recommendedType && !isPreviousTradeCompleted) {
     const prevStrike = activePreviousSignal.recommendedStrike;
-    if (Math.abs(prevStrike - currentAtmStrike) <= ticker.strikeStep * 0.85) {
+    if (Math.abs(prevStrike - spotPrice) <= ticker.strikeStep * 1.35) {
       const existingRow = chain.find(r => r.strike === prevStrike);
       if (existingRow) {
         targetStrike = prevStrike;
@@ -1362,10 +1437,10 @@ export function generateTradeSignal(
       advancesDeclines: `${constituentAnalysis.advances} Adv / ${constituentAnalysis.declines} Dec`,
       weightedDelta: constituentAnalysis.weightedConstituentDelta,
       niftyPointsImpact: constituentAnalysis.netNiftyPointImpact,
-      bankingImpact: constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking')?.sentiment || 'NEUTRAL',
+      bankingImpact: Array.isArray(constituentAnalysis.sectoralBreakdown) ? (constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking')?.sentiment || 'NEUTRAL') : 'NEUTRAL',
       relianceImpact: NIFTY_DERIVATIVE_COMPANIES.find(c => c.symbol === 'RELIANCE')?.changePercent ? `${NIFTY_DERIVATIVE_COMPANIES.find(c => c.symbol === 'RELIANCE')?.changePercent}%` : '0%',
-      itImpact: constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT')?.sentiment || 'NEUTRAL',
-      heavyweightVerdict: constituentAnalysis.overallHeavyweightBias,
+      itImpact: Array.isArray(constituentAnalysis.sectoralBreakdown) ? (constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT')?.sentiment || 'NEUTRAL') : 'NEUTRAL',
+      heavyweightVerdict: constituentAnalysis.overallHeavyweightBias || 'NEUTRAL',
     } : undefined,
     trendPillar: {
       prevSessionTrend: spotChangePct >= 0.3 ? 'Uptrend Momentum' : spotChangePct <= -0.3 ? 'Downtrend Pressure' : 'Range Mean-Reversion',
@@ -1633,20 +1708,20 @@ export function generateTradeSignal(
   const peakGainPercent = Number((((sessionHighLTP - premium) / premium) * 100).toFixed(1));
 
   // Active ongoing trade trend contradiction check:
-  // If user holds a previous trade that directly contradicts confirmed intraday trend shifts, invalidate it immediately
+  // ONLY invalidate if spot is actively reversing direction (BUY_PE after BUY_CE) or actual stop loss is breached
   const isCeContradictedByDownturn = previousSignal && previousSignal.action === 'BUY_CE' && 
-    (action !== 'BUY_CE' || (isBelowVWAP && (highRejectionRatio >= 0.38 || rt.ema.alignment === 'BEARISH_STACK' || candlePatterns.confluenceBias === 'BEARISH')));
+    action === 'BUY_PE' && (isBelowVWAP || highRejectionRatio >= 0.45 || isContinuousFall || (spotStopLoss && spotPrice <= spotStopLoss));
   const isPeContradictedByUpturn = previousSignal && previousSignal.action === 'BUY_PE' && 
-    (action !== 'BUY_PE' || (isAboveVWAP && (lowRecoveryRatio >= 0.38 || rt.ema.alignment === 'BULLISH_STACK' || candlePatterns.confluenceBias === 'BULLISH')));
+    action === 'BUY_CE' && (isAboveVWAP || lowRecoveryRatio >= 0.45 || isMarketRaising || (spotStopLoss && spotPrice >= spotStopLoss));
 
   if (isCeContradictedByDownturn) {
     tradeStage = 'STOP_LOSS_HIT';
     capitalProtectionStatus = 'ACTIVE_RISK';
-    targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend shifted downward from morning highs (Spot ${ticker.currency}${spotPrice.toLocaleString()} fell below VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} CE trade invalidated immediately.`;
+    targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend shifted downward from morning highs (Spot ${ticker.currency}${spotPrice.toLocaleString()} fell below VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} CE trade invalidated. Reversal setup in progress.`;
   } else if (isPeContradictedByUpturn) {
     tradeStage = 'STOP_LOSS_HIT';
     capitalProtectionStatus = 'ACTIVE_RISK';
-    targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend bounced upward from lows (Spot ${ticker.currency}${spotPrice.toLocaleString()} reclaimed VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} PE trade invalidated immediately.`;
+    targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend bounced upward from lows (Spot ${ticker.currency}${spotPrice.toLocaleString()} reclaimed VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} PE trade invalidated. Reversal setup in progress.`;
   } else if (action === 'WAIT_NEUTRAL') {
     tradeStage = 'NEUTRAL_WAIT';
   } else if (premium <= trailingStopLoss) {
@@ -1875,7 +1950,7 @@ export function generateTradeSignal(
   const isGenuineBullishBreakout = spotPrice >= sidewaysMarketAnalysis.breakoutWatchLevels.bullishBreakoutTrigger || isStrongBullMomentum || lowRecoveryRatio >= 0.70;
   const isGenuineBearishBreakdown = spotPrice <= sidewaysMarketAnalysis.breakoutWatchLevels.bearishBreakdownTrigger || isStrongBearMomentum || isContinuousFall || (highRejectionRatio >= 0.35 && dropFromPeak >= ticker.strikeStep * 0.45);
 
-  if (sidewaysMarketAnalysis.isSideways && (action === 'BUY_CE' || action === 'BUY_PE')) {
+  if (sidewaysMarketAnalysis.isSideways && sidewaysMarketAnalysis.compressionPercentage >= 65 && Math.abs(score) < 1.4 && (action === 'BUY_CE' || action === 'BUY_PE')) {
     if (action === 'BUY_CE' && !isGenuineBullishBreakout) {
       action = 'WAIT_NEUTRAL';
       strength = 'CAUTION';
@@ -1908,8 +1983,22 @@ export function generateTradeSignal(
     interMarketTelemetry,
     safeNews,
     rt.volumeAnalytics,
-    strikeAnalytics
+    strikeAnalytics,
+    candlePatterns
   );
+
+  // Inlined Candlestick Momentum Rationale Point
+  if (candlePatterns) {
+    const isBull = candlePatterns.confluenceBias === 'BULLISH';
+    const isBear = candlePatterns.confluenceBias === 'BEARISH';
+    const scoreVal = candlePatterns.confluenceScore ?? 0;
+    const scoreStr = (scoreVal > 0 ? '+' : '') + scoreVal.toFixed(1);
+    rationalePoints.push({
+      title: `Inlined Candlestick Momentum (${candlePatterns.momentumAlignment?.replace(/_/g, ' ') || candlePatterns.confluenceBias})`,
+      verdict: isBull ? 'BULLISH' : isBear ? 'BEARISH' : 'NEUTRAL',
+      description: `Candlestick momentum is directly inlined at ${scoreStr}/10 with active pattern: ${candlePatterns.confluencePattern || 'Multi-timeframe momentum alignment'}. Tactical timeframe velocities: 1m (${(candlePatterns.m1Score ?? candlePatterns.m1?.momentumScore ?? 0) > 0 ? '+' : ''}${candlePatterns.m1Score ?? candlePatterns.m1?.momentumScore ?? 0}), 2m (${(candlePatterns.m2Score ?? candlePatterns.m2?.momentumScore ?? 0) > 0 ? '+' : ''}${candlePatterns.m2Score ?? candlePatterns.m2?.momentumScore ?? 0}), 5m (${(candlePatterns.m5Score ?? candlePatterns.m5?.momentumScore ?? 0) > 0 ? '+' : ''}${candlePatterns.m5Score ?? candlePatterns.m5?.momentumScore ?? 0}), 15m (${(candlePatterns.m15Score ?? candlePatterns.m15?.momentumScore ?? 0) > 0 ? '+' : ''}${candlePatterns.m15Score ?? candlePatterns.m15?.momentumScore ?? 0}).`,
+    });
+  }
 
   if (htfPredictions.confluenceScore >= 30 && action === 'BUY_CE') {
     rationalePoints.push({
@@ -1950,32 +2039,55 @@ export function generateTradeSignal(
     });
   }
 
-  // Pillar Consensus Validation: Prevent issuing BUY_CE when bearish pillars dominate, or BUY_PE when bullish pillars dominate
+  // Pillar Consensus Validation: Prevent issuing BUY_CE when bearish pillars strongly dominate, or BUY_PE when bullish pillars strongly dominate.
+  // For minor 1-2 pillar differences on ongoing trades, maintain trade consistency with CAUTION strength rather than aborting and thrashing!
   const bullPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BULLISH')).length || 0;
   const bearPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BEARISH')).length || 0;
 
-  if (action === 'BUY_CE' && bearPillars > bullPillars) {
+  const isOngoingBuyCeActive = hasOngoingCeTrade && !isOngoingCeInvalidated;
+  const isOngoingBuyPeActive = hasOngoingPeTrade && !isOngoingPeInvalidated;
+
+  if (isOngoingBuyCeActive && activePreviousSignal) {
+    // STRICT ACTIVE HOLDING: Preserve active BUY_CE trade through normal pullback fluctuations.
+    action = 'BUY_CE';
+    recommendedType = 'CE';
+    targetStrike = activePreviousSignal.recommendedStrike;
+    selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
+    contract = selectedRow?.ce;
+    premium = contract?.ltp ?? premium;
+    if (bearPillars > bullPillars) {
+      strength = 'CAUTION';
+      confidence = Math.max(68, confidence - 4);
+    }
+  } else if (isOngoingBuyPeActive && activePreviousSignal) {
+    // STRICT ACTIVE HOLDING: Preserve active BUY_PE trade through normal relief fluctuations.
+    action = 'BUY_PE';
+    recommendedType = 'PE';
+    targetStrike = activePreviousSignal.recommendedStrike;
+    selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
+    contract = selectedRow?.pe;
+    premium = contract?.ltp ?? premium;
+    if (bullPillars > bearPillars) {
+      strength = 'CAUTION';
+      confidence = Math.max(68, confidence - 4);
+    }
+  } else if (isOngoingCeInvalidated || isOngoingPeInvalidated) {
+    // ENFORCE MANDATORY COOLDOWN: When a position stops out, stand aside in WAIT_NEUTRAL.
+    // Do NOT allow instant opposite-side revenge trade triggers!
+    action = 'WAIT_NEUTRAL';
+  } else if (action === 'BUY_CE' && bearPillars > bullPillars) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
     const conflict = Math.min(bullPillars, bearPillars);
     confidence = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillars - bearPillars) * 1.1)));
     capitalProtectionReason = `Pillar Consensus Divergence: Bullish price drift is contradicted by ${bearPillars} bearish pillars (vs only ${bullPillars} bullish). Stand aside in WAIT_NEUTRAL until multi-factor consensus aligns.`;
     
-    // Intraday trend shifted downward: align reference watchlist contract to Put (PE)
     recommendedType = 'PE';
     targetStrike = currentAtmStrike;
     selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
     contract = selectedRow?.pe;
     premium = contract?.ltp ?? premium;
-
-    if (activePreviousSignal && activePreviousSignal.action === 'BUY_CE') {
-      tradeStage = 'STOP_LOSS_HIT';
-      capitalProtectionStatus = 'ACTIVE_RISK';
-      targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend shifted downward (${bearPillars} bearish pillars dominating). Previous ${activePreviousSignal.recommendedStrike} CE trade invalidated immediately. Close position.`;
-      summaryNote = `🛑 ${targetAchievedNote}`;
-    } else {
-      summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
-    }
+    summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
   } else if (action === 'BUY_PE' && bullPillars > bearPillars) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
@@ -1983,23 +2095,14 @@ export function generateTradeSignal(
     confidence = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillars - bearPillars) * 1.1)));
     capitalProtectionReason = `Pillar Consensus Divergence: Bearish price drift is contradicted by ${bullPillars} bullish pillars (vs only ${bearPillars} bearish). Stand aside in WAIT_NEUTRAL until multi-factor consensus aligns.`;
 
-    // Intraday trend bounced upward: align reference watchlist contract to Call (CE)
     recommendedType = 'CE';
     targetStrike = currentAtmStrike;
     selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
     contract = selectedRow?.ce;
     premium = contract?.ltp ?? premium;
-
-    if (activePreviousSignal && activePreviousSignal.action === 'BUY_PE') {
-      tradeStage = 'STOP_LOSS_HIT';
-      capitalProtectionStatus = 'ACTIVE_RISK';
-      targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend bounced upward (${bullPillars} bullish pillars dominating). Previous ${activePreviousSignal.recommendedStrike} PE trade invalidated immediately. Close position.`;
-      summaryNote = `🛑 ${targetAchievedNote}`;
-    } else {
-      summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
-    }
-  } else if (action === 'WAIT_NEUTRAL' && advanceTradeSetup.isAvailable) {
-    if (advanceTradeSetup.anticipatedAction === 'BUY_PE' && (bearPillars >= 7 || (bearPillars >= 5 && isContinuousFall)) && bearPillars > bullPillars && (spotPrice < rt.vwap.value || isContinuousFall || highRejectionRatio >= 0.25 || dropFromPeak >= ticker.strikeStep * 0.45)) {
+    summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
+  } else if (action === 'WAIT_NEUTRAL' && advanceTradeSetup.isAvailable && !isOngoingCeInvalidated && !isOngoingPeInvalidated && prevAction !== 'BUY_CE' && prevAction !== 'BUY_PE') {
+    if (advanceTradeSetup.anticipatedAction === 'BUY_PE' && (bearPillars >= 6 || (bearPillars >= 5 && isContinuousFall)) && bearPillars > bullPillars && candlePatterns.confluenceBias !== 'BULLISH') {
       action = 'BUY_PE';
       recommendedType = 'PE';
       targetStrike = advanceTradeSetup.recommendedStrike;
@@ -2008,8 +2111,8 @@ export function generateTradeSignal(
       selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
       contract = selectedRow?.pe;
       premium = contract?.ltp ?? premium;
-      summaryNote = `${pricePrefix}: Suggesting BUY PE. [Pillar Consensus Confirmed: ${bearPillars} Bearish Pillars aligned across downside breakdown flow & continuous fall]. Recommended ${targetStrike} PE @ ${ticker.currency}${premium.toFixed(2)}.`;
-    } else if (advanceTradeSetup.anticipatedAction === 'BUY_CE' && (bullPillars >= 7 || (bullPillars >= 5 && isMarketRaising)) && bullPillars > bearPillars && (spotPrice > rt.vwap.value || isMarketRaising || lowRecoveryRatio >= 0.25 || bounceFromFloor >= ticker.strikeStep * 0.45)) {
+      summaryNote = `${pricePrefix}: Suggesting BUY PE. [Pillar Consensus Confirmed: ${bearPillars} Bearish Pillars aligned with Candlestick Momentum]. Recommended ${targetStrike} PE @ ${ticker.currency}${premium.toFixed(2)}.`;
+    } else if (advanceTradeSetup.anticipatedAction === 'BUY_CE' && (bullPillars >= 6 || (bullPillars >= 5 && isMarketRaising)) && bullPillars > bearPillars && candlePatterns.confluenceBias !== 'BEARISH') {
       action = 'BUY_CE';
       recommendedType = 'CE';
       targetStrike = advanceTradeSetup.recommendedStrike;
@@ -2018,7 +2121,7 @@ export function generateTradeSignal(
       selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
       contract = selectedRow?.ce;
       premium = contract?.ltp ?? premium;
-      summaryNote = `${pricePrefix}: Suggesting BUY CE. [Pillar Consensus Confirmed: ${bullPillars} Bullish Pillars aligned across support holding & buying absorption]. Recommended ${targetStrike} CE @ ${ticker.currency}${premium.toFixed(2)}.`;
+      summaryNote = `${pricePrefix}: Suggesting BUY CE. [Pillar Consensus Confirmed: ${bullPillars} Bullish Pillars aligned with Candlestick Momentum]. Recommended ${targetStrike} CE @ ${ticker.currency}${premium.toFixed(2)}.`;
     }
   }
 
@@ -2274,7 +2377,7 @@ export function computeSidewaysMarketAnalysis(
   }
 
   // 7. Heavyweight Tug-of-War (if applicable)
-  if (constituentAnalysis) {
+  if (constituentAnalysis && Array.isArray(constituentAnalysis.sectoralBreakdown)) {
     const banking = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking');
     const it = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'IT');
     if (Math.abs(constituentAnalysis.netNiftyPointImpact) < 15 && banking && it) {
@@ -2294,7 +2397,7 @@ export function computeSidewaysMarketAnalysis(
     (rt.ema.alignment === 'BULLISH_STACK' && spotPrice >= dayHigh - ticker.strikeStep * 0.25)
   ) && !isRangeNarrow;
 
-  const isSideways = !isIntradayTrending && ((action === 'WAIT_NEUTRAL' && sidewaysScore >= 35) || sidewaysScore >= 50 || isRangeNarrow || isTrappedInWalls);
+  const isSideways = !isIntradayTrending && ((action === 'WAIT_NEUTRAL' && sidewaysScore >= 40) || sidewaysScore >= 50 || (isRangeNarrow && sidewaysScore >= 35));
   const sidewaysConfidence = Math.min(98, Math.max(52, sidewaysScore));
 
   let regimeType: import('../types/options').SidewaysMarketAnalysis['regimeType'] = 'NORMAL_TRENDING';

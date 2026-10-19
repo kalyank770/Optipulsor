@@ -8,7 +8,8 @@ import {
   NewsItem,
   VolumeAnalyticsData,
   StrikeTrendAnalytics,
-  Moneyness
+  Moneyness,
+  MultiTimeframeChartPatterns
 } from '../types/options';
 import { 
   HTFTimeframe, 
@@ -1148,7 +1149,8 @@ export function computeMultiTimeframePredictions(
   interMarket?: InterMarketTelemetry,
   newsFeed?: NewsItem[],
   volumeAnalytics?: VolumeAnalyticsData,
-  strikeAnalytics?: StrikeTrendAnalytics
+  strikeAnalytics?: StrikeTrendAnalytics,
+  candlePatterns?: MultiTimeframeChartPatterns
 ): MultiTimeframePredictionSuite {
   // 1. Generate HTF Candles tailored for each timeframe
   const h1Candles = generateHTFCandles(ticker, '1h');
@@ -1161,11 +1163,14 @@ export function computeMultiTimeframePredictions(
   const w1Pattern = analyzeHTFCandles(w1Candles, '1w', ticker);
 
   // 3. Multi-Timeframe Alignment Score (-100 to +100)
-  // Weighting: 1W (40%), 1D (30%), 1H (15%) + GIFT Nifty/Macro (15%)
+  // Inline Intraday Candlestick Momentum (2m/5m/15m) with Macro Structure (1H, 1D, 1W)
   const wScore = w1Pattern.momentumScore * 10;
   const dScore = d1Pattern.momentumScore * 10;
   const hScore = h1Pattern.momentumScore * 10;
-  let baseConfluence = wScore * 0.40 + dScore * 0.30 + hScore * 0.15;
+  const intradayCandleScore = candlePatterns ? (candlePatterns.confluenceScore * 10) : ((hScore + dScore) / 2);
+
+  // Weighting: 1W (28%), 1D (26%), 1H (18%), Intraday Candlestick Momentum (18%) + GIFT Nifty/Macro (10%)
+  let baseConfluence = wScore * 0.28 + dScore * 0.26 + hScore * 0.18 + intradayCandleScore * 0.18;
 
   // Real Parameter 1: GIFT Nifty & Global Macro Drift
   const giftPct = interMarket?.giftNifty?.changePercent || 0;

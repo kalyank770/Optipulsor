@@ -1124,15 +1124,7 @@ export function computeAdvanceTradeSetup(
     setupType = 'RAPID_DIRECTIONAL_FLIP_GUARD';
     probabilityScore = 48;
     leadTimeAdvantageMinutes = 1.0;
-  } else if (currentSignalAction === 'WAIT_NEUTRAL') {
-    // If authoritative signal engine commands WAIT_NEUTRAL (due to consolidation, flat open, or capital protection),
-    // strictly enforce WAIT_NEUTRAL in advance setup to eliminate contradictory signals
-    anticipatedAction = 'WAIT_NEUTRAL';
-    setupType = 'EQUILIBRIUM_WAIT';
-    const conflict = Math.min(bullPillarCount, bearPillarCount);
-    probabilityScore = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillarCount - bearPillarCount) * 1.1 + (avgFactorConf - 50) * 0.15)));
-    leadTimeAdvantageMinutes = 1.0;
-  } else if (isScoreBullish && isPillarsBullishConsensus && !isCandleBear) {
+  } else if (isScoreBullish && isPillarsBullishConsensus && !isCandleBear && bullPillarCount >= 5) {
     anticipatedAction = 'BUY_CE';
     const dirPillars = bullPillarCount + bearPillarCount;
     const consensusRatio = dirPillars > 0 ? bullPillarCount / dirPillars : 0.5;
@@ -1155,7 +1147,7 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKOUT_COILING_CE';
     }
-  } else if (isScoreBearish && isPillarsBearishConsensus && !isCandleBull) {
+  } else if (isScoreBearish && isPillarsBearishConsensus && !isCandleBull && bearPillarCount >= 5) {
     anticipatedAction = 'BUY_PE';
     const dirPillars = bullPillarCount + bearPillarCount;
     const consensusRatio = dirPillars > 0 ? bearPillarCount / dirPillars : 0.5;
@@ -1178,6 +1170,16 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
+  } else if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
+    anticipatedAction = 'BUY_CE';
+    setupType = 'PRE_BREAKOUT_COILING_CE';
+    probabilityScore = Math.min(92, Math.max(70, Math.round(68 + totalBullScore * 1.5)));
+    leadTimeAdvantageMinutes = 2.5;
+  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus && !isCandleBull) {
+    anticipatedAction = 'BUY_PE';
+    setupType = 'PRE_BREAKDOWN_COILING_PE';
+    probabilityScore = Math.min(92, Math.max(70, Math.round(68 + totalBearScore * 1.5)));
+    leadTimeAdvantageMinutes = 2.5;
   } else {
     // True Stand-Aside / Capital Preservation Equilibrium / Divergence
     anticipatedAction = 'WAIT_NEUTRAL';
@@ -1185,21 +1187,6 @@ export function computeAdvanceTradeSetup(
     const conflict = Math.min(bullPillarCount, bearPillarCount);
     probabilityScore = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillarCount - bearPillarCount) * 1.1 + (avgFactorConf - 50) * 0.15)));
     leadTimeAdvantageMinutes = 1.0;
-  }
-
-  // Directional signal actions align with advance setups
-  if (isRapidFlipDetected) {
-    anticipatedAction = 'WAIT_NEUTRAL';
-    setupType = 'RAPID_DIRECTIONAL_FLIP_GUARD';
-  } else if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
-    anticipatedAction = 'BUY_CE';
-    if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKOUT_COILING_CE';
-  } else if (currentSignalAction === 'BUY_PE' && !isDerivativesOrCandleBullish && isPillarsBearishConsensus && !isCandleBull) {
-    anticipatedAction = 'BUY_PE';
-    if (setupType === 'EQUILIBRIUM_WAIT') setupType = 'PRE_BREAKDOWN_COILING_PE';
-  } else if (currentSignalAction === 'WAIT_NEUTRAL') {
-    anticipatedAction = 'WAIT_NEUTRAL';
-    setupType = 'EQUILIBRIUM_WAIT';
   }
 
   const netBiasPct = anticipatedAction === 'BUY_CE'

@@ -28,7 +28,8 @@ import {
   Copy,
   CheckCircle2,
   Minus,
-  Circle
+  Circle,
+  Flame
 } from 'lucide-react';
 
 interface AdvanceTradeCardProps {
@@ -107,6 +108,14 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const optRR = signal?.riskRewardRatio || setup.advanceRiskRewardRatio || `1 : ${(optReward / optRisk).toFixed(1)}`;
 
   const effectiveMoneyness = setup.moneyness || signal?.moneyness || getMoneyness(setup.recommendedStrike, setup.recommendedType, ticker.spotPrice, ticker.strikeStep);
+
+  const candle = signal?.candleAnalysis;
+  const candleScore = candle?.confluenceScore ?? 0;
+  const candleBias = candle?.confluenceBias || 'NEUTRAL';
+  const isCandleInlinedWithTrade = 
+    (isBull && candleBias === 'BULLISH') ||
+    (isBear && candleBias === 'BEARISH') ||
+    (isWait && candleBias === 'NEUTRAL');
 
   const handleCopy = () => {
     const text = `OptiPulse Signal: ${isBull ? 'CALL (CE)' : isBear ? 'PUT (PE)' : 'NEUTRAL'}\nTicker: ${ticker.symbol} (Spot: ${ticker.currency}${ticker.spotPrice.toLocaleString()})\nRecommended: ${setup.recommendedStrike} ${setup.recommendedType} (${effectiveMoneyness}) @ ${ticker.currency}${currentLTP.toFixed(2)}\nConfidence: ${setup.probabilityScore}%\nTarget 1: ${ticker.currency}${optTarget1.toFixed(2)}\nTarget 2: ${ticker.currency}${optTarget2.toFixed(2)}\nStop Loss: ${ticker.currency}${optStopLoss.toFixed(2)}\nR:R: ${optRR}`;
@@ -352,6 +361,95 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
              isBear ? 'Confirmed Put Momentum' :
              'Consolidation Stand Aside'}
           </span>
+        </div>
+      </div>
+
+      {/* INLINED CANDLESTICK MOMENTUM & PRICE ACTION CONFLUENCE BAR */}
+      <div className="mt-2.5 p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/90 relative z-10">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Flame className={`w-3.5 h-3.5 ${
+                candleBias === 'BULLISH' ? 'text-emerald-400' :
+                candleBias === 'BEARISH' ? 'text-rose-400' :
+                'text-amber-400'
+              }`} />
+              <span>Inlined Candlestick Momentum:</span>
+            </span>
+
+            <span className={`text-[11px] font-bold px-2 py-0.5 rounded border font-mono ${
+              candleBias === 'BULLISH'
+                ? 'text-emerald-300 bg-emerald-950/70 border-emerald-500/40'
+                : candleBias === 'BEARISH'
+                ? 'text-rose-300 bg-rose-950/70 border-rose-500/40'
+                : 'text-amber-300 bg-amber-950/70 border-amber-500/40'
+            }`}>
+              {candleBias} ({candleScore > 0 ? '+' : ''}{candleScore.toFixed(1)}/10) · {candle?.momentumAlignment?.replace(/_/g, ' ') || 'ALIGNED'}
+            </span>
+
+            <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+              isCandleInlinedWithTrade
+                ? 'text-emerald-300 bg-emerald-950/60 border-emerald-700/60'
+                : 'text-amber-300 bg-amber-950/60 border-amber-700/60'
+            }`}>
+              {isCandleInlinedWithTrade 
+                ? (isBull ? '✓ 100% Inlined with BUY CE' : isBear ? '✓ 100% Inlined with BUY PE' : '✓ Inlined with Stand-Aside Range')
+                : '⚡ Momentum Transition Retest'}
+            </span>
+          </div>
+
+          {/* Micro Timeframe Velocity Chips */}
+          <div className="flex items-center gap-1.5 flex-wrap text-[10.5px] font-mono">
+            <span className="text-slate-400 font-sans text-[10px]">Timeframes:</span>
+            {[
+              { tf: '1m', val: candle?.m1Score ?? candle?.m1?.momentumScore ?? 0 },
+              { tf: '2m', val: candle?.m2Score ?? candle?.m2?.momentumScore ?? 0 },
+              { tf: '5m', val: candle?.m5Score ?? candle?.m5?.momentumScore ?? 0 },
+              { tf: '15m', val: candle?.m15Score ?? candle?.m15?.momentumScore ?? 0 },
+              { tf: '1H', val: candle?.h1Score ?? candle?.h1?.momentumScore ?? 0 },
+            ].map(item => (
+              <span
+                key={item.tf}
+                className={`px-1.5 py-0.2 rounded border font-bold ${
+                  item.val > 0.5 
+                    ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60' 
+                    : item.val < -0.5 
+                    ? 'text-rose-400 bg-rose-950/60 border-rose-800/60' 
+                    : 'text-slate-400 bg-slate-900 border-slate-800'
+                }`}
+                title={`${item.tf} momentum velocity: ${item.val}`}
+              >
+                {item.tf}: {item.val > 0 ? '+' : ''}{item.val}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Candlestick Pattern Detail & Direct Workstation Link */}
+        <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-slate-400 font-sans">Active Candle Formation:</span>
+            <span className="font-semibold text-white">
+              {candle?.confluencePattern || (isBull ? 'Bullish Absorption & Higher Low Formation' : isBear ? 'Bearish Supply Distribution & Lower High Capping' : 'Tight Equilibrium Consolidation Range')}
+            </span>
+            {candle?.orbStatus && candle.orbStatus !== 'INSIDE_ORB_RANGE' && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded border font-mono ${
+                candle.orbStatus === 'BULLISH_ORB_BREAKOUT' ? 'text-emerald-300 bg-emerald-950 border-emerald-700' : 'text-rose-300 bg-rose-950 border-rose-700'
+              }`}>
+                {candle.orbStatus.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
+
+          {onSelectTab && (
+            <button
+              onClick={() => onSelectTab('candlesticks')}
+              className="text-[10.5px] font-sans text-indigo-300 hover:text-indigo-200 hover:underline flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span>Inspect Full Candlesticks & Momentum</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 

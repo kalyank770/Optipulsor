@@ -267,31 +267,36 @@ export default function App() {
     };
   }, [signal?.action, signal?.sidewaysMarketAnalysis?.isSideways]);
 
-  // Candlestick Momentum Tab Status Indicator Dot (strictly inlined with Overall Momentum)
+  // Candlestick Momentum Tab Status Indicator Dot (strictly inlined with Tactical Candlestick Momentum & Trade Signal)
   const candlestickSentimentDot = useMemo(() => {
-    const overallBias = htfPredictions?.overallHTFBias || '';
-    const score = htfPredictions?.confluenceScore ?? 0;
+    const candle = signal?.candleAnalysis;
+    const candleBias = candle?.confluenceBias;
+    const candleScore = candle?.confluenceScore ?? 0;
+    const action = signal?.action;
 
-    if (overallBias.includes('BULLISH')) {
+    const isBull = action === 'BUY_CE' || (action === 'WAIT_NEUTRAL' && candleBias === 'BULLISH');
+    const isBear = action === 'BUY_PE' || (action === 'WAIT_NEUTRAL' && candleBias === 'BEARISH');
+
+    if (isBull) {
       return {
         color: 'bg-emerald-400 shadow-xs shadow-emerald-400/60',
-        title: `Overall Momentum: ${overallBias.replace(/_/g, ' ')} (${score > 0 ? '+' : ''}${score} pts)`,
+        title: `Candlestick Momentum: BULLISH (${candleScore > 0 ? '+' : ''}${candleScore}/10 · ${candle?.momentumAlignment?.replace(/_/g, ' ') || 'CALL ACCUMULATION'})`,
       };
     }
 
-    if (overallBias.includes('BEARISH')) {
+    if (isBear) {
       return {
         color: 'bg-rose-500 shadow-xs shadow-rose-500/60',
-        title: `Overall Momentum: ${overallBias.replace(/_/g, ' ')} (${score} pts)`,
+        title: `Candlestick Momentum: BEARISH (${candleScore}/10 · ${candle?.momentumAlignment?.replace(/_/g, ' ') || 'PUT DISTRIBUTION'})`,
       };
     }
 
-    const label = overallBias ? overallBias.replace(/_/g, ' ') : 'NEUTRAL CONSOLIDATION';
+    const label = candle?.momentumAlignment ? candle.momentumAlignment.replace(/_/g, ' ') : 'NEUTRAL CONSOLIDATION';
     return {
       color: 'bg-amber-400 shadow-xs shadow-amber-400/60',
-      title: `Overall Momentum: ${label} (${score > 0 ? '+' : ''}${score} pts)`,
+      title: `Candlestick Momentum: ${label} (${candleScore}/10)`,
     };
-  }, [htfPredictions?.overallHTFBias, htfPredictions?.confluenceScore]);
+  }, [signal?.candleAnalysis, signal?.action]);
 
   // News & Catalysts Tab Status Indicator Dot (matches Overall label in News & Catalysts)
   const newsSentimentDot = useMemo(() => {

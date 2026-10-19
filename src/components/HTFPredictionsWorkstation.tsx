@@ -27,7 +27,11 @@ import {
   Activity,
   Flame,
   Zap,
-  Compass
+  Compass,
+  ShieldCheck,
+  CheckCircle2,
+  PlayCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 interface HTFPredictionsWorkstationProps {
@@ -203,6 +207,123 @@ export function HTFPredictionsWorkstation({
           ))}
         </div>
       </div>
+
+      {/* 1B. INLINED ADVANCE TRADE RECOMMENDATION DOCK */}
+      {signal && (
+        <div className={`p-4 sm:p-5 rounded-2xl border transition-all relative overflow-hidden ${
+          signal.action === 'BUY_CE'
+            ? 'bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900/90 border-emerald-500/50 shadow-xl shadow-emerald-950/40'
+            : signal.action === 'BUY_PE'
+            ? 'bg-gradient-to-r from-rose-950/70 via-slate-900 to-slate-900/90 border-rose-500/50 shadow-xl shadow-rose-950/40'
+            : 'bg-slate-900/90 border-slate-800'
+        }`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-black tracking-wide border flex items-center gap-1.5 shadow-sm ${
+                signal.action === 'BUY_CE'
+                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                  : signal.action === 'BUY_PE'
+                  ? 'bg-rose-500 text-white border-rose-400'
+                  : 'bg-amber-500 text-slate-950 border-amber-400'
+              }`}>
+                {signal.action === 'BUY_CE' && <TrendingUp className="w-3.5 h-3.5 stroke-[3]" />}
+                {signal.action === 'BUY_PE' && <TrendingDown className="w-3.5 h-3.5 stroke-[3]" />}
+                {signal.action === 'WAIT_NEUTRAL' && <AlertTriangle className="w-3.5 h-3.5 stroke-[3]" />}
+                <span>{signal.action === 'BUY_CE' ? 'INLINED TRADE: BUY CALL (CE)' : signal.action === 'BUY_PE' ? 'INLINED TRADE: BUY PUT (PE)' : 'INLINED TRADE: STAND ASIDE (WAIT)'}</span>
+              </span>
+
+              {signal.action !== 'WAIT_NEUTRAL' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-white font-black text-sm font-mono">
+                    {ticker.symbol} {signal.recommendedStrike} {signal.recommendedType}
+                  </span>
+                  <MoneynessBadge moneyness={signal.moneyness} />
+                </div>
+              )}
+
+              {signal.advanceTradeSetup && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-950/80 border border-slate-700 text-amber-300">
+                  {signal.advanceTradeSetup.setupType.replace(/_/g, ' ')}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className={`px-2 py-0.5 rounded border font-bold flex items-center gap-1 ${
+                candleData?.confluenceBias === 'BULLISH' && signal.action === 'BUY_CE'
+                  ? 'text-emerald-300 bg-emerald-950/70 border-emerald-700/60'
+                  : candleData?.confluenceBias === 'BEARISH' && signal.action === 'BUY_PE'
+                  ? 'text-rose-300 bg-rose-950/70 border-rose-700/60'
+                  : 'text-amber-300 bg-amber-950/70 border-amber-700/60'
+              }`}>
+                <CheckCircle2 className="w-3 h-3" />
+                <span>
+                  {candleData?.confluenceBias === 'BULLISH' && signal.action === 'BUY_CE'
+                    ? '100% Inlined with Bullish Candles'
+                    : candleData?.confluenceBias === 'BEARISH' && signal.action === 'BUY_PE'
+                    ? '100% Inlined with Bearish Candles'
+                    : 'Tactical Candlestick Synchronization Active'}
+                </span>
+              </span>
+
+              {onSelectContractForSimulation && signal.action !== 'WAIT_NEUTRAL' && (
+                <button
+                  onClick={() => onSelectContractForSimulation(signal.recommendedStrike, signal.recommendedType)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1 shrink-0"
+                  title="Simulate Option Payoff"
+                >
+                  <PlayCircle className="w-3.5 h-3.5" />
+                  <span>Simulate</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Pricing & Target Strip */}
+          {signal.action !== 'WAIT_NEUTRAL' ? (() => {
+            const entryLTP = signal.entryPrice || signal.recommendedContractLTP || 1.0;
+            const t1Pct = Math.round((((signal.target1 - entryLTP) / Math.max(entryLTP, 0.1)) * 100));
+            const t2Pct = Math.round((((signal.target2 - entryLTP) / Math.max(entryLTP, 0.1)) * 100));
+            const slPct = Math.round((((entryLTP - signal.stopLoss) / Math.max(entryLTP, 0.1)) * 100));
+
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-3 text-xs font-mono">
+                <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 block font-sans">Entry LTP</span>
+                  <span className="text-white font-bold text-sm">{ticker.currency}{entryLTP.toFixed(2)}</span>
+                </div>
+                <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-800/40">
+                  <span className="text-[10px] text-emerald-400 block font-sans">Target 1</span>
+                  <span className="text-emerald-300 font-bold text-sm">
+                    {ticker.currency}{signal.target1.toFixed(2)} (+{t1Pct}%)
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-emerald-950/40 border border-emerald-800/40">
+                  <span className="text-[10px] text-emerald-400 block font-sans">Target 2 (Runner)</span>
+                  <span className="text-emerald-300 font-bold text-sm">
+                    {ticker.currency}{signal.target2.toFixed(2)} (+{t2Pct}%)
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-800/40">
+                  <span className="text-[10px] text-rose-400 block font-sans">Stop Loss</span>
+                  <span className="text-rose-300 font-bold text-sm">
+                    {ticker.currency}{signal.stopLoss.toFixed(2)} (-{slPct}%)
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 col-span-2 sm:col-span-1">
+                  <span className="text-[10px] text-slate-400 block font-sans">Risk : Reward</span>
+                  <span className="text-amber-300 font-bold text-sm">{signal.riskRewardRatio || '1 : 2.2'}</span>
+                </div>
+              </div>
+            );
+          })() : (
+            <div className="pt-2 text-xs text-slate-300 font-sans flex items-center justify-between">
+              <span>Market is compressing within a tight consolidation deadband. Capital is 100% protected in cash until confirmed breakout above resistance or breakdown below support occurs.</span>
+              <span className="text-[11px] font-mono font-bold text-amber-300 shrink-0 ml-2">Confidence: {signal.confidence}%</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 2. GROUPED CANDLESTICK MOMENTUM ENGINE (2M · 5M · 15M · 1H · 1D · 1W) */}
       {activeFilter === 'candlesticks' && (
