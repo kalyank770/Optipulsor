@@ -19,6 +19,7 @@ import {
 import { calculateBlackScholes } from './blackScholes';
 import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { computeSmcFvgFibSetup } from './smcEngine';
+import { computeInstitutionalSuite } from './institutionalAnalyticsEngine';
 
 /**
  * Advanced Leading Trade Recommendation Engine
@@ -49,6 +50,9 @@ export function computeAdvanceTradeSetup(
 
   // --- INSTITUTIONAL SMART MONEY CONCEPTS (SMC) & ICT PRICE ACTION ENGINE ---
   const smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain);
+
+  // --- INSTITUTIONAL INTELLIGENCE SUITE (FII/Retail Flow, Straddle Decay, Volume Profile, Heavyweights Tug-of-War, Vol Skew, Gamma Burst) ---
+  const institutionalSuite = computeInstitutionalSuite(ticker, chain, metrics, rt, candlePatterns, constituentAnalysis);
 
   // --- 1. FACTOR 1: OI SHIFT & UNWINDING VELOCITY ---
   const atmRow = chain.find(r => r.strike === atmStrike);
@@ -1070,7 +1074,96 @@ export function computeAdvanceTradeSetup(
     };
   }
 
-  // --- SYNTHESIZE ALL 18 LEADING CONFIRMATION SCORES ---
+  // --- FACTORS 19-24: ADVANCED INSTITUTIONAL SUITE FACTORS ---
+  // Factor 19: FII vs Retail Smart Money Positioning
+  const fii = institutionalSuite.fiiDii;
+  const fiiBullScore = fii.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH' ? 2.5 : fii.institutionalSentiment === 'MODERATE_BULLISH' ? 1.2 : 0;
+  const fiiBearScore = (fii.institutionalSentiment === 'INSTITUTIONAL_DISTRIBUTION_TRAP' || fii.institutionalSentiment === 'STRONG_INSTITUTIONAL_BEARISH') ? 2.5 : 0;
+  const fiiFactor: LeadingPredictorFactor = {
+    name: 'FII vs Retail Smart Money Flow',
+    category: 'FII_DII_POSITIONING',
+    state: fii.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH' ? 'STRONG_BULLISH' :
+           fii.institutionalSentiment === 'MODERATE_BULLISH' ? 'MODERATE_BULLISH' :
+           (fii.institutionalSentiment === 'INSTITUTIONAL_DISTRIBUTION_TRAP' || fii.institutionalSentiment === 'STRONG_INSTITUTIONAL_BEARISH') ? 'STRONG_BEARISH' : 'NEUTRAL',
+    leadTimeMinutes: 5.0,
+    valueDescription: `${fii.trapWarningHeadline} (FII Futures Long: ${fii.fiiLongFuturesRatio}%, Retail Calls: ${fii.clientRetailCallLongRatio}%)`,
+    confidenceScore: fii.smartMoneyFlowIndex,
+  };
+
+  // Factor 20: ATM Straddle Implied Move & Decay Velocity
+  const straddle = institutionalSuite.atmStraddle;
+  const straddleBullScore = straddle.decayRegime === 'GAMMA_EXPANSION_SPIKE' ? 1.5 : 0;
+  const straddleBearScore = 0;
+  const straddleFactor: LeadingPredictorFactor = {
+    name: 'ATM Straddle Decay Velocity',
+    category: 'ATM_STRADDLE_DECAY',
+    state: straddle.decayRegime === 'GAMMA_EXPANSION_SPIKE' ? 'STRONG_BULLISH' :
+           straddle.decayRegime === 'ACCELERATED_THETA_DECAY' ? 'NEUTRAL' : 'MODERATE_BULLISH',
+    leadTimeMinutes: 3.5,
+    valueDescription: `${straddle.straddleStatusLabel} (Decay: ${straddle.premiumDecayVelocityPercentPerHour}%/hr)`,
+    confidenceScore: straddle.isOptionBuyerDay ? 80 : 50,
+  };
+
+  // Factor 21: Market Profile & 80% Value Area Rule
+  const vp = institutionalSuite.volumeProfile;
+  const vpBullScore = vp.rotationDirection === 'ROTATE_UP_TO_VAH' ? 2.2 : vp.rotationDirection === 'RANGE_EXPANSION' && spotPrice > vp.valueAreaHigh ? 1.5 : 0;
+  const vpBearScore = vp.rotationDirection === 'ROTATE_DOWN_TO_VAL' ? 2.2 : vp.rotationDirection === 'RANGE_EXPANSION' && spotPrice < vp.valueAreaLow ? 1.5 : 0;
+  const vpFactor: LeadingPredictorFactor = {
+    name: 'Volume Profile (POC & 80% Rule)',
+    category: 'VOLUME_PROFILE_VA',
+    state: vp.rotationDirection === 'ROTATE_UP_TO_VAH' ? 'STRONG_BULLISH' :
+           vp.rotationDirection === 'ROTATE_DOWN_TO_VAL' ? 'STRONG_BEARISH' :
+           vp.rotationDirection === 'RANGE_EXPANSION' && spotPrice > vp.valueAreaHigh ? 'MODERATE_BULLISH' :
+           vp.rotationDirection === 'RANGE_EXPANSION' && spotPrice < vp.valueAreaLow ? 'MODERATE_BEARISH' : 'NEUTRAL',
+    leadTimeMinutes: 4.0,
+    valueDescription: `${vp.profileStatusLabel} POC: ${ticker.currency}${vp.pointOfControlStrike}, VAH: ${ticker.currency}${vp.valueAreaHigh}, VAL: ${ticker.currency}${vp.valueAreaLow}`,
+    confidenceScore: vp.valueArea80PercentRuleActive ? 88 : 72,
+  };
+
+  // Factor 22: Heavyweight Tug-of-War Conflict
+  const tow = institutionalSuite.heavyweightTugOfWar;
+  const towBullScore = tow.regime === 'SYNCHRONIC_BULLISH_THRUST' ? 2.8 : 0;
+  const towBearScore = tow.regime === 'SYNCHRONIC_BEARISH_THRUST' ? 2.8 : 0;
+  const towFactor: LeadingPredictorFactor = {
+    name: 'Heavyweight Synchronic Thrust',
+    category: 'HEAVYWEIGHT_TUG_OF_WAR',
+    state: tow.regime === 'SYNCHRONIC_BULLISH_THRUST' ? 'STRONG_BULLISH' :
+           tow.regime === 'SYNCHRONIC_BEARISH_THRUST' ? 'STRONG_BEARISH' : 'NEUTRAL',
+    leadTimeMinutes: 4.0,
+    valueDescription: `${tow.statusLabel} Net Spread: ${tow.netHeavyweightPointSpread >= 0 ? '+' : ''}${tow.netHeavyweightPointSpread} pts`,
+    confidenceScore: tow.deadlockWarning ? 40 : 88,
+  };
+
+  // Factor 23: 25-Delta Volatility Skew & Smile Asymmetry
+  const skew = institutionalSuite.volatilitySkew;
+  const skewBullScore = skew.isBearTrapAbsorptionDetected ? 2.4 : skew.skewSentiment === 'COMPLACENT_CALL_EXPANSION' ? 1.2 : 0;
+  const skewBearScore = skew.skewSentiment === 'INSTITUTIONAL_PANIC_PUT_SKEW' ? 2.4 : 0;
+  const skewFactor: LeadingPredictorFactor = {
+    name: '25-Delta Volatility Skew (Smile)',
+    category: 'VOLATILITY_SKEW_SMILE',
+    state: skew.isBearTrapAbsorptionDetected ? 'STRONG_BULLISH' :
+           skew.skewSentiment === 'INSTITUTIONAL_PANIC_PUT_SKEW' ? 'STRONG_BEARISH' :
+           skew.skewSentiment === 'COMPLACENT_CALL_EXPANSION' ? 'MODERATE_BULLISH' : 'NEUTRAL',
+    leadTimeMinutes: 3.5,
+    valueDescription: `${skew.statusLabel} (Put/Call Skew: ${skew.putCallSkewDifference >= 0 ? '+' : ''}${skew.putCallSkewDifference}%)`,
+    confidenceScore: skew.isBearTrapAbsorptionDetected || skew.skewSentiment === 'INSTITUTIONAL_PANIC_PUT_SKEW' ? 88 : 70,
+  };
+
+  // Factor 24: Expiry Gamma Burst Hunter
+  const burst = institutionalSuite.gammaBurst;
+  const burstBullScore = burst.isGammaBurstImminent && burst.candidateType === 'CE' ? 2.5 : 0;
+  const burstBearScore = burst.isGammaBurstImminent && burst.candidateType === 'PE' ? 2.5 : 0;
+  const burstFactor: LeadingPredictorFactor = {
+    name: '0-DTE Expiry Gamma Burst',
+    category: 'EXPIRY_GAMMA_BURST',
+    state: burst.isGammaBurstImminent && burst.candidateType === 'CE' ? 'STRONG_BULLISH' :
+           burst.isGammaBurstImminent && burst.candidateType === 'PE' ? 'STRONG_BEARISH' : 'NEUTRAL',
+    leadTimeMinutes: 2.0,
+    valueDescription: burst.statusLabel,
+    confidenceScore: burst.heroOrZeroConfidence,
+  };
+
+  // --- SYNTHESIZE ALL 24 LEADING CONFIRMATION SCORES ---
   const totalBullScore = Number((
     oiBullScore +          // 1. OI Velocity
     hwBullScore +          // 2. Heavyweight Lead
@@ -1089,7 +1182,13 @@ export function computeAdvanceTradeSetup(
     hystBullScore +        // 15. Hysteresis State
     gexBullScore +         // 16. Option Gamma GEX Regime
     coherenceBullScore +   // 17. Timeframe Coherence
-    smcBullScore           // 18. Institutional SMC ICT Engine
+    smcBullScore +         // 18. Institutional SMC ICT Engine
+    fiiBullScore +         // 19. FII vs Retail Smart Money Positioning
+    straddleBullScore +    // 20. ATM Straddle Decay Velocity
+    vpBullScore +          // 21. Market Profile & 80% Value Area Rule
+    towBullScore +         // 22. Heavyweight Synchronic Thrust
+    skewBullScore +        // 23. 25-Delta Volatility Skew & Smile
+    burstBullScore         // 24. 0-DTE Expiry Gamma Burst Hunter
   ).toFixed(2));
 
   const totalBearScore = Number((
@@ -1110,7 +1209,13 @@ export function computeAdvanceTradeSetup(
     hystBearScore +        // 15. Hysteresis State
     gexBearScore +         // 16. Option Gamma GEX Regime
     coherenceBearScore +   // 17. Timeframe Coherence
-    smcBearScore           // 18. Institutional SMC ICT Engine
+    smcBearScore +         // 18. Institutional SMC ICT Engine
+    fiiBearScore +         // 19. FII vs Retail Smart Money Positioning
+    straddleBearScore +    // 20. ATM Straddle Decay Velocity
+    vpBearScore +          // 21. Market Profile & 80% Value Area Rule
+    towBearScore +         // 22. Heavyweight Synchronic Thrust
+    skewBearScore +        // 23. 25-Delta Volatility Skew & Smile
+    burstBearScore         // 24. 0-DTE Expiry Gamma Burst Hunter
   ).toFixed(2));
 
   const leadingFactors: LeadingPredictorFactor[] = [
@@ -1132,6 +1237,12 @@ export function computeAdvanceTradeSetup(
     gexFactor,         // 16. Option A: Gamma GEX Regime
     coherenceFactor,   // 17. Option C: Timeframe Coherence
     smcFactor,         // 18. Institutional SMC ICT Engine
+    fiiFactor,         // 19. FII vs Retail Smart Money Flow
+    straddleFactor,    // 20. ATM Straddle Decay Velocity
+    vpFactor,          // 21. Volume Profile & 80% Rule
+    towFactor,         // 22. Heavyweight Synchronic Thrust
+    skewFactor,        // 23. 25-Delta Volatility Skew (Smile)
+    burstFactor,       // 24. 0-DTE Expiry Gamma Burst
   ];
   const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
@@ -1579,5 +1690,6 @@ export function computeAdvanceTradeSetup(
     gammaRegimeData: gexRegimeData,
     timeframeCoherence,
     dynamicVolatilityMatrix,
+    institutionalSuite,
   };
 }

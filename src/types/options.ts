@@ -512,7 +512,13 @@ export interface LeadingPredictorFactor {
     | 'HYSTERESIS_STATE'
     | 'GAMMA_GEX_REGIME'
     | 'TIMEFRAME_COHERENCE'
-    | 'DYNAMIC_ATR_BAND';
+    | 'DYNAMIC_ATR_BAND'
+    | 'FII_DII_POSITIONING'
+    | 'ATM_STRADDLE_DECAY'
+    | 'VOLUME_PROFILE_VA'
+    | 'HEAVYWEIGHT_TUG_OF_WAR'
+    | 'VOLATILITY_SKEW_SMILE'
+    | 'EXPIRY_GAMMA_BURST';
   state: 'STRONG_BULLISH' | 'MODERATE_BULLISH' | 'NEUTRAL' | 'MODERATE_BEARISH' | 'STRONG_BEARISH';
   leadTimeMinutes: number;
   valueDescription: string;
@@ -658,6 +664,7 @@ export interface AdvanceTradeSetup {
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;
   dynamicVolatilityMatrix?: OptionCDynamicVolatilityMatrix;
+  institutionalSuite?: import('./institutional').InstitutionalSuiteAnalysis;
 }
 
 export interface SignalStabilityLock {
@@ -721,10 +728,12 @@ export interface TradeSignal {
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;
   dynamicVolatilityMatrix?: OptionCDynamicVolatilityMatrix;
+  institutionalSuite?: import('./institutional').InstitutionalSuiteAnalysis;
 }
 
 export * from './htfPredictions';
 export * from './afterMarket';
+export * from './institutional';
 
 export interface SidewaysMarketAnalysis {
   isSideways: boolean;

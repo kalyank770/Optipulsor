@@ -9,7 +9,8 @@ import {
   VolumeAnalyticsData,
   StrikeTrendAnalytics,
   Moneyness,
-  MultiTimeframeChartPatterns
+  MultiTimeframeChartPatterns,
+  SmcFvgFibSetup
 } from '../types/options';
 import { 
   HTFTimeframe, 
@@ -676,7 +677,8 @@ export function generateHorizonPrediction(
   interMarket?: InterMarketTelemetry,
   newsFeed?: NewsItem[],
   volumeAnalytics?: VolumeAnalyticsData,
-  strikeAnalytics?: StrikeTrendAnalytics
+  strikeAnalytics?: StrikeTrendAnalytics,
+  smcSetup?: SmcFvgFibSetup
 ): HorizonPrediction {
   const S = ticker.spotPrice;
   const step = ticker.strikeStep;
@@ -709,17 +711,30 @@ export function generateHorizonPrediction(
   const isStrikeCE = strikeAnalytics?.cumulativeTrend?.dominantAction === 'BULLISH_CE';
   const strikeAlignment = strikeAnalytics?.cumulativeTrend?.alignmentScore || 70;
 
+  // Real Parameter 5: Institutional Smart Money Concepts (SMC) Setup
+  const isSmcBearish = smcSetup?.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+  const isSmcBullish = smcSetup?.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+
   // Synthesize multi-parameter bias for Horizon
-  if (horizon === 'next_1d') {
-    // Tomorrow Outcome: Heavy GIFT Nifty + Daily Candlestick + Volume synthesis
-    if (isGiftStrongBull && bias !== 'BEARISH') bias = 'BULLISH';
+  if (horizon === 'next_1h') {
+    // 1-Hour Scalp: Priority to Institutional SMC Sweep & FVG Retest + 1H Pattern
+    if (isSmcBearish) {
+      bias = 'BEARISH';
+    } else if (isSmcBullish) {
+      bias = 'BULLISH';
+    } else if (isBullVol && bias === 'NEUTRAL') {
+      bias = 'BULLISH';
+    } else if (isBearVol && bias === 'NEUTRAL') {
+      bias = 'BEARISH';
+    }
+  } else if (horizon === 'next_1d') {
+    // Tomorrow Outcome: Heavy GIFT Nifty + Daily Candlestick + SMC Structure Shift
+    if (isSmcBearish && bias !== 'BULLISH') bias = 'BEARISH';
+    else if (isSmcBullish && bias !== 'BEARISH') bias = 'BULLISH';
+    else if (isGiftStrongBull && bias !== 'BEARISH') bias = 'BULLISH';
     else if (isGiftStrongBear && bias !== 'BULLISH') bias = 'BEARISH';
     else if (isGiftStrongBull && isBullVol) bias = 'BULLISH';
     else if (isGiftStrongBear && isBearVol) bias = 'BEARISH';
-  } else if (horizon === 'next_1h') {
-    // 1-Hour Scalp: 1H Candlestick + Volume expansion + Strike alignment
-    if (isBullVol && bias === 'NEUTRAL') bias = 'BULLISH';
-    else if (isBearVol && bias === 'NEUTRAL') bias = 'BEARISH';
   } else {
     // 1-Week Positional: Weekly Candlestick + Strike History Convergence + Macro
     if (bias === 'NEUTRAL' && strikeAlignment >= 75) {
@@ -734,10 +749,13 @@ export function generateHorizonPrediction(
   let invalidationBuffer = step * 0.5;
 
   if (horizon === 'next_1h') {
-    expectedPoints = Number(Math.max(step * 0.5, dailyStdDev * 0.35).toFixed(1));
+    const smcTargetPoints = smcSetup?.isDetected ? smcSetup.targetPoints * 0.8 : 0;
+    expectedPoints = Number(Math.max(step * 0.5, dailyStdDev * 0.35, smcTargetPoints).toFixed(1));
     label = 'Next 1 Hour Outcome (Scalp Horizon)';
-    catalyst = `1H ${patternResult.primaryPattern} pattern (RSI ${patternResult.rsi}) + Volume (${volumeAnalytics?.volumeDivergence?.replace(/_/g, ' ') || 'Steady'}) + Strike Confluence (${strikeAnalytics?.overallWinRate ? `${strikeAnalytics.overallWinRate}% Win Rate` : '85% Win Rate'}).`;
-    invalidationBuffer = Math.max(step * 0.35, atr * 0.5);
+    catalyst = smcSetup?.isDetected
+      ? `Institutional SMC ICT ${smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'Short' : 'Long'} (Sweep @ ${ticker.currency}${smcSetup.liquiditySweepLevel} → 1m MSS → FVG OTE ${ticker.currency}${smcSetup.fvgZone.bottom}-${ticker.currency}${smcSetup.fvgZone.top}, R:R ${smcSetup.riskRewardRatio}:1).`
+      : `1H ${patternResult.primaryPattern} pattern (RSI ${patternResult.rsi}) + Volume (${volumeAnalytics?.volumeDivergence?.replace(/_/g, ' ') || 'Steady'}) + Strike Confluence (${strikeAnalytics?.overallWinRate ? `${strikeAnalytics.overallWinRate}% Win Rate` : '85% Win Rate'}).`;
+    invalidationBuffer = smcSetup?.isDetected ? Math.max(step * 0.25, Math.abs(smcSetup.stopLossSpot - S)) : Math.max(step * 0.35, atr * 0.5);
   } else if (horizon === 'next_1d') {
     expectedPoints = Number(Math.max(step * 1.0, dailyStdDev * 0.88).toFixed(1));
     // Factor in GIFT Nifty point gap if present
@@ -760,16 +778,24 @@ export function generateHorizonPrediction(
 
   if (bias === 'BULLISH') {
     const gapOffset = horizon === 'next_1d' && giftChange > 0 ? giftChange * 0.45 : 0;
-    projectedSpotTarget = Number((S + expectedPoints + gapOffset).toFixed(1));
+    projectedSpotTarget = (horizon === 'next_1h' && smcSetup?.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE')
+      ? smcSetup.targetSpot
+      : Number((S + expectedPoints + gapOffset).toFixed(1));
     projectedRangeLow = Number((S - expectedPoints * 0.35).toFixed(1));
     projectedRangeHigh = Number((S + expectedPoints * 1.25 + gapOffset).toFixed(1));
-    invalidationLevel = Number((S - invalidationBuffer).toFixed(1));
+    invalidationLevel = (horizon === 'next_1h' && smcSetup?.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE')
+      ? smcSetup.stopLossSpot
+      : Number((S - invalidationBuffer).toFixed(1));
   } else if (bias === 'BEARISH') {
     const gapOffset = horizon === 'next_1d' && giftChange < 0 ? Math.abs(giftChange) * 0.45 : 0;
-    projectedSpotTarget = Number((S - expectedPoints - gapOffset).toFixed(1));
+    projectedSpotTarget = (horizon === 'next_1h' && smcSetup?.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE')
+      ? smcSetup.targetSpot
+      : Number((S - expectedPoints - gapOffset).toFixed(1));
     projectedRangeLow = Number((S - expectedPoints * 1.25 - gapOffset).toFixed(1));
     projectedRangeHigh = Number((S + expectedPoints * 0.35).toFixed(1));
-    invalidationLevel = Number((S + invalidationBuffer).toFixed(1));
+    invalidationLevel = (horizon === 'next_1h' && smcSetup?.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE')
+      ? smcSetup.stopLossSpot
+      : Number((S + invalidationBuffer).toFixed(1));
   } else {
     projectedSpotTarget = Number(patternResult.pivotPoint.toFixed(1));
     projectedRangeLow = Number((S - expectedPoints * 0.6).toFixed(1));
@@ -1204,6 +1230,7 @@ export function computeMultiTimeframePredictions(
   }
 
   // Real Parameter 5: Institutional Smart Money Concepts (SMC) & ICT Execution Flow
+  let smc: SmcFvgFibSetup | undefined;
   if (candlePatterns && metrics && chain) {
     const dummyRt = {
       vwap: { value: ticker.vwap || ticker.spotPrice, distancePercent: 0, bias: 'NEUTRAL' as const },
@@ -1214,7 +1241,7 @@ export function computeMultiTimeframePredictions(
       vixVelocity: { velocityState: 'NORMAL' as const },
       gammaExposure: { regime: 'POSITIVE_GAMMA' as const }
     };
-    const smc = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, dummyRt as any, chain);
+    smc = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, dummyRt as any, chain);
     if (smc.isDetected && smc.setupDirection === 'BEARISH_REVERSAL_PE') {
       baseConfluence -= 12; // BSL hunt & MSS breakdown drags macro HTF target
     } else if (smc.isDetected && smc.setupDirection === 'BULLISH_REVERSAL_CE') {
@@ -1243,9 +1270,9 @@ export function computeMultiTimeframePredictions(
   // 4. Horizon Forecasts (Using synchronized expiry term structure, live option chain, GIFT Nifty, Volume & News)
   const dte0 = getTickerExpiryDTE(ticker, week1Index);
   const dte1 = getTickerExpiryDTE(ticker, week2Index);
-  const next1Hour = generateHorizonPrediction(ticker, h1Pattern, 'next_1h', dte0.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics);
-  const next1Day = generateHorizonPrediction(ticker, d1Pattern, 'next_1d', dte0.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics);
-  const next1Week = generateHorizonPrediction(ticker, w1Pattern, 'next_1w', dte1.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics);
+  const next1Hour = generateHorizonPrediction(ticker, h1Pattern, 'next_1h', dte0.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics, smc);
+  const next1Day = generateHorizonPrediction(ticker, d1Pattern, 'next_1d', dte0.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics, smc);
+  const next1Week = generateHorizonPrediction(ticker, w1Pattern, 'next_1w', dte1.T, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics, smc);
 
   // 5. Expiry Forecasts (Week 1 and Week 2 with live option chain quotes, GIFT Nifty, Volume & Strike Analytics)
   const week1Expiry = generateExpiryForecast(ticker, week1Index, 'NEXT_1_WEEK', overallHTFBias, h1Pattern, d1Pattern, w1Pattern, metrics, chain, interMarket, newsFeed, volumeAnalytics, strikeAnalytics);

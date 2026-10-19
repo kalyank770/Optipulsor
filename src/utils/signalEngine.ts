@@ -25,6 +25,7 @@ import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '.
 import { computeAdvanceTradeSetup } from './advanceTradeEngine';
 import { loadSelfHealingCalibration } from './selfHealingEngine';
 import { computeSmcFvgFibSetup } from './smcEngine';
+import { computeInstitutionalSuite } from './institutionalAnalyticsEngine';
 
 /**
  * Calculates a dynamic, continuous, non-static prediction confidence percentage (0-100%)
@@ -598,6 +599,49 @@ export function generateTradeSignal(
     }
   }
 
+  // --- ADVANCED INSTITUTIONAL SUITE PILLARS (Pillars 19 - 22) ---
+  const instSuite = computeInstitutionalSuite(ticker, chain, metrics, rt, candlePatterns, constituentAnalysis);
+
+  // 19. FII vs Retail Smart Money Positioning Scanner (Pillar 19)
+  const fiiPos = instSuite.fiiDii;
+  if (fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH') {
+    score += 2.2;
+  } else if (fiiPos.institutionalSentiment === 'MODERATE_BULLISH') {
+    score += 1.0;
+  } else if (fiiPos.institutionalSentiment === 'INSTITUTIONAL_DISTRIBUTION_TRAP' || fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BEARISH') {
+    score -= 2.2;
+  }
+
+  // 20. ATM Straddle Implied Move & Premium Expansion/Decay Tracker (Pillar 20)
+  const straddlePos = instSuite.atmStraddle;
+  if (straddlePos.decayRegime === 'GAMMA_EXPANSION_SPIKE') {
+    // Option buyer expansion day: amplify high-conviction momentum
+    score += score > 0 ? 1.2 : -1.2;
+  } else if (straddlePos.decayRegime === 'ACCELERATED_THETA_DECAY') {
+    // Option seller decay day: dampens over-aggressive chasing
+    score *= 0.88;
+  }
+
+  // 21. Volume Profile / Value Area (VAH, VAL, POC) Matrix (Pillar 21)
+  const vpPos = instSuite.volumeProfile;
+  if (vpPos.rotationDirection === 'ROTATE_UP_TO_VAH') {
+    score += 1.8;
+  } else if (vpPos.rotationDirection === 'ROTATE_DOWN_TO_VAL') {
+    score -= 1.8;
+  } else if (vpPos.rotationDirection === 'RANGE_EXPANSION' && spotPrice > vpPos.valueAreaHigh) {
+    score += 1.4;
+  } else if (vpPos.rotationDirection === 'RANGE_EXPANSION' && spotPrice < vpPos.valueAreaLow) {
+    score -= 1.4;
+  }
+
+  // 22. Heavyweight Tug-of-War vs Synchronic Trend Engine (Pillar 22)
+  const towPos = instSuite.heavyweightTugOfWar;
+  if (towPos.regime === 'SYNCHRONIC_BULLISH_THRUST') {
+    score += 2.4;
+  } else if (towPos.regime === 'SYNCHRONIC_BEARISH_THRUST') {
+    score -= 2.4;
+  }
+
   // =========================================================================
   // CAPITAL PROTECTION & QUANT GUARD RAILS (Prevent False Trades & Traps)
   // Bounded Quant Capital Protection: Dampens signals on caution conditions,
@@ -640,6 +684,17 @@ export function generateTradeSignal(
     applyCautionGuard(0.72, `Institutional SMC Veto: Previous Day High swept at ${ticker.currency}${smcSetup.liquiditySweepLevel} with 1m MSS breakdown. Retail breakout buyers are trapped; call buying prohibited.`);
   } else if (isSmcBullishTrapActive && score < 0) {
     applyCautionGuard(0.72, `Institutional SMC Veto: Previous Day Low swept at ${ticker.currency}${smcSetup.liquiditySweepLevel} with 1m MSS breakout. Retail breakdown sellers are trapped; put buying prohibited.`);
+  }
+
+  // GUARD RAIL 0C: FII vs Retail Contrarian Trap & Heavyweight Tug-of-War Deadlock Veto
+  if (fiiPos.retailContrarianTrapDetected && fiiPos.institutionalSentiment === 'INSTITUTIONAL_DISTRIBUTION_TRAP' && score > 0) {
+    applyCautionGuard(0.72, `FII Contrarian Veto: Retail is trapped long calls (${fiiPos.clientRetailCallLongRatio}%) while FIIs hold net short futures (${fiiPos.fiiNetIndexFuturesContracts.toLocaleString()} contracts). Institutional selling pressure dominant.`);
+  } else if (fiiPos.retailContrarianTrapDetected && fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH' && score < 0) {
+    applyCautionGuard(0.72, `FII Contrarian Veto: Retail is trapped in panic put longs (${fiiPos.clientRetailPutLongRatio}%) while FIIs are net long index futures (+${fiiPos.fiiNetIndexFuturesContracts.toLocaleString()} contracts). High short-squeeze risk.`);
+  }
+
+  if (towPos.deadlockWarning && Math.abs(score) < 3.5) {
+    applyCautionGuard(0.75, `Heavyweight Tug-of-War Deadlock: Banking and IT/Energy sectors are moving in direct opposition (Spread: ${towPos.netHeavyweightPointSpread} pts). Market is in sectoral deadlock.`);
   }
 
   // GUARD RAIL 1: Trend Alignment with Institutional VWAP (Symmetric & Zero-Bias)
@@ -795,6 +850,12 @@ export function generateTradeSignal(
   if (isMarketRaising || isTacticalUpward) bullMatches++;
   if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bullMatches += 2;
   if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bearMatches += 2;
+  if (fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH') bullMatches += 2;
+  if (fiiPos.institutionalSentiment === 'INSTITUTIONAL_DISTRIBUTION_TRAP' || fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BEARISH') bearMatches += 2;
+  if (vpPos.rotationDirection === 'ROTATE_UP_TO_VAH') bullMatches++;
+  if (vpPos.rotationDirection === 'ROTATE_DOWN_TO_VAL') bearMatches++;
+  if (towPos.regime === 'SYNCHRONIC_BULLISH_THRUST') bullMatches += 2;
+  if (towPos.regime === 'SYNCHRONIC_BEARISH_THRUST') bearMatches += 2;
 
   // Multi-factor contradiction counters: Require 2+ contradictory indicators to veto a signal,
   // preventing a single dissenting micro-metric from blocking high-probability setups.
@@ -2092,6 +2153,33 @@ export function generateTradeSignal(
       title: `Institutional SMC ICT Blueprint (${smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'Bearish OTE Short' : 'Bullish OTE Long'})`,
       verdict: smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'BEARISH' : 'BULLISH',
       description: `${smcSetup.statusHeadline}. ${smcSetup.rationale} Sweep Wick: ${ticker.currency}${smcSetup.liquiditySweepLevel}, MSS Level: ${ticker.currency}${smcSetup.marketStructureShiftLevel}, FVG OTE: ${ticker.currency}${smcSetup.fvgZone.bottom}-${ticker.currency}${smcSetup.fvgZone.top}, Stop: ${ticker.currency}${smcSetup.stopLossSpot}, Target: ${ticker.currency}${smcSetup.targetSpot} (R:R ${smcSetup.riskRewardRatio}:1).`,
+    });
+  }
+
+  // Attach FII vs Retail Smart Money Positioning Point
+  if (fiiPos.retailContrarianTrapDetected || Math.abs(fiiPos.fiiLongFuturesRatio - 50) >= 8) {
+    rationalePoints.push({
+      title: `FII vs Retail Smart Money Flow (${fiiPos.institutionalSentiment.replace(/_/g, ' ')})`,
+      verdict: fiiPos.institutionalSentiment.includes('BULLISH') ? 'BULLISH' : (fiiPos.institutionalSentiment.includes('BEARISH') || fiiPos.institutionalSentiment.includes('TRAP')) ? 'BEARISH' : 'NEUTRAL',
+      description: `${fiiPos.trapWarningHeadline} Smart Money Flow Index: ${fiiPos.smartMoneyFlowIndex}/100. FII Futures Long: ${fiiPos.fiiLongFuturesRatio}%, Retail Calls Long: ${fiiPos.clientRetailCallLongRatio}%. ${fiiPos.rationale}`,
+    });
+  }
+
+  // Attach Volume Profile / Value Area Point
+  if (vpPos.valueArea80PercentRuleActive || vpPos.rotationDirection !== 'IN_VALUE_BALANCED') {
+    rationalePoints.push({
+      title: `Volume Profile Value Area (${vpPos.rotationDirection.replace(/_/g, ' ')})`,
+      verdict: vpPos.rotationDirection.includes('UP') || (vpPos.rotationDirection === 'RANGE_EXPANSION' && spotPrice > vpPos.valueAreaHigh) ? 'BULLISH' : vpPos.rotationDirection.includes('DOWN') || (vpPos.rotationDirection === 'RANGE_EXPANSION' && spotPrice < vpPos.valueAreaLow) ? 'BEARISH' : 'NEUTRAL',
+      description: `${vpPos.profileStatusLabel}. POC: ${ticker.currency}${vpPos.pointOfControlStrike}, VAH: ${ticker.currency}${vpPos.valueAreaHigh}, VAL: ${ticker.currency}${vpPos.valueAreaLow}. 80% Rule: ${vpPos.valueArea80PercentRuleActive ? 'ACTIVE' : 'INACTIVE'}.`,
+    });
+  }
+
+  // Attach Heavyweight Tug-of-War Point
+  if (towPos.deadlockWarning || towPos.regime.includes('THRUST')) {
+    rationalePoints.push({
+      title: `Heavyweight Tug-of-War (${towPos.regime.replace(/_/g, ' ')})`,
+      verdict: towPos.regime === 'SYNCHRONIC_BULLISH_THRUST' ? 'BULLISH' : towPos.regime === 'SYNCHRONIC_BEARISH_THRUST' ? 'BEARISH' : 'NEUTRAL',
+      description: `${towPos.statusLabel}. ${towPos.institutionalPlaybookAdvice} Net constituent spread: ${towPos.netHeavyweightPointSpread >= 0 ? '+' : ''}${towPos.netHeavyweightPointSpread} pts.`,
     });
   }
 
