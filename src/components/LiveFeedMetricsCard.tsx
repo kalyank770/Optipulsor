@@ -352,7 +352,7 @@ export const LiveFeedMetricsCard: React.FC<LiveFeedMetricsCardProps> = ({
               <span>Live exchange feeds connected. 100% authentic real-time data.</span>
             </div>
             <span className="text-slate-500 text-[10px]">
-              OptiPulse V9.0 Core Pipeline
+              OptiPulse V11.0 Core Pipeline
             </span>
           </div>
         </div>

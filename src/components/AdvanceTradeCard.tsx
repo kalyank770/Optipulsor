@@ -31,6 +31,7 @@ import {
   Circle,
   Flame
 } from 'lucide-react';
+import { SmcPriceActionCard } from './SmcPriceActionCard';
 
 interface AdvanceTradeCardProps {
   setup: AdvanceTradeSetup;
@@ -317,7 +318,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         {setup.primaryLeadingCatalyst}
       </p>
 
-      {/* 17-Pillar Directional Validation & Bias Audit Strip */}
+      {/* 18-Pillar Directional Validation & Bias Audit Strip */}
       <div className="mt-2.5 p-2 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] font-mono flex flex-wrap items-center justify-between gap-2 relative z-10">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-slate-400 font-sans flex items-center gap-1">
@@ -512,6 +513,13 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
               )}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* INSTITUTIONAL SMC PRICE ACTION EXECUTION CARD (Liquidity Sweep -> MSS -> FVG + FIB) */}
+      {setup.smcFvgFib && (
+        <div className="mt-3 relative z-10">
+          <SmcPriceActionCard smc={setup.smcFvgFib} ticker={ticker} theme={theme} />
         </div>
       )}
 

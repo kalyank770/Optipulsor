@@ -80,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button 
             onClick={onGoHome}
             className="text-base sm:text-lg font-bold tracking-tight text-white hover:text-emerald-400 transition-colors flex items-center gap-2 cursor-pointer group"
-            title="OptiPulse V10 - Scroll to Top"
+            title="OptiPulse V11 - Scroll to Top"
           >
             {/* Custom Scalable Professional SVG Logo (Options Payoff & Trading Candlesticks) */}
             <svg 
@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
             </svg>
 
             <span>OptiPulse</span>
-            <span className="text-xs font-normal text-slate-400 font-mono ml-1.5 select-none">V10</span>
+            <span className="text-xs font-normal text-slate-400 font-mono ml-1.5 select-none">V11</span>
           </button>
         </div>
 

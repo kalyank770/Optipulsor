@@ -486,6 +486,8 @@ export type AdvanceSetupType =
   | 'HEAVYWEIGHT_FRONT_RUN_PE' 
   | 'OI_UNWINDING_THRUST_CE' 
   | 'OI_UNWINDING_THRUST_PE'
+  | 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE'
+  | 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE'
   | 'RAPID_DIRECTIONAL_FLIP_GUARD'
   | 'EQUILIBRIUM_WAIT';
 
@@ -497,6 +499,7 @@ export interface LeadingPredictorFactor {
     | 'ORDER_FLOW_DELTA' 
     | 'VOLATILITY_SQUEEZE' 
     | 'LIQUIDITY_SWEEP' 
+    | 'SMC_FVG_MSS'
     | 'GLOBAL_MACRO_LEAD'
     | 'SECTORAL_BREADTH'
     | 'RSI_MOMENTUM'
@@ -567,6 +570,46 @@ export interface LiquiditySweepAnalysis {
   };
 }
 
+export interface SmcFvgFibSetup {
+  isDetected: boolean;
+  setupDirection: 'BEARISH_REVERSAL_PE' | 'BULLISH_REVERSAL_CE' | 'NEUTRAL';
+  liquiditySweepLevel: number;
+  liquiditySweepLabel: string; // e.g. 'Previous Day Liquidity Sweep'
+  marketStructureShiftLevel: number; // e.g. '1m DAY LOW' or '5m Low'
+  mssLabel: string;
+  isMssConfirmed: boolean;
+  displacementLeg: {
+    swingHigh: number;
+    swingLow: number;
+    displacementPoints: number;
+  };
+  fibonacciLevels: {
+    fib0: number; // 0.0 displacement low
+    fib0382: number;
+    fib05: number; // 0.50 Equilibrium
+    fib0618: number; // 0.618 Golden Pocket
+    fib0786: number;
+    fib1: number; // 1.0 sweep high
+  };
+  fvgZone: {
+    top: number;
+    bottom: number;
+    midpoint: number;
+    label: string; // 'FVG + FIB'
+    status: 'ACTIVE_RETEST' | 'TESTING' | 'MITIGATED' | 'UNFILLED';
+  };
+  optimalTradeEntryRange: [number, number]; // [0.5 Fib, 0.618 Fib]
+  entryPriceSpot: number;
+  stopLossSpot: number;
+  stopLossPoints: number;
+  targetSpot: number;
+  targetPoints: number;
+  riskRewardRatio: number; // e.g. 5.64
+  capturedPoints: number;
+  statusHeadline: string;
+  rationale: string;
+}
+
 export interface AdvanceTradeSetup {
   isAvailable: boolean;
   setupType: AdvanceSetupType;
@@ -610,6 +653,7 @@ export interface AdvanceTradeSetup {
   pillarsNeutralCount?: number;
   invalidationReason?: string;
   liquiditySweep?: LiquiditySweepAnalysis;
+  smcFvgFib?: SmcFvgFibSetup;
   // Option A & Option C quantitative upgrades
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;
@@ -672,6 +716,7 @@ export interface TradeSignal {
   advanceTradeSetup?: AdvanceTradeSetup;
   stabilityLock?: SignalStabilityLock;
   liquiditySweep?: LiquiditySweepAnalysis;
+  smcFvgFib?: SmcFvgFibSetup;
   // Option A & Option C quantitative upgrades
   gammaRegimeData?: OptionAGammaRegimeData;
   timeframeCoherence?: OptionCTimeframeCoherence;

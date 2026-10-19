@@ -24,6 +24,7 @@ import { loadStrikeHistory, deriveStrikeTrendAnalytics } from './strikeHistoryEn
 import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { computeAdvanceTradeSetup } from './advanceTradeEngine';
 import { loadSelfHealingCalibration } from './selfHealingEngine';
+import { computeSmcFvgFibSetup } from './smcEngine';
 
 /**
  * Calculates a dynamic, continuous, non-static prediction confidence percentage (0-100%)
@@ -577,6 +578,26 @@ export function generateTradeSignal(
     score -= 1.0;
   }
 
+  // 18. Institutional Smart Money Concepts (SMC) & ICT Execution Flow (Pillar 18)
+  const smcSetup = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain);
+  if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE') {
+    if (smcSetup.fvgZone.status === 'ACTIVE_RETEST') {
+      score -= 2.6; // Institutional Optimal Trade Entry (OTE) active
+    } else if (smcSetup.isMssConfirmed) {
+      score -= 2.0; // 1m MSS breakdown confirmed after BSL sweep
+    } else {
+      score -= 1.2;
+    }
+  } else if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE') {
+    if (smcSetup.fvgZone.status === 'ACTIVE_RETEST') {
+      score += 2.6; // Institutional Optimal Trade Entry (OTE) active
+    } else if (smcSetup.isMssConfirmed) {
+      score += 2.0; // 1m MSS breakout confirmed after SSL sweep
+    } else {
+      score += 1.2;
+    }
+  }
+
   // =========================================================================
   // CAPITAL PROTECTION & QUANT GUARD RAILS (Prevent False Trades & Traps)
   // Bounded Quant Capital Protection: Dampens signals on caution conditions,
@@ -607,6 +628,18 @@ export function generateTradeSignal(
     if (isHeavyweightBearish && constituentAnalysis.netNiftyPointImpact < -18 && score > 0) {
       applyCautionGuard(0.78, `Capital Protection: Derivative heavyweights are lagging (A/D: ${constituentAnalysis.advances}/${constituentAnalysis.declines}, ${constituentAnalysis.netNiftyPointImpact} pts). Buying calls into broad constituent supply drag has poor probability.`);
     }
+  }
+
+  // GUARD RAIL 0B: Institutional SMC Liquidity Sweep & Retail Trap Veto
+  // When institutions sweep Previous Day High (BSL Hunt) and break market structure downward,
+  // buying CE is a guaranteed retail bull-trap! STRICTLY VETO ALL BUY_CE ACTIONS.
+  const isSmcBearishTrapActive = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+  const isSmcBullishTrapActive = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+
+  if (isSmcBearishTrapActive && score > 0) {
+    applyCautionGuard(0.72, `Institutional SMC Veto: Previous Day High swept at ${ticker.currency}${smcSetup.liquiditySweepLevel} with 1m MSS breakdown. Retail breakout buyers are trapped; call buying prohibited.`);
+  } else if (isSmcBullishTrapActive && score < 0) {
+    applyCautionGuard(0.72, `Institutional SMC Veto: Previous Day Low swept at ${ticker.currency}${smcSetup.liquiditySweepLevel} with 1m MSS breakout. Retail breakdown sellers are trapped; put buying prohibited.`);
   }
 
   // GUARD RAIL 1: Trend Alignment with Institutional VWAP (Symmetric & Zero-Bias)
@@ -755,11 +788,13 @@ export function generateTradeSignal(
   const isCandleUpward = isTacticalUpward;
   const isCandleDownward = isTacticalDownward;
 
-  // Add candlestick confluence to match tallies:
+  // Add candlestick & SMC confluence to match tallies:
   if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.5) bullMatches++;
   if (candlePatterns.confluenceBias === 'BEARISH' && candlePatterns.confluenceScore <= -1.5) bearMatches++;
   if (isContinuousFall || isTacticalDownward) bearMatches++;
   if (isMarketRaising || isTacticalUpward) bullMatches++;
+  if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bullMatches += 2;
+  if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bearMatches += 2;
 
   // Multi-factor contradiction counters: Require 2+ contradictory indicators to veto a signal,
   // preventing a single dissenting micro-metric from blocking high-probability setups.
@@ -783,8 +818,8 @@ export function generateTradeSignal(
   const isIntradayBounceVeto = (lowRecoveryRatio >= 0.35 && bounceFromFloor >= ticker.strikeStep * 0.45) || (isAboveVWAP && rt.vwap.bias === 'BULLISH') || isMarketRaising;
 
   // Hard Veto Filters:
-  const isHardBearishVeto = isCandleDownward || bearContradictionCount >= 2 || (isContinuousFall && score < 0) || isIntradayRejectionVeto;
-  const isHardBullishVeto = isCandleUpward || bullContradictionCount >= 2 || (isMarketRaising && score > 0) || isIntradayBounceVeto;
+  const isHardBearishVeto = isCandleDownward || bearContradictionCount >= 2 || (isContinuousFall && score < 0) || isIntradayRejectionVeto || isSmcBearishTrapActive;
+  const isHardBullishVeto = isCandleUpward || bullContradictionCount >= 2 || (isMarketRaising && score > 0) || isIntradayBounceVeto || isSmcBullishTrapActive;
 
   // Multi-Timeframe Consensus Requirement for Directional Flips (CE -> PE or PE -> CE):
   // =========================================================================
@@ -1210,6 +1245,12 @@ export function generateTradeSignal(
     const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candleSLDist, vwapSupportDist * 1.1)));
     spotStopLoss = Number((spotPrice - rawSLDist).toFixed(2));
 
+    if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE') {
+      spotStopLoss = smcSetup.stopLossSpot;
+      spotTarget1 = smcSetup.targetSpot;
+      target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    }
+
   } else {
     // BUY PUT:
     // Target 1: Tactical swing move based on 2m/5m pattern, immediate Put OI support, VWAP lower band, scaled by News Multiplier
@@ -1241,6 +1282,12 @@ export function generateTradeSignal(
       : (candlePatterns.invalidationPoints || minSL);
     const rawSLDist = Math.max(minSL, Math.min(maxSL, Math.min(candleSLDist, vwapCeilDist * 1.1)));
     spotStopLoss = Number((spotPrice + rawSLDist).toFixed(2));
+
+    if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE') {
+      spotStopLoss = smcSetup.stopLossSpot;
+      spotTarget1 = smcSetup.targetSpot;
+      target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    }
   }
 
   // --- 5. CALIBRATED REAL-WORLD OPTION TARGETS VIA ANCHORED BLACK-SCHOLES & GREEKS ---
@@ -2039,6 +2086,15 @@ export function generateTradeSignal(
     });
   }
 
+  // Attach Institutional SMC Price Action Blueprint Point
+  if (smcSetup.isDetected) {
+    rationalePoints.push({
+      title: `Institutional SMC ICT Blueprint (${smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'Bearish OTE Short' : 'Bullish OTE Long'})`,
+      verdict: smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'BEARISH' : 'BULLISH',
+      description: `${smcSetup.statusHeadline}. ${smcSetup.rationale} Sweep Wick: ${ticker.currency}${smcSetup.liquiditySweepLevel}, MSS Level: ${ticker.currency}${smcSetup.marketStructureShiftLevel}, FVG OTE: ${ticker.currency}${smcSetup.fvgZone.bottom}-${ticker.currency}${smcSetup.fvgZone.top}, Stop: ${ticker.currency}${smcSetup.stopLossSpot}, Target: ${ticker.currency}${smcSetup.targetSpot} (R:R ${smcSetup.riskRewardRatio}:1).`,
+    });
+  }
+
   // Pillar Consensus Validation: Prevent issuing BUY_CE when bearish pillars strongly dominate, or BUY_PE when bullish pillars strongly dominate.
   // For minor 1-2 pillar differences on ongoing trades, maintain trade consistency with CAUTION strength rather than aborting and thrashing!
   const bullPillars = advanceTradeSetup.leadingPredictorFactors?.filter(f => f.state.includes('BULLISH')).length || 0;
@@ -2143,12 +2199,20 @@ export function generateTradeSignal(
     advanceTradeSetup.subTitle = capitalProtectionReason ? `Capital Preservation Mandate: ${capitalProtectionReason}` : advanceTradeSetup.subTitle;
   } else if (action === 'BUY_CE') {
     advanceTradeSetup.isAvailable = true;
-    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') advanceTradeSetup.setupType = 'PRE_BREAKOUT_COILING_CE';
+    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') {
+      advanceTradeSetup.setupType = (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE')
+        ? 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE'
+        : 'PRE_BREAKOUT_COILING_CE';
+    }
     advanceTradeSetup.directionalBiasPercent = Math.min(96, Math.max(68, Math.round(confidence)));
     advanceTradeSetup.directionalBiasLabel = `+${advanceTradeSetup.directionalBiasPercent}% Bullish Bias`;
   } else if (action === 'BUY_PE') {
     advanceTradeSetup.isAvailable = true;
-    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') advanceTradeSetup.setupType = 'PRE_BREAKDOWN_COILING_PE';
+    if (advanceTradeSetup.setupType === 'EQUILIBRIUM_WAIT') {
+      advanceTradeSetup.setupType = (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE')
+        ? 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE'
+        : 'PRE_BREAKDOWN_COILING_PE';
+    }
     advanceTradeSetup.directionalBiasPercent = -Math.min(96, Math.max(68, Math.round(confidence)));
     advanceTradeSetup.directionalBiasLabel = `-${Math.abs(advanceTradeSetup.directionalBiasPercent)}% Bearish Bias`;
   }
@@ -2292,6 +2356,7 @@ export function generateTradeSignal(
     htfPredictions,
     advanceTradeSetup,
     liquiditySweep: advanceTradeSetup.liquiditySweep,
+    smcFvgFib: advanceTradeSetup.smcFvgFib,
     gammaRegimeData: advanceTradeSetup.gammaRegimeData,
     timeframeCoherence: advanceTradeSetup.timeframeCoherence,
     dynamicVolatilityMatrix: advanceTradeSetup.dynamicVolatilityMatrix,

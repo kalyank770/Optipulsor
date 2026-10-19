@@ -18,6 +18,7 @@ import {
 } from '../types/options';
 import { calculateBlackScholes } from './blackScholes';
 import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { computeSmcFvgFibSetup } from './smcEngine';
 
 /**
  * Advanced Leading Trade Recommendation Engine
@@ -45,6 +46,9 @@ export function computeAdvanceTradeSetup(
   const step = ticker.strikeStep;
   const atmStrike = metrics?.atmStrike || Math.round(spotPrice / step) * step;
   const isBankNifty = ticker.symbol.includes('BANK');
+
+  // --- INSTITUTIONAL SMART MONEY CONCEPTS (SMC) & ICT PRICE ACTION ENGINE ---
+  const smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain);
 
   // --- 1. FACTOR 1: OI SHIFT & UNWINDING VELOCITY ---
   const atmRow = chain.find(r => r.strike === atmStrike);
@@ -1030,7 +1034,43 @@ export function computeAdvanceTradeSetup(
     confidenceScore: Math.min(95, Math.max(50, coherenceScoreVal)),
   };
 
-  // --- SYNTHESIZE ALL 17 LEADING CONFIRMATION SCORES ---
+  // --- 18. FACTOR 18: INSTITUTIONAL SMC ICT MSS + FVG OTE CONFLUENCE ---
+  let smcFactor: LeadingPredictorFactor;
+  let smcBullScore = 0;
+  let smcBearScore = 0;
+
+  if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BEARISH_REVERSAL_PE') {
+    smcBearScore = smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' ? 3.0 : 2.5;
+    smcFactor = {
+      name: 'Institutional SMC Short (Sweep → MSS → FVG 0.618 Fib)',
+      category: 'SMC_FVG_MSS',
+      state: 'STRONG_BEARISH',
+      leadTimeMinutes: 4.5,
+      valueDescription: `BSL swept at ${ticker.currency}${smcFvgFib.liquiditySweepLevel} with MSS broken at ${ticker.currency}${smcFvgFib.marketStructureShiftLevel}. FVG OTE Retest zone active (${ticker.currency}${smcFvgFib.fvgZone.bottom} - ${ticker.currency}${smcFvgFib.fvgZone.top}). R:R ${smcFvgFib.riskRewardRatio}:1`,
+      confidenceScore: 92,
+    };
+  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BULLISH_REVERSAL_CE') {
+    smcBullScore = smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' ? 3.0 : 2.5;
+    smcFactor = {
+      name: 'Institutional SMC Long (Sweep → MSS → FVG 0.618 Fib)',
+      category: 'SMC_FVG_MSS',
+      state: 'STRONG_BULLISH',
+      leadTimeMinutes: 4.5,
+      valueDescription: `SSL swept at ${ticker.currency}${smcFvgFib.liquiditySweepLevel} with MSS broken at ${ticker.currency}${smcFvgFib.marketStructureShiftLevel}. FVG OTE Retest zone active (${ticker.currency}${smcFvgFib.fvgZone.bottom} - ${ticker.currency}${smcFvgFib.fvgZone.top}). R:R ${smcFvgFib.riskRewardRatio}:1`,
+      confidenceScore: 92,
+    };
+  } else {
+    smcFactor = {
+      name: 'Institutional SMC ICT Structure Monitoring',
+      category: 'SMC_FVG_MSS',
+      state: 'NEUTRAL',
+      leadTimeMinutes: 1.0,
+      valueDescription: `Monitoring session liquidity pools (High: ${ticker.currency}${dayHigh}, Low: ${ticker.currency}${dayLow}) for stop-hunts and fair value imbalances`,
+      confidenceScore: 50,
+    };
+  }
+
+  // --- SYNTHESIZE ALL 18 LEADING CONFIRMATION SCORES ---
   const totalBullScore = Number((
     oiBullScore +          // 1. OI Velocity
     hwBullScore +          // 2. Heavyweight Lead
@@ -1048,7 +1088,8 @@ export function computeAdvanceTradeSetup(
     htfBullScore +         // 14. HTF Alignment
     hystBullScore +        // 15. Hysteresis State
     gexBullScore +         // 16. Option Gamma GEX Regime
-    coherenceBullScore     // 17. Timeframe Coherence
+    coherenceBullScore +   // 17. Timeframe Coherence
+    smcBullScore           // 18. Institutional SMC ICT Engine
   ).toFixed(2));
 
   const totalBearScore = Number((
@@ -1068,7 +1109,8 @@ export function computeAdvanceTradeSetup(
     htfBearScore +         // 14. HTF Alignment
     hystBearScore +        // 15. Hysteresis State
     gexBearScore +         // 16. Option Gamma GEX Regime
-    coherenceBearScore     // 17. Timeframe Coherence
+    coherenceBearScore +   // 17. Timeframe Coherence
+    smcBearScore           // 18. Institutional SMC ICT Engine
   ).toFixed(2));
 
   const leadingFactors: LeadingPredictorFactor[] = [
@@ -1089,6 +1131,7 @@ export function computeAdvanceTradeSetup(
     hysteresisFactor,  // 15. Hysteresis State
     gexFactor,         // 16. Option A: Gamma GEX Regime
     coherenceFactor,   // 17. Option C: Timeframe Coherence
+    smcFactor,         // 18. Institutional SMC ICT Engine
   ];
   const avgFactorConf = Math.round(leadingFactors.reduce((acc, f) => acc + f.confidenceScore, 0) / leadingFactors.length);
 
@@ -1138,7 +1181,10 @@ export function computeAdvanceTradeSetup(
     )));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBullScore * 0.35)).toFixed(1));
 
-    if (swBullScore >= 2.0) {
+    if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BULLISH_REVERSAL_CE') {
+      setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE';
+      leadTimeAdvantageMinutes = 4.5;
+    } else if (swBullScore >= 2.0) {
       setupType = 'EARLY_ACCUMULATION_REVERSAL_CE';
     } else if (hwBullScore >= 2.0) {
       setupType = 'HEAVYWEIGHT_FRONT_RUN_CE';
@@ -1161,7 +1207,10 @@ export function computeAdvanceTradeSetup(
     )));
     leadTimeAdvantageMinutes = Number((2.8 + Math.min(2.5, totalBearScore * 0.35)).toFixed(1));
 
-    if (swBearScore >= 2.0) {
+    if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BEARISH_REVERSAL_PE') {
+      setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE';
+      leadTimeAdvantageMinutes = 4.5;
+    } else if (swBearScore >= 2.0) {
       setupType = 'EARLY_DISTRIBUTION_REVERSAL_PE';
     } else if (hwBearScore >= 2.0) {
       setupType = 'HEAVYWEIGHT_FRONT_RUN_PE';
@@ -1170,6 +1219,18 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
+  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BEARISH_REVERSAL_PE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBull && currentSignalAction !== 'BUY_CE') {
+    // High-conviction institutional front-running: BSL sweep + 1m MSS breakdown + FVG retest
+    anticipatedAction = 'BUY_PE';
+    setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE';
+    probabilityScore = Math.min(95, Math.max(86, 80 + Math.round(smcBearScore * 3.5)));
+    leadTimeAdvantageMinutes = 4.5;
+  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BULLISH_REVERSAL_CE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBear && currentSignalAction !== 'BUY_PE') {
+    // High-conviction institutional front-running: SSL sweep + 1m MSS breakout + FVG retest
+    anticipatedAction = 'BUY_CE';
+    setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE';
+    probabilityScore = Math.min(95, Math.max(86, 80 + Math.round(smcBullScore * 3.5)));
+    leadTimeAdvantageMinutes = 4.5;
   } else if (currentSignalAction === 'BUY_CE' && !isDerivativesOrCandleBearish && isPillarsBullishConsensus && !isCandleBear) {
     anticipatedAction = 'BUY_CE';
     setupType = 'PRE_BREAKOUT_COILING_CE';
@@ -1291,7 +1352,17 @@ export function computeAdvanceTradeSetup(
     summary: `${coherenceScore}% Timeframe Coherence (${alignedTfs.length}/${tfTrendsArr.length} TFs aligned: ${alignedTfs.join(', ') || 'None'})`,
   };
 
-  if (anticipatedAction === 'BUY_CE') {
+  if (setupType === 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE' && smcFvgFib.isDetected) {
+    // Institutional SMC OTE Entry: Inlined with FVG + 0.618 Fib Golden Pocket Retest
+    advanceEntryZoneSpot = [smcFvgFib.optimalTradeEntryRange[0], smcFvgFib.optimalTradeEntryRange[1]];
+    breakoutConfirmationSpot = smcFvgFib.marketStructureShiftLevel;
+    advanceStopLossSpot = smcFvgFib.stopLossSpot;
+  } else if (setupType === 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE' && smcFvgFib.isDetected) {
+    // Institutional SMC OTE Entry: Inlined with FVG + 0.618 Fib Golden Pocket Retest
+    advanceEntryZoneSpot = [smcFvgFib.optimalTradeEntryRange[0], smcFvgFib.optimalTradeEntryRange[1]];
+    breakoutConfirmationSpot = smcFvgFib.marketStructureShiftLevel;
+    advanceStopLossSpot = smcFvgFib.stopLossSpot;
+  } else if (anticipatedAction === 'BUY_CE') {
     advanceEntryZoneSpot = [
       Number((spotPrice - (isUSD ? 0.8 : (isBankNifty ? 30 : 12))).toFixed(2)),
       Number((spotPrice + (isUSD ? 0.5 : (isBankNifty ? 20 : 8))).toFixed(2))
@@ -1347,13 +1418,16 @@ export function computeAdvanceTradeSetup(
   const optionGamma = Math.abs(liveOption?.greeks?.gamma || 0.002);
   const isNegativeGamma = gexRegimeData.regime === 'NEGATIVE_GAMMA';
 
+  const smcTargetMove = smcFvgFib.isDetected ? smcFvgFib.targetPoints : spotAtrTarget1Buffer;
   const advanceOptionStopLoss = roundToTick(Math.max(0.05, currentLTP - (spotAtrStopBuffer * optionDelta * 0.92)));
-  const advanceOptionTarget1 = roundToTick(currentLTP + (spotAtrTarget1Buffer * optionDelta * 1.05));
-  const advanceOptionTarget2 = roundToTick(currentLTP + (spotAtrTarget2Buffer * (optionDelta + optionGamma * spotAtrTarget1Buffer * 0.5) * (isNegativeGamma ? 1.15 : 1.0)));
+  const advanceOptionTarget1 = roundToTick(currentLTP + (Math.max(spotAtrTarget1Buffer, smcTargetMove * 0.6) * optionDelta * 1.05));
+  const advanceOptionTarget2 = roundToTick(currentLTP + (Math.max(spotAtrTarget2Buffer, smcTargetMove) * (optionDelta + optionGamma * spotAtrTarget1Buffer * 0.5) * (isNegativeGamma ? 1.15 : 1.0)));
 
   const advanceRisk = Math.max(0.5, currentLTP - advanceOptionStopLoss);
   const advanceReward = Math.max(0.5, advanceOptionTarget1 - currentLTP);
-  const advanceRiskRewardRatio = `1 : ${(advanceReward / advanceRisk).toFixed(1)}`;
+  const advanceRiskRewardRatio = setupType.startsWith('SMC_ICT') && smcFvgFib.isDetected
+    ? `1 : ${smcFvgFib.riskRewardRatio.toFixed(1)}`
+    : `1 : ${(advanceReward / advanceRisk).toFixed(1)}`;
 
   // Comparative metrics: Advance Entry vs Lagging Entry
   const laggingEstimatedOptionPrice = roundToTick(currentLTP * 1.20);
@@ -1378,6 +1452,16 @@ export function computeAdvanceTradeSetup(
   let primaryLeadingCatalyst = '';
 
   switch (setupType) {
+    case 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE':
+      title = 'Institutional SMC ICT Reversal (PE)';
+      subTitle = 'Liquidity Sweep of Highs → 1m MSS Breakdown → FVG + 0.618 FIB Retest';
+      primaryLeadingCatalyst = smcFvgFib.rationale || 'BSL swept above session high; institutional displacement broke 1m structure. FVG OTE retest active.';
+      break;
+    case 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE':
+      title = 'Institutional SMC ICT Reversal (CE)';
+      subTitle = 'Liquidity Sweep of Lows → 1m MSS Breakout → FVG + 0.618 FIB Retest';
+      primaryLeadingCatalyst = smcFvgFib.rationale || 'SSL swept below session low; institutional displacement broke 1m structure. FVG OTE retest active.';
+      break;
     case 'PRE_BREAKOUT_COILING_CE':
       title = 'Pre-Breakout Momentum Coiling (CE)';
       subTitle = 'Volatility Coiling with Order Flow Accumulation Prior to 5M Trend Expansion';
@@ -1437,13 +1521,19 @@ export function computeAdvanceTradeSetup(
   }
 
   const executionPlaybook = {
-    advanceAggressiveNote: anticipatedAction !== 'WAIT_NEUTRAL'
+    advanceAggressiveNote: setupType.startsWith('SMC_ICT') && smcFvgFib.isDetected
+      ? `Institutional OTE Entry: Place limit order in Fair Value Gap + 0.618 FIB Golden Pocket (${ticker.currency}${smcFvgFib.optimalTradeEntryRange[0]} - ${ticker.currency}${smcFvgFib.optimalTradeEntryRange[1]}) for ${recStrike} ${recType} @ ${ticker.currency}${currentLTP.toFixed(2)}. Stop-Loss is strictly anchored at ${ticker.currency}${smcFvgFib.stopLossSpot} past the sweep wick. Target: ${ticker.currency}${smcFvgFib.targetSpot} (R:R ${smcFvgFib.riskRewardRatio}:1).`
+      : anticipatedAction !== 'WAIT_NEUTRAL'
       ? `Enter now in the Advance Entry Zone (${ticker.currency}${advanceEntryZoneSpot[0].toLocaleString()} - ${ticker.currency}${advanceEntryZoneSpot[1].toLocaleString()}) for ${recStrike} ${recType} @ ${ticker.currency}${currentLTP.toFixed(2)}. Stop-Loss is strictly guarded at ${ticker.currency}${advanceStopLossSpot.toLocaleString()} (only ~12% option premium risk). You get the cheapest premium before the breakout candle prints.`
       : `Market is in true equilibrium. Do not enter advance orders until leading divergence emerges.`,
-    laggingConservativeNote: anticipatedAction !== 'WAIT_NEUTRAL'
+    laggingConservativeNote: setupType.startsWith('SMC_ICT') && smcFvgFib.isDetected
+      ? `Wait for Market Structure Shift confirmation breakdown/breakout below/above ${ticker.currency}${smcFvgFib.marketStructureShiftLevel}. Option premium will be slightly higher, but structure shift is confirmed.`
+      : anticipatedAction !== 'WAIT_NEUTRAL'
       ? `If you prefer lagging chart confirmation, wait for spot to cross and close above ${ticker.currency}${breakoutConfirmationSpot.toLocaleString()}. Option premium will be ~15-25% higher, but the 5M chart trend will be confirmed.`
       : `Wait for spot to break beyond the session deadband boundaries.`,
-    whyAdvanceMatters: anticipatedAction !== 'WAIT_NEUTRAL'
+    whyAdvanceMatters: setupType.startsWith('SMC_ICT') && smcFvgFib.isDetected
+      ? `SMC Golden Pocket entry provides an asymmetric ${advanceRiskRewardRatio} Risk-to-Reward ratio by entering into the Fair Value Gap with a tight invalidation above the liquidity sweep wick.`
+      : anticipatedAction !== 'WAIT_NEUTRAL'
       ? `Advance entry provides a ~${leadTimeAdvantageMinutes} minutes time advantage, saves 15-25% in premium slippage, and boosts Risk-Reward to ${advanceRiskRewardRatio} (vs 1:1.8 on late breakout confirmation).`
       : `Standing aside preserves capital from theta decay during balanced market chop.`,
   };
@@ -1485,6 +1575,7 @@ export function computeAdvanceTradeSetup(
     pillarsBearishCount: bearPillarCount,
     pillarsNeutralCount: neutralPillarCount,
     liquiditySweep,
+    smcFvgFib,
     gammaRegimeData: gexRegimeData,
     timeframeCoherence,
     dynamicVolatilityMatrix,

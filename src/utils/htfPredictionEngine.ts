@@ -24,6 +24,7 @@ import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExp
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
 import { getGlobalRealCandles } from './candlestickEngine';
+import { computeSmcFvgFibSetup } from './smcEngine';
 
 /**
  * Helper to format timestamp into human readable time/date string
@@ -1199,6 +1200,25 @@ export function computeMultiTimeframePredictions(
     const isBelowVwap = ticker.vwap ? ticker.spotPrice < ticker.vwap : false;
     if (!(isCE && isBelowVwap)) {
       baseConfluence += isCE ? alignScore : -alignScore;
+    }
+  }
+
+  // Real Parameter 5: Institutional Smart Money Concepts (SMC) & ICT Execution Flow
+  if (candlePatterns && metrics && chain) {
+    const dummyRt = {
+      vwap: { value: ticker.vwap || ticker.spotPrice, distancePercent: 0, bias: 'NEUTRAL' as const },
+      ema: { alignment: 'NEUTRAL' as const },
+      rsi: { value: 50, condition: 'NEUTRAL' as const },
+      macd: { trend: 'NEUTRAL' as const },
+      orderFlow: { sentiment: 'NEUTRAL' as const },
+      vixVelocity: { velocityState: 'NORMAL' as const },
+      gammaExposure: { regime: 'POSITIVE_GAMMA' as const }
+    };
+    const smc = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, dummyRt as any, chain);
+    if (smc.isDetected && smc.setupDirection === 'BEARISH_REVERSAL_PE') {
+      baseConfluence -= 12; // BSL hunt & MSS breakdown drags macro HTF target
+    } else if (smc.isDetected && smc.setupDirection === 'BULLISH_REVERSAL_CE') {
+      baseConfluence += 12; // SSL hunt & MSS breakout lifts macro HTF target
     }
   }
 
