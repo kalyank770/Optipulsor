@@ -215,49 +215,52 @@ export const RealtimeQuantSection: React.FC<RealtimeQuantSectionProps> = ({
 
       {/* CORE MATRIX GRID: VOLUME DYNAMICS & CORRELATIONS (SIDE-BY-SIDE) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {/* LEFT COMPACT PANEL: VOLUME & INSTITUTIONAL FLOW */}
+        {/* LEFT COMPACT PANEL: EXOCHARTS ORDER FLOW & FOOTPRINT IMBALANCE */}
         {volumeAnalytics && (
-          <div className="rounded-xl border border-emerald-500/20 bg-slate-950 p-3.5 space-y-3 shadow-md">
+          <div className="rounded-xl border border-emerald-500/30 bg-slate-950 p-3.5 space-y-3 shadow-md">
             <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
               <BarChart2 className="w-4 h-4 text-emerald-400" />
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                Volume Dynamics & Institutional Buildup
-              </h4>
-              <span className="ml-auto text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded border border-emerald-800/40">
-                {volumeAnalytics.volumeAccuracyMultiplier}x Multiplier
+              <div className="flex flex-col">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  ExoCharts Order Flow & Footprint Engine
+                </h4>
+                <span className="text-[9.5px] text-slate-400 font-mono">Bid/Ask Imbalance · CVD Vector · Cluster Absorption</span>
+              </div>
+              <span className="ml-auto text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800/40 shrink-0">
+                {volumeAnalytics.volumeAccuracyMultiplier}x Exo Multiplier
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-sans">Vol Surge Factor</span>
-                <strong className="text-white text-sm mt-0.5 block">{volumeAnalytics.totalVolumeMultiplier}x</strong>
+                <span className="text-[10px] text-slate-400 block font-sans">Exo Vol Surge Factor</span>
+                <strong className="text-white text-sm mt-0.5 block">{volumeAnalytics.totalVolumeMultiplier}x Baseline</strong>
                 <span className="text-[10px] text-emerald-400 block mt-0.5 truncate">
-                  {volumeAnalytics.totalVolumeMultiplier >= 1.4 ? '🔥 Institutional Spike' : 'Normal Flow'}
+                  {volumeAnalytics.totalVolumeMultiplier >= 1.4 ? '🔥 Footprint Spike' : 'Normal Cluster Flow'}
                 </span>
               </div>
 
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-sans">Order Flow Delta</span>
+                <span className="text-[10px] text-slate-400 block font-sans">Footprint Delta Imbalance</span>
                 <strong className={`text-sm mt-0.5 block ${volumeAnalytics.buyerSellerPressureDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {volumeAnalytics.buyerSellerPressureDelta >= 0 ? '+' : ''}{volumeAnalytics.buyerSellerPressureDelta}%
+                  {volumeAnalytics.buyerSellerPressureDelta >= 0 ? '+' : ''}{volumeAnalytics.buyerSellerPressureDelta}% Ask/Bid
                 </strong>
                 <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                  {volumeAnalytics.buyerSellerPressureDelta >= 10 ? 'Buyers Active' : volumeAnalytics.buyerSellerPressureDelta <= -10 ? 'Sellers Active' : 'Balanced'}
+                  {volumeAnalytics.buyerSellerPressureDelta >= 10 ? 'Ask Cluster Aggression' : volumeAnalytics.buyerSellerPressureDelta <= -10 ? 'Bid Cluster Aggression' : 'Footprint Equilibrium'}
                 </span>
               </div>
 
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-sans">Institutional Buildup</span>
+                <span className="text-[10px] text-slate-400 block font-sans">CVD & Cluster Absorption</span>
                 <strong className="text-amber-300 text-xs mt-0.5 block truncate">{volumeAnalytics.volumeBuildupLabel}</strong>
-                <span className="text-[10px] text-slate-500 block mt-0.5 truncate">{volumeAnalytics.volumeDivergence?.replace(/_/g, ' ') || 'Balanced'}</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5 truncate">{volumeAnalytics.volumeDivergence?.replace(/_/g, ' ') || 'CVD Balanced'}</span>
               </div>
 
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
-                <span className="text-[10px] text-slate-400 block font-sans">PCR Vol / PCR OI</span>
+                <span className="text-[10px] text-slate-400 block font-sans">Option Order Flow PCR</span>
                 <strong className="text-sky-300 text-xs mt-0.5 block truncate">Vol: {volumeAnalytics.pcrVolume} | OI: {volumeAnalytics.pcrOI}</strong>
                 <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                  {volumeAnalytics.pcrVolume > volumeAnalytics.pcrOI ? 'Put Buying Surge' : 'Call Buying Surge'}
+                  {volumeAnalytics.pcrVolume > volumeAnalytics.pcrOI ? 'Put Delta Buying' : 'Call Delta Buying'}
                 </span>
               </div>
             </div>

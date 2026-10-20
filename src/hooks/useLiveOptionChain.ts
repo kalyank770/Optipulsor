@@ -559,26 +559,44 @@ export function useLiveOptionChain() {
                          tickerToFetch.symbol.includes('SENSEX');
         const exStatus = isIndian ? data.nse : data.us;
         if (exStatus) {
-          setMarketStatus(prev => ({
-            ...prev,
-            isOpen: exStatus.isOpen,
-            session: exStatus.session,
-            isHoliday: Boolean(exStatus.isHoliday),
-            holidayName: exStatus.holidayName,
-            holidayDescription: exStatus.holidayDescription,
-            marketName: exStatus.marketName || prev.marketName,
-            marketStatusMessage: exStatus.marketStatusMessage,
-            exchangeTimeStr: exStatus.exchangeTimeStr || prev.exchangeTimeStr,
-            tradingHoursLabel: exStatus.tradingHoursLabel || prev.tradingHoursLabel,
-            tradeDate: exStatus.tradeDate,
-            nextTradingDate: exStatus.nextTradingDate,
-            nextTradingDayName: exStatus.nextTradingDayName,
-            nextOpenMsg: exStatus.nextTradingSession || prev.nextOpenMsg,
-            minutesToClose: exStatus.minutesToClose,
-            isClosingSoon: exStatus.isClosingSoon,
-            source: exStatus.source,
-            isCasSession: Boolean(exStatus.isCasSession),
-          }));
+          setMarketStatus(prev => {
+            const isHol = Boolean(exStatus.isHoliday);
+            const isOpen = Boolean(exStatus.isOpen);
+            const sess = exStatus.session || prev.session;
+            const holName = exStatus.holidayName || prev.holidayName;
+            const msg = exStatus.marketStatusMessage || prev.marketStatusMessage;
+
+            if (
+              prev.isHoliday === isHol &&
+              prev.isOpen === isOpen &&
+              prev.session === sess &&
+              prev.holidayName === holName &&
+              prev.marketStatusMessage === msg
+            ) {
+              return prev; // Prevents unnecessary state updates and visual flickering
+            }
+
+            return {
+              ...prev,
+              isOpen,
+              session: sess,
+              isHoliday: isHol,
+              holidayName: holName,
+              holidayDescription: exStatus.holidayDescription || prev.holidayDescription,
+              marketName: exStatus.marketName || prev.marketName,
+              marketStatusMessage: msg,
+              exchangeTimeStr: exStatus.exchangeTimeStr || prev.exchangeTimeStr,
+              tradingHoursLabel: exStatus.tradingHoursLabel || prev.tradingHoursLabel,
+              tradeDate: exStatus.tradeDate || prev.tradeDate,
+              nextTradingDate: exStatus.nextTradingDate || prev.nextTradingDate,
+              nextTradingDayName: exStatus.nextTradingDayName || prev.nextTradingDayName,
+              nextOpenMsg: exStatus.nextTradingSession || prev.nextOpenMsg,
+              minutesToClose: exStatus.minutesToClose,
+              isClosingSoon: exStatus.isClosingSoon,
+              source: exStatus.source || prev.source,
+              isCasSession: Boolean(exStatus.isCasSession),
+            };
+          });
         }
       }
     } catch {
@@ -589,7 +607,19 @@ export function useLiveOptionChain() {
   // Periodically evaluate market hours status (every 20s) with live official exchange sync
   useEffect(() => {
     const checkMarket = () => {
-      setMarketStatus(getMarketHoursStatus(selectedTicker));
+      const hoursStatus = getMarketHoursStatus(selectedTicker);
+      setMarketStatus(prev => {
+        if (
+          prev.isHoliday === hoursStatus.isHoliday &&
+          prev.isOpen === hoursStatus.isOpen &&
+          prev.session === hoursStatus.session &&
+          prev.holidayName === hoursStatus.holidayName &&
+          prev.marketStatusMessage === hoursStatus.marketStatusMessage
+        ) {
+          return prev;
+        }
+        return hoursStatus;
+      });
       fetchMarketStatusFromBackend(selectedTicker);
     };
     checkMarket();
@@ -686,19 +716,32 @@ export function useLiveOptionChain() {
         const isMarketOpen = !isHoliday && hoursStatus.isOpen;
         const currentSession = isHoliday ? 'CLOSED' : (hoursStatus.isOpen ? (data.marketState === 'CLOSED' ? 'REGULAR' : (data.marketState || hoursStatus.session || 'REGULAR')) : (hoursStatus.session || 'CLOSED'));
 
-        // Immediately sync market hours state
-        setMarketStatus(prev => ({
-          ...prev,
-          isOpen: isMarketOpen,
-          session: currentSession,
-          isHoliday,
-          holidayName: data.holidayName || hoursStatus.holidayName,
-          holidayDescription: hoursStatus.holidayDescription,
-          marketStatusMessage: data.marketStatusMessage || hoursStatus.marketStatusMessage,
-          tradeDate: data.tradeDate || hoursStatus.tradeDate,
-          nextOpenMsg: hoursStatus.nextOpenMsg,
-          isCasSession: Boolean(hoursStatus.isCasSession || data.isCasSession),
-        }));
+        // Immediately sync market hours state without triggering unnecessary re-renders
+        setMarketStatus(prev => {
+          const holName = data.holidayName || hoursStatus.holidayName;
+          const msg = data.marketStatusMessage || hoursStatus.marketStatusMessage;
+          if (
+            prev.isHoliday === isHoliday &&
+            prev.isOpen === isMarketOpen &&
+            prev.session === currentSession &&
+            prev.holidayName === holName &&
+            prev.marketStatusMessage === msg
+          ) {
+            return prev; // Bails out of re-render if market status hasn't changed
+          }
+          return {
+            ...prev,
+            isOpen: isMarketOpen,
+            session: currentSession,
+            isHoliday,
+            holidayName: holName,
+            holidayDescription: hoursStatus.holidayDescription || prev.holidayDescription,
+            marketStatusMessage: msg,
+            tradeDate: data.tradeDate || hoursStatus.tradeDate,
+            nextOpenMsg: hoursStatus.nextOpenMsg || prev.nextOpenMsg,
+            isCasSession: Boolean(hoursStatus.isCasSession || data.isCasSession),
+          };
+        });
         
         // Pre-market discovery is AUTOMATIC when session is PRE_MARKET or exchange is outside regular hours
         const activePreMarket = currentSession === 'PRE_MARKET' || (!isMarketOpen && !isHoliday);
