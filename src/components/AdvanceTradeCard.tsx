@@ -130,9 +130,18 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const candle = signal?.candleAnalysis;
   const candleScore = candle?.confluenceScore ?? 0;
   const candleBias = candle?.confluenceBias || 'NEUTRAL';
+
+  // Verify tactical timeframes (1m, 2m, 5m) actually agree with trade direction
+  const m1V = candle?.m1Score ?? candle?.m1?.momentumScore ?? 0;
+  const m2V = candle?.m2Score ?? candle?.m2?.momentumScore ?? 0;
+  const m5V = candle?.m5Score ?? candle?.m5?.momentumScore ?? 0;
+  
+  const isTacticalBullish = m1V >= -0.5 && m2V >= -0.5 && m5V >= -0.5;
+  const isTacticalBearish = m1V <= 0.5 && m2V <= 0.5 && m5V <= 0.5;
+
   const isCandleInlinedWithTrade = 
-    (isBull && candleBias === 'BULLISH') ||
-    (isBear && candleBias === 'BEARISH') ||
+    (isBull && candleBias === 'BULLISH' && isTacticalBullish) ||
+    (isBear && candleBias === 'BEARISH' && isTacticalBearish) ||
     (isWait && candleBias === 'NEUTRAL');
 
   const handleCopy = () => {
@@ -395,6 +404,110 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         </div>
       </div>
 
+      {/* PRIMARY SETUP HIGHLIGHT CARDS GRID */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 mt-2.5 relative z-10">
+        {/* Card 1: Action & Recommended Strike */}
+        <div className={`p-3 rounded-lg border flex flex-col justify-between ${
+          isBull ? 'bg-emerald-950/40 border-emerald-500/40' :
+          isBear ? 'bg-rose-950/40 border-rose-500/40' :
+          'bg-slate-900/80 border-slate-800'
+        }`}>
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>{isWait ? 'REFERENCE WATCH CONTRACT' : 'RECOMMENDED STRIKE'}</span>
+            <span className={`font-bold text-[10px] px-1.5 py-0.2 rounded border ${
+              isBull ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' :
+              isBear ? 'bg-rose-950 text-rose-300 border-rose-500/40' :
+              'bg-amber-950 text-amber-300 border-amber-500/40'
+            }`}>
+              {isWait ? 'STAND ASIDE' : setup.anticipatedAction.replace('_', ' ')}
+            </span>
+          </div>
+          <div className="mt-1">
+            <div className={`text-base sm:text-xl font-bold font-mono flex items-center gap-1.5 flex-wrap ${
+              isBull ? 'text-emerald-300' : isBear ? 'text-rose-300' : 'text-slate-300'
+            }`}>
+              {isBull && <ArrowUpRight className="w-4 h-4 text-emerald-400 shrink-0" />}
+              {isBear && <ArrowDownRight className="w-4 h-4 text-rose-400 shrink-0" />}
+              <span>{setup.recommendedStrike} {setup.recommendedType}</span>
+              <MoneynessBadge moneyness={effectiveMoneyness} size="xs" />
+            </div>
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+              Live LTP: <strong className="text-white">{ticker.currency}{currentLTP.toFixed(2)}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Entry Zone (Spot & Option) */}
+        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>{isWait ? 'WATCH RANGE' : 'ENTRY ZONE'}</span>
+            <span className={`${isWait ? 'text-amber-400' : 'text-emerald-400'} font-bold text-[10px]`}>
+              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'WAIT BREAKOUT' : 'WAIT 09:30 AM') : 'BASE SUPPORT'}
+            </span>
+          </div>
+          <div className="mt-1">
+            <div className="text-xs sm:text-sm font-bold font-mono text-amber-300">
+              {ticker.currency}{setup.advanceEntryZoneSpot[0].toLocaleString()} – {ticker.currency}{setup.advanceEntryZoneSpot[1].toLocaleString()}
+            </div>
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+              {isWait ? (
+                <span className="text-amber-300/90 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Trigger: Confirmed breakout outside range' : 'Trigger: Break outside range post-09:30'}</span>
+              ) : (
+                <span>Option: <span className="text-slate-200">{ticker.currency}{optEntryLow.toFixed(2)} – {ticker.currency}{optEntryHigh.toFixed(2)}</span></span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Invalidation Stop-Loss */}
+        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>{isWait ? 'CAPITAL PROTECTION' : isProfitLocked ? 'PROFIT LOCK SL' : 'STRICT STOP-LOSS'}</span>
+            <span className={`${isWait ? 'text-amber-400' : isProfitLocked ? 'text-emerald-400' : 'text-rose-400'} font-bold text-[10px]`}>
+              {isWait ? 'DISCIPLINE' : isProfitLocked ? '🔒 TRAILED' : 'PROTECTED'}
+            </span>
+          </div>
+          <div className="mt-1">
+            <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : isProfitLocked ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Stand Aside (Capital Preservation)' : 'Stand Aside at 09:15 Open') : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
+            </div>
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+              {isWait ? (
+                <span className="text-slate-400 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Zero naked trades in chop deadband' : 'Zero naked trades on flat gap'}</span>
+              ) : isProfitLocked ? (
+                <div className="space-y-0.5">
+                  <span className="flex items-center gap-1 flex-wrap">
+                    <span>Option SL: <strong className="text-emerald-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong></span>
+                    <span className="text-[10px] text-emerald-300 font-sans font-semibold bg-emerald-950/80 px-1 py-0.2 rounded border border-emerald-500/30">🔒 Profit Locked</span>
+                  </span>
+                  <div className="text-[10px] text-slate-400 font-sans">
+                    Initial SL: {ticker.currency}{initialOptSL.toFixed(2)} (Trailed +50% T1)
+                  </div>
+                </div>
+              ) : (
+                <span>Option SL: <strong className="text-rose-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong> <span className="text-[10px] text-slate-400 font-sans">(Initial SL)</span></span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4: Targets & Risk-Reward */}
+        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>{isWait ? 'POST-BREAKOUT TARGETS' : 'TARGETS'}</span>
+            <span className="text-emerald-400 font-bold text-[10px]">{isWait ? 'CONDITIONAL' : `R:R ${optRR}`}</span>
+          </div>
+          <div className="mt-1">
+            <div className="text-xs sm:text-sm font-bold font-mono text-emerald-300">
+              T1: {ticker.currency}{optTarget1.toFixed(2)} <span className="text-[10px] text-emerald-400">(+{Math.max(1, Math.round(((optTarget1 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)</span>
+            </div>
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+              T2: <span className="text-emerald-400">{ticker.currency}{optTarget2.toFixed(2)}</span> (+{Math.max(2, Math.round(((optTarget2 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* INLINED CANDLESTICK MOMENTUM & PRICE ACTION CONFLUENCE BAR */}
       <div className="mt-2.5 p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/90 relative z-10">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -553,109 +666,7 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
         </div>
       )}
 
-      {/* PRIMARY SETUP HIGHLIGHT CARDS GRID */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 mt-3 relative z-10">
-        {/* Card 1: Action & Recommended Strike */}
-        <div className={`p-3 rounded-lg border flex flex-col justify-between ${
-          isBull ? 'bg-emerald-950/40 border-emerald-500/40' :
-          isBear ? 'bg-rose-950/40 border-rose-500/40' :
-          'bg-slate-900/80 border-slate-800'
-        }`}>
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'REFERENCE WATCH CONTRACT' : 'RECOMMENDED STRIKE'}</span>
-            <span className={`font-bold text-[10px] px-1.5 py-0.2 rounded border ${
-              isBull ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40' :
-              isBear ? 'bg-rose-950 text-rose-300 border-rose-500/40' :
-              'bg-amber-950 text-amber-300 border-amber-500/40'
-            }`}>
-              {isWait ? 'STAND ASIDE' : setup.anticipatedAction.replace('_', ' ')}
-            </span>
-          </div>
-          <div className="mt-1">
-            <div className={`text-base sm:text-xl font-bold font-mono flex items-center gap-1.5 flex-wrap ${
-              isBull ? 'text-emerald-300' : isBear ? 'text-rose-300' : 'text-slate-300'
-            }`}>
-              {isBull && <ArrowUpRight className="w-4 h-4 text-emerald-400 shrink-0" />}
-              {isBear && <ArrowDownRight className="w-4 h-4 text-rose-400 shrink-0" />}
-              <span>{setup.recommendedStrike} {setup.recommendedType}</span>
-              <MoneynessBadge moneyness={effectiveMoneyness} size="xs" />
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              Live LTP: <strong className="text-white">{ticker.currency}{currentLTP.toFixed(2)}</strong>
-            </div>
-          </div>
-        </div>
 
-        {/* Card 2: Entry Zone (Spot & Option) */}
-        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'WATCH RANGE' : 'ENTRY ZONE'}</span>
-            <span className={`${isWait ? 'text-amber-400' : 'text-emerald-400'} font-bold text-[10px]`}>
-              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'WAIT BREAKOUT' : 'WAIT 09:30 AM') : 'BASE SUPPORT'}
-            </span>
-          </div>
-          <div className="mt-1">
-            <div className="text-xs sm:text-sm font-bold font-mono text-amber-300">
-              {ticker.currency}{setup.advanceEntryZoneSpot[0].toLocaleString()} – {ticker.currency}{setup.advanceEntryZoneSpot[1].toLocaleString()}
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              {isWait ? (
-                <span className="text-amber-300/90 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Trigger: Confirmed breakout outside range' : 'Trigger: Break outside range post-09:30'}</span>
-              ) : (
-                <span>Option: <span className="text-slate-200">{ticker.currency}{optEntryLow.toFixed(2)} – {ticker.currency}{optEntryHigh.toFixed(2)}</span></span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Invalidation Stop-Loss */}
-        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'CAPITAL PROTECTION' : isProfitLocked ? 'PROFIT LOCK SL' : 'STRICT STOP-LOSS'}</span>
-            <span className={`${isWait ? 'text-amber-400' : isProfitLocked ? 'text-emerald-400' : 'text-rose-400'} font-bold text-[10px]`}>
-              {isWait ? 'DISCIPLINE' : isProfitLocked ? '🔒 TRAILED' : 'PROTECTED'}
-            </span>
-          </div>
-          <div className="mt-1">
-            <div className={`text-xs sm:text-sm font-bold font-mono ${isWait ? 'text-amber-200' : isProfitLocked ? 'text-emerald-300' : 'text-rose-300'}`}>
-              {isWait ? (ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Stand Aside (Capital Preservation)' : 'Stand Aside at 09:15 Open') : `Spot: ${ticker.currency}${effectiveSpotStopLoss.toLocaleString()}`}
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              {isWait ? (
-                <span className="text-slate-400 font-sans">{ticker.marketState === 'REGULAR' || ticker.marketState === 'OPEN' ? 'Zero naked trades in chop deadband' : 'Zero naked trades on flat gap'}</span>
-              ) : isProfitLocked ? (
-                <div className="space-y-0.5">
-                  <span className="flex items-center gap-1 flex-wrap">
-                    <span>Option SL: <strong className="text-emerald-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong></span>
-                    <span className="text-[10px] text-emerald-300 font-sans font-semibold bg-emerald-950/80 px-1 py-0.2 rounded border border-emerald-500/30">🔒 Profit Locked</span>
-                  </span>
-                  <div className="text-[10px] text-slate-400 font-sans">
-                    Initial SL: {ticker.currency}{initialOptSL.toFixed(2)} (Trailed +50% T1)
-                  </div>
-                </div>
-              ) : (
-                <span>Option SL: <strong className="text-rose-400">{ticker.currency}{optStopLoss.toFixed(2)}</strong> <span className="text-[10px] text-slate-400 font-sans">(Initial SL)</span></span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Targets & Risk-Reward */}
-        <div className="p-3 rounded-lg border bg-slate-900/80 border-slate-800 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>{isWait ? 'POST-BREAKOUT TARGETS' : 'TARGETS'}</span>
-            <span className="text-emerald-400 font-bold text-[10px]">{isWait ? 'CONDITIONAL' : `R:R ${optRR}`}</span>
-          </div>
-          <div className="mt-1">
-            <div className="text-xs sm:text-sm font-bold font-mono text-emerald-300">
-              T1: {ticker.currency}{optTarget1.toFixed(2)} <span className="text-[10px] text-emerald-400">(+{Math.max(1, Math.round(((optTarget1 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)</span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-              T2: <span className="text-emerald-400">{ticker.currency}{optTarget2.toFixed(2)}</span> (+{Math.max(2, Math.round(((optTarget2 - currentLTP) / Math.max(0.05, currentLTP)) * 100))}%)
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* 17-PILLAR LEADING PREDICTORS RADAR (COLLAPSED BY DEFAULT) */}
       <div className="mt-3 relative z-10">

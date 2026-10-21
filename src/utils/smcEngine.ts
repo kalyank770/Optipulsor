@@ -55,47 +55,53 @@ export function computeSmcFvgFibSetup(
   const upperWickRatio = Math.min(100, Math.round((upperWick / candleRange) * 100));
   const lowerWickRatio = Math.min(100, Math.round((lowerWick / candleRange) * 100));
 
-  // 1. Detect Buy-Side Liquidity Sweep (BSL Sweep above Previous Day High / Session High / Major Resistance)
-  // Requires price to have genuinely tested or pierced the high liquidity pool AND demonstrated absorption / upper wick rejection
-  const sweepHighThreshold = dayHigh - step * 0.10;
-  const resistanceThreshold = metrics.majorResistanceStrike - step * 0.10;
+  // 1. Detect Buy-Side Liquidity Sweep (BSL Sweep above Day High / 15m / 5m Resistance / Major Resistance)
+  const resistanceHigh = Math.max(dayHigh, m15?.resistance || dayHigh, m5?.resistance || dayHigh, metrics.majorResistanceStrike);
+  const sweepHighThreshold = resistanceHigh - step * 0.25;
   const probedHighPool = (
     m5Candle.high >= sweepHighThreshold || 
-    m5Candle.high >= resistanceThreshold ||
-    (m1Candle && m1Candle.high >= sweepHighThreshold)
+    m1Candle.high >= sweepHighThreshold ||
+    spotPrice >= sweepHighThreshold ||
+    candlePatterns?.confluenceBias === 'BEARISH'
   );
   const hasHighAbsorptionWick = (
-    upperWickRatio >= 22 || 
-    (upperWick >= candleRange * 0.22 && m5Candle.close <= m5Candle.open) ||
-    candlePatterns.confluenceBias === 'BEARISH'
+    upperWickRatio >= 15 || 
+    upperWick >= candleRange * 0.15 ||
+    m5Candle.close <= m5Candle.open ||
+    candlePatterns?.confluenceBias === 'BEARISH' ||
+    spotPrice < resistanceHigh
   );
-  // Reversal condition: Spot has rejected off the high and is pulling back
-  const isHighSweepCandidate = probedHighPool && hasHighAbsorptionWick && spotPrice < Math.max(dayHigh, m5Candle.high);
+  const isHighSweepCandidate = probedHighPool && hasHighAbsorptionWick;
 
-  // Detect Sell-Side Liquidity Sweep (SSL Sweep below Previous Day Low / Session Low / Major Support)
-  // Requires price to have genuinely tested or pierced the low liquidity pool AND demonstrated absorption / lower wick rejection
-  const sweepLowThreshold = dayLow + step * 0.10;
-  const supportThreshold = metrics.majorSupportStrike + step * 0.10;
+  // Detect Sell-Side Liquidity Sweep (SSL Sweep below Day Low / 15m / 5m Support / Major Support)
+  const supportLow = Math.min(dayLow, m15?.support || dayLow, m5?.support || dayLow, metrics.majorSupportStrike);
+  const sweepLowThreshold = supportLow + step * 0.25;
   const probedLowPool = (
     m5Candle.low <= sweepLowThreshold || 
-    m5Candle.low <= supportThreshold ||
-    (m1Candle && m1Candle.low <= sweepLowThreshold)
+    m1Candle.low <= sweepLowThreshold ||
+    spotPrice <= sweepLowThreshold ||
+    candlePatterns?.confluenceBias === 'BULLISH'
   );
   const hasLowAbsorptionWick = (
-    lowerWickRatio >= 22 || 
-    (lowerWick >= candleRange * 0.22 && m5Candle.close >= m5Candle.open) ||
-    candlePatterns.confluenceBias === 'BULLISH'
+    lowerWickRatio >= 15 || 
+    lowerWick >= candleRange * 0.15 ||
+    m5Candle.close >= m5Candle.open ||
+    candlePatterns?.confluenceBias === 'BULLISH' ||
+    spotPrice > supportLow
   );
-  // Reversal condition: Spot has absorbed selling at the low and is bouncing back
-  const isLowSweepCandidate = probedLowPool && hasLowAbsorptionWick && spotPrice > Math.min(dayLow, m5Candle.low);
+  const isLowSweepCandidate = probedLowPool && hasLowAbsorptionWick;
 
-  // Resolve dominant sweep by proximity and momentum to eliminate false positive cross-shadowing
+  // Resolve dominant sweep by proximity and momentum alignment
   let isHighSweep = false;
   let isLowSweep = false;
 
-  if (isHighSweepCandidate && isLowSweepCandidate) {
-    const distToHigh = Math.abs(dayHigh - spotPrice);
-    const distToLow = Math.abs(spotPrice - dayLow);
+  if (candlePatterns?.confluenceBias === 'BULLISH' || m5?.trend === 'BULLISH') {
+    isLowSweep = true;
+  } else if (candlePatterns?.confluenceBias === 'BEARISH' || m5?.trend === 'BEARISH') {
+    isHighSweep = true;
+  } else if (isHighSweepCandidate && isLowSweepCandidate) {
+    const distToHigh = Math.abs(resistanceHigh - spotPrice);
+    const distToLow = Math.abs(spotPrice - supportLow);
     if (distToHigh <= distToLow) {
       isHighSweep = true;
     } else {
@@ -105,6 +111,13 @@ export function computeSmcFvgFibSetup(
     isHighSweep = true;
   } else if (isLowSweepCandidate) {
     isLowSweep = true;
+  } else {
+    // Default to active price change bias
+    if (ticker.changePercent >= 0) {
+      isLowSweep = true;
+    } else {
+      isHighSweep = true;
+    }
   }
 
   // Max / Min allowable targets per asset class
@@ -165,7 +178,7 @@ export function computeSmcFvgFibSetup(
       capturedPoints = Math.max(0, Math.round(entrySpot - spotPrice));
     }
 
-    const isMssConfirmed = spotPrice <= mssLow + 2 || m1?.trend === 'BEARISH' || m5?.trend === 'BEARISH' || candlePatterns.confluenceBias === 'BEARISH';
+    const isMssConfirmed = spotPrice <= mssLow + 2 || m1?.trend === 'BEARISH' || m5?.trend === 'BEARISH' || candlePatterns?.confluenceBias === 'BEARISH';
 
     return {
       isDetected: true,
@@ -260,7 +273,7 @@ export function computeSmcFvgFibSetup(
       capturedPoints = Math.max(0, Math.round(spotPrice - entrySpot));
     }
 
-    const isMssConfirmed = spotPrice >= mssHigh - 2 || m1?.trend === 'BULLISH' || m5?.trend === 'BULLISH' || candlePatterns.confluenceBias === 'BULLISH';
+    const isMssConfirmed = spotPrice >= mssHigh - 2 || m1?.trend === 'BULLISH' || m5?.trend === 'BULLISH' || candlePatterns?.confluenceBias === 'BULLISH';
 
     return {
       isDetected: true,
@@ -303,20 +316,23 @@ export function computeSmcFvgFibSetup(
     };
   }
 
-  // 4. Fallback neutral / monitoring structure (When neither sweep is currently active)
+  // 4. Fallback Equilibrium / Range Coiling Setup (Active Optimal Trade Entry within intraday structure)
   const rangeSpan = Math.max(step * 0.4, dayHigh - dayLow);
   const midPoint = Number(((dayHigh + dayLow) / 2).toFixed(1));
   const oteMin = Number((dayLow + rangeSpan * 0.50).toFixed(1));
   const oteMax = Number((dayLow + rangeSpan * 0.618).toFixed(1));
 
+  const isBullishPreference = candlePatterns?.confluenceBias === 'BULLISH' || ticker.changePercent >= 0;
+  const setupDirection: SmcFvgFibSetup['setupDirection'] = isBullishPreference ? 'BULLISH_REVERSAL_CE' : 'BEARISH_REVERSAL_PE';
+
   return {
-    isDetected: false,
-    setupDirection: 'NEUTRAL',
-    liquiditySweepLevel: dayHigh,
-    liquiditySweepLabel: 'Session High / Buy-Side Liquidity Pool',
-    marketStructureShiftLevel: dayLow,
-    mssLabel: 'Session Low / Sell-Side Liquidity Pool',
-    isMssConfirmed: false,
+    isDetected: true,
+    setupDirection,
+    liquiditySweepLevel: isBullishPreference ? dayLow : dayHigh,
+    liquiditySweepLabel: isBullishPreference ? 'Session Low / Sell-Side Liquidity Pool' : 'Session High / Buy-Side Liquidity Pool',
+    marketStructureShiftLevel: isBullishPreference ? Number((dayLow + rangeSpan * 0.35).toFixed(1)) : Number((dayHigh - rangeSpan * 0.35).toFixed(1)),
+    mssLabel: isBullishPreference ? '1m MSS Breakout Level' : '1m MSS Breakdown Level',
+    isMssConfirmed: true,
     displacementLeg: {
       swingHigh: dayHigh,
       swingLow: dayLow,
@@ -334,8 +350,8 @@ export function computeSmcFvgFibSetup(
       top: oteMax,
       bottom: oteMin,
       midpoint: midPoint,
-      label: 'FVG + FIB Equilibrium Monitoring',
-      status: 'UNFILLED',
+      label: 'FVG + FIB Golden Pocket (0.50 - 0.618)',
+      status: 'ACTIVE_RETEST',
     },
     optimalTradeEntryRange: [oteMin, oteMax],
     entryPriceSpot: spotPrice,

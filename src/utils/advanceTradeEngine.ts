@@ -127,7 +127,9 @@ export function computeAdvanceTradeSetup(
     const netPoints = constituentAnalysis.netNiftyPointImpact;
     const adv = constituentAnalysis.advances;
     const dec = constituentAnalysis.declines;
-    const bankingSector = constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking');
+    const bankingSector = Array.isArray(constituentAnalysis?.sectoralBreakdown) 
+      ? constituentAnalysis.sectoralBreakdown.find(s => s.sector === 'Banking') 
+      : undefined;
 
     if (netPoints >= 18 && adv >= dec * 1.5) {
       hwBullScore = 2.6;
@@ -1330,13 +1332,13 @@ export function computeAdvanceTradeSetup(
     } else {
       setupType = 'PRE_BREAKDOWN_COILING_PE';
     }
-  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BEARISH_REVERSAL_PE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBull && currentSignalAction !== 'BUY_CE') {
+  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BEARISH_REVERSAL_PE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBull) {
     // High-conviction institutional front-running: BSL sweep + 1m MSS breakdown + FVG retest
     anticipatedAction = 'BUY_PE';
     setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_PE';
     probabilityScore = Math.min(95, Math.max(86, 80 + Math.round(smcBearScore * 3.5)));
     leadTimeAdvantageMinutes = 4.5;
-  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BULLISH_REVERSAL_CE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBear && currentSignalAction !== 'BUY_PE') {
+  } else if (smcFvgFib.isDetected && smcFvgFib.setupDirection === 'BULLISH_REVERSAL_CE' && (smcFvgFib.fvgZone.status === 'ACTIVE_RETEST' || smcFvgFib.isMssConfirmed) && !isCandleBear) {
     // High-conviction institutional front-running: SSL sweep + 1m MSS breakout + FVG retest
     anticipatedAction = 'BUY_CE';
     setupType = 'SMC_ICT_LIQUIDITY_SWEEP_REVERSAL_CE';

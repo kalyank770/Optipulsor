@@ -649,56 +649,74 @@ export function computeMultiTimeframeChartPatterns(
   let confluenceBias: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
   let momentumAlignment: MultiTimeframeChartPatterns['momentumAlignment'] = 'NEUTRAL_MIXED';
 
-  if (confluenceScore >= 4.0 && m2Score > 0 && m5Score > 0 && m15Score > 0) {
+  // Check true timeframe consensus across tactical timeframes (1m, 2m, 5m):
+  const isTacticalBullish = m1Score > 0 && m2Score > 0 && m5Score > 0;
+  const isTacticalBearish = m1Score < 0 && m2Score < 0 && m5Score < 0;
+
+  if (confluenceScore >= 4.0 && isTacticalBullish && m15Score > 0) {
     confluenceBias = 'BULLISH';
     momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
   } else if (confluenceScore >= 1.6 && m5Score >= 0 && m5.trend !== 'BEARISH') {
     confluenceBias = 'BULLISH';
-    momentumAlignment = 'MODERATE_BULLISH';
-  } else if (confluenceScore <= -4.0 && m2Score < 0 && m5Score < 0 && m15Score < 0) {
+    momentumAlignment = isTacticalBullish ? 'FULL_BULLISH_CONFLUENCE' : 'MODERATE_BULLISH';
+  } else if (confluenceScore <= -4.0 && isTacticalBearish && m15Score < 0) {
     confluenceBias = 'BEARISH';
     momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
   } else if (confluenceScore <= -1.6 && m5Score <= 0 && m5.trend !== 'BULLISH') {
     confluenceBias = 'BEARISH';
-    momentumAlignment = 'MODERATE_BEARISH';
+    momentumAlignment = isTacticalBearish ? 'FULL_BEARISH_CONFLUENCE' : 'MODERATE_BEARISH';
   } else {
-    confluenceBias = 'NEUTRAL';
-    momentumAlignment = 'NEUTRAL_MIXED';
+    confluenceBias = isTacticalBullish ? 'BULLISH' : isTacticalBearish ? 'BEARISH' : 'NEUTRAL';
+    momentumAlignment = isTacticalBullish ? 'MODERATE_BULLISH' : isTacticalBearish ? 'MODERATE_BEARISH' : 'NEUTRAL_MIXED';
   }
 
   // 6d. 40-Minute Persistent Flow Synthesis across active timeframes
   const isPersistent40mFall = Boolean(m5.isPersistent40mFall || m15.isPersistent40mFall || m2.isPersistent40mFall);
   const isPersistent40mRise = Boolean(m5.isPersistent40mRise || m15.isPersistent40mRise || m2.isPersistent40mRise);
 
-  // Persistent 40m Flow Override: If market has been continuously falling over 30-45 minutes,
-  // strictly enforce BEARISH bias, negative score, and full confluence regardless of opening gap
+  // Persistent 40m Flow Synthesis: Apply persistent flow override ONLY if tactical timeframes agree with the flow!
+  // If tactical timeframes (1m, 2m, 5m) have bounced and turned positive, reflect the active relief bounce/rebound!
   if (isPersistent40mFall) {
-    confluenceBias = 'BEARISH';
-    confluenceScore = Number(Math.min(-2.8, confluenceScore).toFixed(1));
-    momentumAlignment = 'FULL_BEARISH_CONFLUENCE';
+    if (isTacticalBearish || (m5Score <= 0 && m2Score <= 0)) {
+      confluenceBias = 'BEARISH';
+      confluenceScore = Number(Math.min(-2.8, confluenceScore).toFixed(1));
+      momentumAlignment = isTacticalBearish ? 'FULL_BEARISH_CONFLUENCE' : 'MODERATE_BEARISH';
+    } else {
+      // Active relief bounce occurring within persistent 40m fall structure
+      confluenceBias = isTacticalBullish ? 'BULLISH' : 'NEUTRAL';
+      confluenceScore = Number(Math.max(-1.2, Math.min(2.5, aggregateMomentumIndex)).toFixed(1));
+      momentumAlignment = 'NEUTRAL_MIXED';
+    }
   } else if (isPersistent40mRise) {
-    confluenceBias = 'BULLISH';
-    confluenceScore = Number(Math.max(2.8, confluenceScore).toFixed(1));
-    momentumAlignment = 'FULL_BULLISH_CONFLUENCE';
+    if (isTacticalBullish || (m5Score >= 0 && m2Score >= 0)) {
+      confluenceBias = 'BULLISH';
+      confluenceScore = Number(Math.max(2.8, confluenceScore).toFixed(1));
+      momentumAlignment = isTacticalBullish ? 'FULL_BULLISH_CONFLUENCE' : 'MODERATE_BULLISH';
+    } else {
+      // Active pullback retest occurring within persistent 40m rise structure
+      confluenceBias = isTacticalBearish ? 'BEARISH' : 'NEUTRAL';
+      confluenceScore = Number(Math.min(1.2, Math.max(-2.5, aggregateMomentumIndex)).toFixed(1));
+      momentumAlignment = 'NEUTRAL_MIXED';
+    }
   } else if ((m5.trend === 'BEARISH' || m5Score <= -2.5) && m15Score <= 0.5) {
     // Tactical Intraday Override: If tactical 5m & 15m are actively trending down,
     // do not allow macro 1D/1H opening gap to falsely force a BULLISH bias during an intraday fall
-    if (confluenceBias === 'BULLISH') {
+    if (confluenceBias === 'BULLISH' && !isTacticalBullish) {
       confluenceBias = 'NEUTRAL';
       momentumAlignment = 'NEUTRAL_MIXED';
     }
     if (m5Score <= -3.0 || m15.trend === 'BEARISH') {
       confluenceBias = 'BEARISH';
-      momentumAlignment = 'MODERATE_BEARISH';
+      momentumAlignment = isTacticalBearish ? 'FULL_BEARISH_CONFLUENCE' : 'MODERATE_BEARISH';
     }
   } else if ((m5.trend === 'BULLISH' || m5Score >= 2.5) && m15Score >= -0.5) {
-    if (confluenceBias === 'BEARISH') {
+    if (confluenceBias === 'BEARISH' && !isTacticalBearish) {
       confluenceBias = 'NEUTRAL';
       momentumAlignment = 'NEUTRAL_MIXED';
     }
     if (m5Score >= 3.0 || m15.trend === 'BULLISH') {
       confluenceBias = 'BULLISH';
-      momentumAlignment = 'MODERATE_BULLISH';
+      momentumAlignment = isTacticalBullish ? 'FULL_BULLISH_CONFLUENCE' : 'MODERATE_BULLISH';
     }
   }
 

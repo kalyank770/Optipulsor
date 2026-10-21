@@ -197,24 +197,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Pre-Market Discovery Mode Indicator & Toggle */}
-          {onTogglePreMarket && (!marketStatus?.isOpen || marketStatus?.session === 'PRE_MARKET' || usePreMarket) && (
-            <button
-              type="button"
-              onClick={() => onTogglePreMarket()}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs font-mono font-bold transition-all cursor-pointer shadow-xs min-h-[36px] ${
-                usePreMarket || marketStatus?.session === 'PRE_MARKET'
-                  ? 'bg-amber-950/60 border-amber-500/60 text-amber-300 hover:bg-amber-900/60 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
-                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500'
-              }`}
-              title={usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Market pricing actively updating live. Click to toggle.' : 'Click to enable Pre-Market Price Discovery.'}
-            >
-              <span className={`w-2 h-2 rounded-full ${usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'}`} />
-              <span className="hidden sm:inline">{usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Market Active' : 'Pre-Market Off'}</span>
-              <span className="sm:hidden">{usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Mkt' : 'Reg'}</span>
-            </button>
-          )}
-
           {/* Manual Instant Refresh Button beside After-Market badge */}
           <button
             type="button"

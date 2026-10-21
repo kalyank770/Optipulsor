@@ -906,7 +906,7 @@ export function generateTradeSignal(
     activePreviousSignal.tradeStage !== 'TARGET_2_HIT'
   );
 
-  // Check if active trade invalidation (Stop Loss) has been triggered:
+  // Check if active trade invalidation (Stop Loss or SMC Directional Reversal) has been triggered:
   let isOngoingCeInvalidated = false;
   if (hasOngoingCeTrade && activePreviousSignal) {
     const ceStrike = activePreviousSignal.recommendedStrike;
@@ -914,8 +914,9 @@ export function generateTradeSignal(
     const ceLtp = ceRow?.ce?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
     const ceSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
     const ceSpotSl = activePreviousSignal.spotStopLoss;
-    // Stop loss breached if spot breaks below spot SL floor OR option premium drops below trailing SL
-    if ((ceSpotSl && spotPrice <= ceSpotSl) || (ceSl > 0 && ceLtp > 0 && ceLtp <= ceSl)) {
+    const isSmcBearishBreakdown = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+    // Stop loss breached if spot breaks below spot SL floor, option premium drops below trailing SL, OR institutional SMC Bearish Reversal triggers
+    if ((ceSpotSl && spotPrice <= ceSpotSl) || (ceSl > 0 && ceLtp > 0 && ceLtp <= ceSl) || isSmcBearishBreakdown) {
       isOngoingCeInvalidated = true;
     }
   }
@@ -927,7 +928,9 @@ export function generateTradeSignal(
     const peLtp = peRow?.pe?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
     const peSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
     const peSpotSl = activePreviousSignal.spotStopLoss;
-    if ((peSpotSl && spotPrice >= peSpotSl) || (peSl > 0 && peLtp > 0 && peLtp <= peSl)) {
+    const isSmcBullishBreakout = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+    // Stop loss breached if spot breaks above spot SL ceiling, option premium drops below trailing SL, OR institutional SMC Bullish Reversal triggers
+    if ((peSpotSl && spotPrice >= peSpotSl) || (peSl > 0 && peLtp > 0 && peLtp <= peSl) || isSmcBullishBreakout) {
       isOngoingPeInvalidated = true;
     }
   }
@@ -967,32 +970,35 @@ export function generateTradeSignal(
       capitalProtectionReason = `Holding Active Position: Spot is in a tactical relief bounce/retest. Trade is active within valid risk bounds (SL: ₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Hold position with stop loss discipline.`;
     }
   }
-  // Condition 3: Active Trade Just Stopped Out -> Enforce Mandatory WAIT_NEUTRAL Cooldown
-  else if (isOngoingCeInvalidated && activePreviousSignal) {
+  // Condition 3: Active Trade Just Stopped Out or SMC Reversing -> Enforce Mandatory Cooldown or Reversal Transition
+  else if (isOngoingCeInvalidated && activePreviousSignal && !smcSetup.isDetected) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
     confidence = 50;
     capitalProtectionReason = `🛑 Active CE Stop Loss Triggered: Technical invalidation floor breached. Close ${activePreviousSignal.recommendedStrike} CE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
   }
-  else if (isOngoingPeInvalidated && activePreviousSignal) {
+  else if (isOngoingPeInvalidated && activePreviousSignal && !smcSetup.isDetected) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
     confidence = 50;
     capitalProtectionReason = `🛑 Active PE Stop Loss Triggered: Technical invalidation ceiling breached. Close ${activePreviousSignal.recommendedStrike} PE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
   }
-  // Condition 4: No Active Trade (Flat Position) -> Standard High-Conviction Fresh Entry Evaluation
+  // Condition 4: Standard High-Conviction Fresh Entry Evaluation or SMC Reversal
   else {
-    const isFreshBuyCe = score >= 0.75 && netBullEdge >= 1 && !isHardBearishVeto && !isCandleBearishVeto && prevAction !== 'BUY_PE';
-    const isFreshBuyPe = score <= -0.75 && netBullEdge <= -1 && !isHardBullishVeto && !isCandleBullishVeto && prevAction !== 'BUY_CE';
+    const isSmcBullishBreakout = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+    const isSmcBearishBreakdown = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
+
+    const isFreshBuyCe = (score >= 0.75 && netBullEdge >= 1 && !isHardBearishVeto && !isCandleBearishVeto && (prevAction !== 'BUY_PE' || isSmcBullishBreakout)) || isSmcBullishBreakout;
+    const isFreshBuyPe = (score <= -0.75 && netBullEdge <= -1 && !isHardBullishVeto && !isCandleBullishVeto && (prevAction !== 'BUY_CE' || isSmcBearishBreakdown)) || isSmcBearishBreakdown;
 
     if (isFreshBuyCe) {
       action = 'BUY_CE';
-      strength = (bullMatches >= 4 || score >= 1.8) ? 'STRONG' : 'MODERATE';
+      strength = (bullMatches >= 4 || score >= 1.8 || isSmcBullishBreakout) ? 'STRONG' : 'MODERATE';
       confidence = Math.min(96, Math.max(70, 72 + bullMatches * 3 + Math.round(score * 2.5)));
       capitalProtectionReason = '';
     } else if (isFreshBuyPe) {
       action = 'BUY_PE';
-      strength = (bearMatches >= 4 || score <= -1.8) ? 'STRONG' : 'MODERATE';
+      strength = (bearMatches >= 4 || score <= -1.8 || isSmcBearishBreakdown) ? 'STRONG' : 'MODERATE';
       confidence = Math.min(96, Math.max(70, 72 + bearMatches * 3 + Math.round(Math.abs(score) * 2.5)));
       capitalProtectionReason = '';
     } else {
@@ -1032,15 +1038,19 @@ export function generateTradeSignal(
   // Determine recommended contract type:
   // If BUY_CE -> 'CE'
   // If BUY_PE -> 'PE'
-  // If WAIT_NEUTRAL -> strictly align reference watchlist contract with active real candlestick momentum
+  // If WAIT_NEUTRAL -> strictly align reference watchlist contract with active real candlestick momentum or SMC setup
   let recommendedType: OptionType = 'CE';
   if (action === 'BUY_PE') {
     recommendedType = 'PE';
   } else if (action === 'BUY_CE') {
     recommendedType = 'CE';
   } else {
-    // WAIT_NEUTRAL: Prioritize active real candlestick momentum for reference watchlist contract
-    if (isCandleDownward || isContinuousFall || candlePatterns.isPersistent40mFall || highRejectionRatio >= 0.25 || dropFromPeak >= ticker.strikeStep * 0.40) {
+    // WAIT_NEUTRAL: Prioritize active SMC Setup if present, then active real candlestick momentum
+    if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE') {
+      recommendedType = 'CE';
+    } else if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE') {
+      recommendedType = 'PE';
+    } else if (isCandleDownward || isContinuousFall || candlePatterns.isPersistent40mFall || highRejectionRatio >= 0.25 || dropFromPeak >= ticker.strikeStep * 0.40) {
       recommendedType = 'PE';
     } else if (isCandleUpward || isMarketRaising || candlePatterns.isPersistent40mRise || lowRecoveryRatio >= 0.25 || bounceFromFloor >= ticker.strikeStep * 0.40) {
       recommendedType = 'CE';
@@ -2549,6 +2559,7 @@ export function generateTradeSignal(
     gammaRegimeData: advanceTradeSetup.gammaRegimeData,
     timeframeCoherence: advanceTradeSetup.timeframeCoherence,
     dynamicVolatilityMatrix: advanceTradeSetup.dynamicVolatilityMatrix,
+    institutionalSuite: advanceTradeSetup.institutionalSuite || instSuite,
   };
 }
 
