@@ -93,7 +93,7 @@ export interface DayReportSummary {
   selfHealingSummary: string;
 }
 
-const STORAGE_PREFIX = 'optipulse_days_report_v11_';
+const STORAGE_PREFIX = 'optipulse_days_report_op1_';
 
 /**
  * Formats an epoch timestamp into official market exchange time (hh:mm AM/PM in Asia/Kolkata for India, America/New_York for US)
