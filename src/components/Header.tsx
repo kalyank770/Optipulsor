@@ -197,6 +197,24 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Pre-Market Discovery Mode Indicator & Toggle */}
+          {onTogglePreMarket && (!marketStatus?.isOpen || marketStatus?.session === 'PRE_MARKET' || usePreMarket) && (
+            <button
+              type="button"
+              onClick={() => onTogglePreMarket()}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs font-mono font-bold transition-all cursor-pointer shadow-xs min-h-[36px] ${
+                usePreMarket || marketStatus?.session === 'PRE_MARKET'
+                  ? 'bg-amber-950/60 border-amber-500/60 text-amber-300 hover:bg-amber-900/60 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500'
+              }`}
+              title={usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Market pricing actively updating live. Click to toggle.' : 'Click to enable Pre-Market Price Discovery.'}
+            >
+              <span className={`w-2 h-2 rounded-full ${usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'}`} />
+              <span className="hidden sm:inline">{usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Market Active' : 'Pre-Market Off'}</span>
+              <span className="sm:hidden">{usePreMarket || marketStatus?.session === 'PRE_MARKET' ? 'Pre-Mkt' : 'Reg'}</span>
+            </button>
+          )}
+
           {/* Manual Instant Refresh Button beside After-Market badge */}
           <button
             type="button"
@@ -233,6 +251,11 @@ export const Header: React.FC<HeaderProps> = ({
             <span className={`font-bold text-[11px] ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
               ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
             </span>
+            {(selectedTicker.isUsingPreMarket || marketStatus?.session === 'PRE_MARKET') && (
+              <span className="px-1 py-0.2 text-[9px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                PRE
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-[11px] text-slate-400 shrink-0">
             <span>ATM: <strong className="text-emerald-400">{selectedTicker.atmStrike}</strong></span>
@@ -277,6 +300,15 @@ export const Header: React.FC<HeaderProps> = ({
               <span className={`font-bold text-xs ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {isPositive ? '+' : ''}{selectedTicker.change.toFixed(2)} ({isPositive ? '+' : ''}{selectedTicker.changePercent.toFixed(2)}%)
               </span>
+              {(selectedTicker.isUsingPreMarket || marketStatus?.session === 'PRE_MARKET') && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                  </span>
+                  <span>PRE-MARKET DISCOVERY</span>
+                </span>
+              )}
               {selectedTicker.dayHigh > 0 && selectedTicker.dayLow > 0 && (
                 <span className="inline-flex items-center gap-2 text-slate-400 text-[11px]">
                   <span className="text-slate-600">·</span>

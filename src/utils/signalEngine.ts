@@ -1309,7 +1309,11 @@ export function generateTradeSignal(
     if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE') {
       spotStopLoss = smcSetup.stopLossSpot;
       spotTarget1 = smcSetup.targetSpot;
+      // Scale spotTarget2 as a genuine structural runner beyond SMC Target 1
+      const smcT2Move = Math.max(step * 0.40, smcSetup.targetPoints * 0.55);
+      spotTarget2 = Number((spotTarget1 + smcT2Move).toFixed(2));
       target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+      target2Basis = `SMC Runner Extension (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
     }
 
   } else {
@@ -1347,7 +1351,11 @@ export function generateTradeSignal(
     if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE') {
       spotStopLoss = smcSetup.stopLossSpot;
       spotTarget1 = smcSetup.targetSpot;
+      // Scale spotTarget2 as a genuine structural runner beyond SMC Target 1
+      const smcT2Move = Math.max(step * 0.40, smcSetup.targetPoints * 0.55);
+      spotTarget2 = Number((spotTarget1 - smcT2Move).toFixed(2));
       target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+      target2Basis = `SMC Runner Breakdown (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
     }
   }
 
@@ -1365,9 +1373,7 @@ export function generateTradeSignal(
   const theta = contract ? Math.abs(contract.greeks.theta) : (premium * 0.05);
   const vega = contract ? Math.abs(contract.greeks.vega) : (premium * 0.08);
 
-  // Vega & Implied Volatility (IV) Expansion / Contraction Sensitivity:
-  // Surging VIX expands Put premiums and breakout Call premiums (+0.3% to +0.8% IV)
-  // Compressing VIX crushes options (-0.4% to -0.8% IV)
+  // Vega & Implied Volatility (IV) Expansion / Contraction Sensitivity
   let expectedIvChange1 = 0;
   if (rt.vixVelocity.velocityState === 'SURGING') {
     expectedIvChange1 = isCE ? 0.3 : 0.8;
@@ -1380,36 +1386,45 @@ export function generateTradeSignal(
   const vegaExpansion2 = (vega * ((expectedIvChange1 * 1.4) / 100));
 
   // 1. Target 1 Option Price: Direct, authentic payoff at spotTarget1
+  // Mathematical principle: Option gain CANNOT exceed the underlying spot distance (|Delta| <= 1.0)
   const deltaSpot1 = Math.abs(spotTarget1 - spotPrice);
   const T_target1 = Math.max(0.0001, T - (1.0 / (252 * 6.25)));
   const bsTarget1 = calculateBlackScholes(spotTarget1, targetStrike, T_target1, r, ivDecimal, recommendedType);
-  const bsDeltaGain1 = Math.max(tick * 2, bsTarget1.price - bsCurrent.price);
+  const rawBsDeltaGain1 = Math.max(tick * 2, bsTarget1.price - bsCurrent.price);
+  const safeBsDeltaGain1 = Math.min(deltaSpot1 * 0.95, rawBsDeltaGain1);
   const deltaExpansion1 = delta * deltaSpot1;
-  const gammaAcceleration1 = 0.5 * gamma * Math.pow(deltaSpot1, 2);
+  const gammaAcceleration1 = Math.min(deltaExpansion1 * 0.25, 0.5 * gamma * Math.pow(deltaSpot1, 2));
   const intradayTheta1 = theta * 0.12;
-  const greekGain1 = Math.max(tick * 2, deltaExpansion1 + gammaAcceleration1 - intradayTheta1 + vegaExpansion1);
-  const estGain1 = bsDeltaGain1 * 0.50 + greekGain1 * 0.50;
+  const rawGreekGain1 = deltaExpansion1 + gammaAcceleration1 - intradayTheta1 + vegaExpansion1;
+  const greekGain1 = Math.max(tick * 2, Math.min(deltaSpot1 * 0.95, rawGreekGain1));
+  const blendedGain1 = safeBsDeltaGain1 * 0.50 + greekGain1 * 0.50;
+  const estGain1 = Math.max(tick * 3, Math.min(premium * 0.55, Math.min(deltaSpot1 * 0.95, blendedGain1)));
 
   // 2. Target 2 Option Price: Direct, authentic payoff at spotTarget2
-  const deltaSpot2 = Math.abs(spotTarget2 - spotPrice);
+  const deltaSpot2 = Math.max(deltaSpot1 + step * 0.25, Math.abs(spotTarget2 - spotPrice));
   const T_target2 = Math.max(0.0001, T - (2.5 / (252 * 6.25)));
   const bsTarget2 = calculateBlackScholes(spotTarget2, targetStrike, T_target2, r, ivDecimal, recommendedType);
   const rawTarget1Delta = roundToTick(estGain1);
-  const bsDeltaGain2 = Math.max(rawTarget1Delta + tick * 2, bsTarget2.price - bsCurrent.price);
+  const rawBsDeltaGain2 = Math.max(rawTarget1Delta + tick * 4, bsTarget2.price - bsCurrent.price);
+  const safeBsDeltaGain2 = Math.min(deltaSpot2 * 0.95, rawBsDeltaGain2);
   const deltaExpansion2 = delta * deltaSpot2;
-  const gammaAcceleration2 = 0.5 * gamma * Math.pow(deltaSpot2, 2);
+  const gammaAcceleration2 = Math.min(deltaExpansion2 * 0.30, 0.5 * gamma * Math.pow(deltaSpot2, 2));
   const intradayTheta2 = theta * 0.25;
-  const greekGain2 = Math.max(rawTarget1Delta + tick * 2, deltaExpansion2 + gammaAcceleration2 - intradayTheta2 + vegaExpansion2);
-  const estGain2 = bsDeltaGain2 * 0.50 + greekGain2 * 0.50;
+  const rawGreekGain2 = deltaExpansion2 + gammaAcceleration2 - intradayTheta2 + vegaExpansion2;
+  const greekGain2 = Math.max(rawTarget1Delta + tick * 4, Math.min(deltaSpot2 * 0.95, rawGreekGain2));
+  const blendedGain2 = safeBsDeltaGain2 * 0.50 + greekGain2 * 0.50;
+  const minT2Gain = Math.max(rawTarget1Delta + tick * 6, roundToTick(rawTarget1Delta * 1.35), roundToTick(premium * 0.32));
+  const estGain2 = Math.max(minT2Gain, Math.min(premium * 0.95, Math.min(deltaSpot2 * 0.95, blendedGain2)));
 
   // 3. Stop Loss Option Price: Technical invalidation at spotStopLoss
   const deltaSpotSL = Math.abs(spotStopLoss - spotPrice);
   const T_sl = Math.max(0.0001, T - (0.5 / (252 * 6.25)));
   const bsSL = calculateBlackScholes(spotStopLoss, targetStrike, T_sl, r, ivDecimal, recommendedType);
-  const bsLoss = Math.max(tick, bsCurrent.price - bsSL.price);
+  const bsLoss = Math.max(tick * 2, Math.min(premium * 0.32, bsCurrent.price - bsSL.price));
   const intradayThetaSL = theta * 0.06;
-  const greekLoss = Math.max(tick, delta * deltaSpotSL - 0.5 * gamma * Math.pow(deltaSpotSL, 2) + intradayThetaSL);
-  const estLoss = bsLoss * 0.50 + greekLoss * 0.50;
+  const gammaLossSL = Math.min(delta * deltaSpotSL * 0.25, 0.5 * gamma * Math.pow(deltaSpotSL, 2));
+  const greekLoss = Math.max(tick * 2, Math.min(premium * 0.32, delta * deltaSpotSL - gammaLossSL + intradayThetaSL));
+  const estLoss = Math.max(tick * 2, Math.min(premium * 0.28, Math.max(premium * 0.12, bsLoss * 0.50 + greekLoss * 0.50)));
 
   // Grounded Entry Range calculation (incorporates 2m micro-pullback buffer and bid-ask spread)
   const spreadBuffer = ticker.currency === '₹' ? (ticker.symbol.includes('BANK') ? 0.75 : 0.40) : 0.05;
@@ -2254,7 +2269,20 @@ export function generateTradeSignal(
       confidence = advanceTradeSetup.probabilityScore;
       selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
       contract = selectedRow?.pe;
-      premium = contract?.ltp ?? premium;
+      premium = (contract && contract.ltp > 0.05) ? contract.ltp : (advanceTradeSetup.advanceEntryOptionRange?.[0] || premium);
+      initialEntryLtp = premium;
+
+      // Synchronize targets, stop loss, and spot levels directly with advanceTradeSetup
+      target1 = advanceTradeSetup.advanceOptionTarget1;
+      target2 = advanceTradeSetup.advanceOptionTarget2;
+      stopLoss = advanceTradeSetup.advanceOptionStopLoss;
+      spotTarget1 = Number((ticker.spotPrice - ticker.strikeStep * 0.65).toFixed(2));
+      spotTarget2 = Number((spotTarget1 - ticker.strikeStep * 0.75).toFixed(2));
+      spotStopLoss = advanceTradeSetup.advanceStopLossSpot || Number((ticker.spotPrice + ticker.strikeStep * 0.45).toFixed(2));
+      entryLow = advanceTradeSetup.advanceEntryOptionRange[0];
+      entryHigh = advanceTradeSetup.advanceEntryOptionRange[1];
+      entryRange = [entryLow, entryHigh];
+
       summaryNote = `${pricePrefix}: Suggesting BUY PE. [Pillar Consensus Confirmed: ${bearPillars} Bearish Pillars aligned with Candlestick Momentum]. Recommended ${targetStrike} PE @ ${ticker.currency}${premium.toFixed(2)}.`;
     } else if (advanceTradeSetup.anticipatedAction === 'BUY_CE' && (bullPillars >= 6 || (bullPillars >= 5 && isMarketRaising)) && bullPillars > bearPillars && candlePatterns.confluenceBias !== 'BEARISH') {
       action = 'BUY_CE';
@@ -2264,7 +2292,20 @@ export function generateTradeSignal(
       confidence = advanceTradeSetup.probabilityScore;
       selectedRow = chain.find(r => r.strike === targetStrike) || selectedRow;
       contract = selectedRow?.ce;
-      premium = contract?.ltp ?? premium;
+      premium = (contract && contract.ltp > 0.05) ? contract.ltp : (advanceTradeSetup.advanceEntryOptionRange?.[0] || premium);
+      initialEntryLtp = premium;
+
+      // Synchronize targets, stop loss, and spot levels directly with advanceTradeSetup
+      target1 = advanceTradeSetup.advanceOptionTarget1;
+      target2 = advanceTradeSetup.advanceOptionTarget2;
+      stopLoss = advanceTradeSetup.advanceOptionStopLoss;
+      spotTarget1 = Number((ticker.spotPrice + ticker.strikeStep * 0.65).toFixed(2));
+      spotTarget2 = Number((spotTarget1 + ticker.strikeStep * 0.75).toFixed(2));
+      spotStopLoss = advanceTradeSetup.advanceStopLossSpot || Number((ticker.spotPrice - ticker.strikeStep * 0.45).toFixed(2));
+      entryLow = advanceTradeSetup.advanceEntryOptionRange[0];
+      entryHigh = advanceTradeSetup.advanceEntryOptionRange[1];
+      entryRange = [entryLow, entryHigh];
+
       summaryNote = `${pricePrefix}: Suggesting BUY CE. [Pillar Consensus Confirmed: ${bullPillars} Bullish Pillars aligned with Candlestick Momentum]. Recommended ${targetStrike} CE @ ${ticker.currency}${premium.toFixed(2)}.`;
     }
   }
@@ -2317,7 +2358,7 @@ export function generateTradeSignal(
     }
 
     // Re-synchronize option price entry zone, stop loss, and targets with the exact LTP of the target strike
-    const roundToTick = (val: number) => Math.max(0.05, Math.round(val * 20) / 20);
+    const roundToTick = (val: number) => Number(Math.max(0.05, Math.round(val * 20) / 20).toFixed(2));
     const spreadBuf = ticker.currency === '$' ? 0.05 : (ticker.symbol.includes('BANK') ? 1.50 : 0.75);
     advanceTradeSetup.advanceEntryOptionRange = [
       roundToTick(Math.max(0.05, premium - spreadBuf)),
@@ -2353,9 +2394,10 @@ export function generateTradeSignal(
   // Guarantees mathematical and contract integrity across all tickers and session phases:
   // 1. Strike must exist in chain
   // 2. Contract LTP must be synchronized with initialEntryLtp and recommendedContractLTP
-  // 3. For any BUY recommendation: Target 2 > Target 1 > Entry Price > Stop Loss
+  // 3. For any recommendation (including WAIT_NEUTRAL reference watch contracts):
+  //    Target 2 > Target 1 > Entry Price > Stop Loss
   // 4. Entry range must encompass Entry Price
-  if (action === 'BUY_CE' || action === 'BUY_PE') {
+  if (action === 'BUY_CE' || action === 'BUY_PE' || action === 'WAIT_NEUTRAL') {
     const verifiedRow = chain.find(r => r.strike === targetStrike);
     const verifiedContract = verifiedRow ? (recommendedType === 'CE' ? verifiedRow.ce : verifiedRow.pe) : null;
     if (verifiedContract && verifiedContract.ltp > 0.05) {
@@ -2364,18 +2406,75 @@ export function generateTradeSignal(
       moneyness = verifiedContract.moneyness;
     }
 
-    // Mathematical integrity check for Target 1: Target 1 must be strictly greater than entry
-    if (target1 <= initialEntryLtp) {
-      target1 = roundToTick(initialEntryLtp * 1.35);
+    // Mathematical integrity check for Target 1: Target 1 must be strictly greater than entry,
+    // and bounded within realistic intraday option expansion (+15% to +55% gain).
+    // Prevents inflated target leaks (e.g. +498% from cross-strike/model artifacts).
+    const minT1Gain = Math.max(tick * 3, roundToTick(initialEntryLtp * 0.15));
+    const maxT1Gain = Math.max(tick * 6, roundToTick(initialEntryLtp * 0.55));
+    const currentT1Delta = target1 - initialEntryLtp;
+
+    if (target1 <= initialEntryLtp || currentT1Delta > maxT1Gain || currentT1Delta < minT1Gain || isNaN(target1)) {
+      const advT1Delta = advanceTradeSetup?.advanceOptionTarget1 ? (advanceTradeSetup.advanceOptionTarget1 - initialEntryLtp) : 0;
+      const safeT1Delta = (advT1Delta >= minT1Gain && advT1Delta <= maxT1Gain)
+        ? advT1Delta
+        : roundToTick(initialEntryLtp * 0.30);
+      target1 = roundToTick(initialEntryLtp + safeT1Delta);
     }
+
     // Mathematical integrity check for Target 2: Target 2 must be strictly greater than Target 1
-    if (target2 <= target1) {
-      target2 = roundToTick(Math.max(target1 + tick * 4, initialEntryLtp * 1.70));
+    // by at least +35% of T1's gain, and capped within realistic intraday runner bounds (+35% to +95% gain).
+    // Eliminates artificial 20-paise gaps (e.g. 991.15 vs 991.35).
+    const validT1Delta = Math.max(tick * 3, target1 - initialEntryLtp);
+    const minT2Delta = Math.max(validT1Delta + tick * 6, roundToTick(validT1Delta * 1.35), roundToTick(initialEntryLtp * 0.35));
+    const maxT2Delta = Math.max(minT2Delta, roundToTick(initialEntryLtp * 0.95));
+    const currentT2Delta = target2 - initialEntryLtp;
+
+    if (target2 <= target1 || currentT2Delta > maxT2Delta || currentT2Delta < minT2Delta || isNaN(target2)) {
+      const advT2Delta = advanceTradeSetup?.advanceOptionTarget2 ? (advanceTradeSetup.advanceOptionTarget2 - initialEntryLtp) : 0;
+      const safeT2Delta = (advT2Delta >= minT2Delta && advT2Delta <= maxT2Delta)
+        ? advT2Delta
+        : roundToTick(Math.max(minT2Delta, validT1Delta * 1.65));
+      target2 = roundToTick(initialEntryLtp + safeT2Delta);
     }
-    // Mathematical integrity check for Stop Loss: Stop Loss must be strictly below entry and positive
-    if (stopLoss >= initialEntryLtp || stopLoss <= 0) {
-      stopLoss = Math.max(tick, roundToTick(initialEntryLtp * 0.82));
+
+    // Mathematical integrity check for Stop Loss: Stop Loss must be strictly below entry and positive,
+    // bounded between -12% and -28% of initial entry
+    const minSlRisk = Math.max(tick * 2, roundToTick(initialEntryLtp * 0.12));
+    const maxSlRisk = Math.max(minSlRisk, roundToTick(initialEntryLtp * 0.28));
+    const currentSlRisk = initialEntryLtp - stopLoss;
+
+    if (stopLoss >= initialEntryLtp || stopLoss <= 0 || currentSlRisk > maxSlRisk || currentSlRisk < minSlRisk || isNaN(stopLoss)) {
+      const advSlRisk = advanceTradeSetup?.advanceOptionStopLoss ? (initialEntryLtp - advanceTradeSetup.advanceOptionStopLoss) : 0;
+      const safeSlRisk = (advSlRisk >= minSlRisk && advSlRisk <= maxSlRisk)
+        ? advSlRisk
+        : roundToTick(initialEntryLtp * 0.20);
+      stopLoss = Math.max(tick, roundToTick(initialEntryLtp - safeSlRisk));
     }
+
+    // Spot Level Directional Sanity
+    const spotStep = ticker.strikeStep;
+    if (recommendedType === 'CE') {
+      if (spotTarget1 <= ticker.spotPrice || isNaN(spotTarget1)) {
+        spotTarget1 = Number((ticker.spotPrice + spotStep * 0.65).toFixed(2));
+      }
+      if (spotTarget2 <= spotTarget1 || isNaN(spotTarget2)) {
+        spotTarget2 = Number((spotTarget1 + spotStep * 0.75).toFixed(2));
+      }
+      if (spotStopLoss >= ticker.spotPrice || isNaN(spotStopLoss)) {
+        spotStopLoss = Number((ticker.spotPrice - spotStep * 0.45).toFixed(2));
+      }
+    } else if (recommendedType === 'PE') {
+      if (spotTarget1 >= ticker.spotPrice || isNaN(spotTarget1)) {
+        spotTarget1 = Number((ticker.spotPrice - spotStep * 0.65).toFixed(2));
+      }
+      if (spotTarget2 >= spotTarget1 || isNaN(spotTarget2)) {
+        spotTarget2 = Number((spotTarget1 - spotStep * 0.75).toFixed(2));
+      }
+      if (spotStopLoss <= ticker.spotPrice || isNaN(spotStopLoss)) {
+        spotStopLoss = Number((ticker.spotPrice + spotStep * 0.45).toFixed(2));
+      }
+    }
+
     // Entry range bounds check
     if (entryLow > initialEntryLtp || entryHigh < initialEntryLtp) {
       const spreadBuf = ticker.currency === '$' ? 0.05 : (ticker.symbol.includes('BANK') ? 0.75 : 0.40);
@@ -2383,10 +2482,12 @@ export function generateTradeSignal(
       entryHigh = roundToTick(initialEntryLtp + spreadBuf);
       entryRange = [entryLow, entryHigh];
     }
-    // Recalculate Risk:Reward Ratio
+
+    // Recalculate Risk:Reward Ratio with sanitized levels (clamped within realistic bounds 1.2 to 4.5)
     const t1Profit = Math.max(tick, target1 - initialEntryLtp);
     const slRisk = Math.max(tick, initialEntryLtp - stopLoss);
-    rrRatio = `1 : ${(t1Profit / slRisk).toFixed(1)}`;
+    const calcRR = Number((t1Profit / slRisk).toFixed(1));
+    rrRatio = `1 : ${Math.max(1.2, Math.min(4.5, calcRR))}`;
 
     // Sync advanceTradeSetup with guaranteed consistent levels
     if (advanceTradeSetup) {

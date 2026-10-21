@@ -155,14 +155,33 @@ export function getMarketHoursStatus(ticker: TickerConfig): MarketHoursStatus {
       };
     }
 
-    // Weekday: Pre-market (09:00 to 09:15 IST)
-    if (totalMinutes >= preMarketStart && totalMinutes < marketOpen) {
+    // Weekday: Pre-market Discovery (07:00 to 09:15 IST)
+    // 07:00 - 09:00: Early Pre-Market & GIFT Nifty Discovery
+    // 09:00 - 09:08: NSE Pre-Open Order Collection
+    // 09:08 - 09:12: NSE Equilibrium Price Discovery (IEP)
+    // 09:12 - 09:15: Pre-Open Buffer
+    const earlyPreMarketStart = 7 * 60; // 07:00 AM IST
+    if (totalMinutes >= earlyPreMarketStart && totalMinutes < marketOpen) {
+      let statusMsg = 'Pre-Open Session Active (09:00 - 09:15 AM IST)';
+      let nextMsg = 'Regular trading opens at 09:15 AM IST';
+
+      if (totalMinutes < preMarketStart) {
+        statusMsg = 'Early Pre-Market & GIFT Nifty Discovery (07:00 - 09:00 AM IST)';
+        nextMsg = 'NSE Pre-Open at 09:00 AM, Regular trading at 09:15 AM IST';
+      } else if (totalMinutes < 9 * 60 + 8) {
+        statusMsg = 'NSE Pre-Open Order Collection (09:00 - 09:08 AM IST)';
+        nextMsg = 'IEP Discovery at 09:08 AM, Regular trading at 09:15 AM IST';
+      } else {
+        statusMsg = 'NSE Equilibrium Price Discovery Active (09:08 - 09:15 AM IST)';
+        nextMsg = 'Continuous trading opens at 09:15 AM IST';
+      }
+
       return {
         isOpen: false,
         session: 'PRE_MARKET',
         marketName: 'NSE (India)',
-        marketStatusMessage: 'Pre-Open Session Active (09:00 - 09:15 AM IST)',
-        nextOpenMsg: 'Regular trading opens at 09:15 AM IST',
+        marketStatusMessage: statusMsg,
+        nextOpenMsg: nextMsg,
         exchangeTimeStr,
         tradingHoursLabel,
         isCasSession: false,

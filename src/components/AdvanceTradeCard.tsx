@@ -98,15 +98,32 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   // Harmonize Entry Range, Stop Loss, and Targets directly with the signal engine's anchored levels
   const optEntryLow = signal?.entryRange ? signal.entryRange[0] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[0] : currentLTP);
   const optEntryHigh = signal?.entryRange ? signal.entryRange[1] : (setup.advanceEntryOptionRange ? setup.advanceEntryOptionRange[1] : currentLTP);
-  const optTarget1 = signal?.target1 || setup.advanceOptionTarget1;
-  const optTarget2 = signal?.target2 || setup.advanceOptionTarget2;
-  const initialOptSL = Math.max(0.05, Math.min(signal?.stopLoss || setup.advanceOptionStopLoss, Math.max(0.05, optEntryLow - 0.05)));
+  
+  // Harmonized targets bounded to genuine option price physics
+  const candidateT1 = (signal?.target1 && signal.target1 > currentLTP && signal.target1 <= currentLTP * 1.65)
+    ? signal.target1
+    : (setup.advanceOptionTarget1 && setup.advanceOptionTarget1 > currentLTP && setup.advanceOptionTarget1 <= currentLTP * 1.65)
+    ? setup.advanceOptionTarget1
+    : Number((currentLTP * 1.30).toFixed(2));
+
+  const candidateT2 = (signal?.target2 && signal.target2 >= candidateT1 + Math.max(0.30, (candidateT1 - currentLTP) * 0.35) && signal.target2 <= currentLTP * 2.1)
+    ? signal.target2
+    : (setup.advanceOptionTarget2 && setup.advanceOptionTarget2 >= candidateT1 + Math.max(0.30, (candidateT1 - currentLTP) * 0.35) && setup.advanceOptionTarget2 <= currentLTP * 2.1)
+    ? setup.advanceOptionTarget2
+    : Number((currentLTP + Math.max(0.60, (candidateT1 - currentLTP) * 1.65)).toFixed(2));
+
+  const optTarget1 = candidateT1;
+  const optTarget2 = candidateT2;
+  const initialOptSL = Math.max(0.05, Math.min(signal?.stopLoss || setup.advanceOptionStopLoss, Math.max(0.05, currentLTP * 0.80)));
   const trailedOptSL = signal?.trailingStopLoss;
   const isProfitLocked = Boolean(trailedOptSL && trailedOptSL > initialOptSL);
   const optStopLoss = isProfitLocked ? trailedOptSL! : initialOptSL;
-  const optRisk = Math.max(0.5, currentLTP - initialOptSL);
-  const optReward = optTarget1 - currentLTP;
-  const optRR = signal?.riskRewardRatio || setup.advanceRiskRewardRatio || `1 : ${(optReward / optRisk).toFixed(1)}`;
+  const optRisk = Math.max(0.5, currentLTP - optStopLoss);
+  const optReward = Math.max(0.5, optTarget1 - currentLTP);
+  const rawCalculatedRR = Number((optReward / optRisk).toFixed(1));
+  const optRR = (rawCalculatedRR >= 1.0 && rawCalculatedRR <= 5.0)
+    ? `1 : ${rawCalculatedRR}`
+    : (signal?.riskRewardRatio && !signal.riskRewardRatio.includes('NaN') ? signal.riskRewardRatio : `1 : ${rawCalculatedRR}`);
 
   const effectiveMoneyness = setup.moneyness || signal?.moneyness || getMoneyness(setup.recommendedStrike, setup.recommendedType, ticker.spotPrice, ticker.strikeStep);
 
@@ -297,7 +314,20 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+            {/* Pre-Market Live Pricing indicator */}
+            {(usePreMarket || marketStatus?.session === 'PRE_MARKET' || ticker.isUsingPreMarket) && (
+              <div 
+                className="px-2 py-1 rounded bg-amber-950/60 border border-amber-500/50 text-amber-300 text-[10.5px] font-mono font-bold flex items-center gap-1.5 shadow-xs"
+                title={`Pre-Market Active Spot: ₹${(ticker.preMarketPrice || ticker.spotPrice).toFixed(2)} (${ticker.change >= 0 ? '+' : ''}${ticker.change.toFixed(2)} pts)`}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span>Pre-Mkt Spot: ₹{(ticker.preMarketPrice || ticker.spotPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
             {/* Simulate Contract Icon Button */}
             {!isWait && !isStopLossBreached && (
               <button

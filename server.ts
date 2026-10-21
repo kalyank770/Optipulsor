@@ -307,7 +307,8 @@ async function fetchLiveNseMarketStatus() {
   const openM = 9 * 60 + 15;
   const closeM = 15 * 60 + 30;
   const casEndM = 15 * 60 + 40;
-  const preM = 9 * 60;
+  const earlyPreM = 7 * 60; // 07:00 AM IST
+  const preM = 9 * 60; // 09:00 AM IST
   const postM = 16 * 60;
 
   let session: 'REGULAR' | 'PRE_MARKET' | 'POST_MARKET' | 'CLOSED' = 'CLOSED';
@@ -323,7 +324,7 @@ async function fetchLiveNseMarketStatus() {
       isOpen = true;
       session = 'REGULAR';
     }
-  } else if (ist.totalMinutes >= preM && ist.totalMinutes < openM) {
+  } else if (ist.totalMinutes >= earlyPreM && ist.totalMinutes < openM) {
     session = 'PRE_MARKET';
   } else if (ist.totalMinutes >= closeM && ist.totalMinutes < casEndM) {
     session = 'POST_MARKET';
@@ -339,7 +340,11 @@ async function fetchLiveNseMarketStatus() {
   const casMinutesLeft = isCasSession ? Math.max(1, casEndM - ist.totalMinutes) : undefined;
 
   let statusMsg = isOpen ? (isClosingSoon ? `Closing in ${minutesToClose} mins (03:30 PM IST)` : 'Regular Trading Active') :
-    session === 'PRE_MARKET' ? 'Pre-Open Session Active (09:00 - 09:15 AM IST)' :
+    session === 'PRE_MARKET' ? (
+      ist.totalMinutes < preM ? 'Early Pre-Market & GIFT Nifty Discovery (07:00 - 09:00 AM IST)' :
+      ist.totalMinutes < 9 * 60 + 8 ? 'NSE Pre-Open Order Collection Active (09:00 - 09:08 AM IST)' :
+      'NSE Equilibrium Price Discovery Active (09:08 - 09:15 AM IST)'
+    ) :
     isCasSession ? 'Closing Auction (CAS · 3:30 - 3:40 PM)' :
     session === 'POST_MARKET' ? 'Post-Market Trading (3:40 - 4:00 PM)' : 'Market Closed';
 
@@ -978,6 +983,106 @@ async function fetchFastIndexQuote(rawSymbol: string): Promise<any> {
 
   const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+  const holiday = checkMarketHoliday(new Date(), true);
+  const tz = 'Asia/Kolkata';
+  const ist = getExchangeClock(tz);
+  const isPreMarketWindow = !holiday.isHoliday && !ist.isWeekend && (ist.totalMinutes >= 7 * 60 && ist.totalMinutes < 9 * 60 + 15);
+
+  // Direct High-Priority Pre-Market Discovery for Indian Benchmark Indices
+  if (isPreMarketWindow) {
+    try {
+      // 1. Check Official NSE Pre-Open Discovery Session (IEP & allIndices)
+      const nsePreOpen = await fetchNseLivePreMarket(rawSymbol).catch(() => null);
+      let prePrice = nsePreOpen?.preMarketPrice;
+      let preChange = nsePreOpen?.preMarketChange;
+      let preChangePct = nsePreOpen?.preMarketChangePercent;
+      let sourceName = nsePreOpen?.source || 'Official NSE India Pre-Open Discovery Session';
+
+      // 2. Check NSE marketStatus API (returns official Nifty IEP and variation during pre-open)
+      if ((!prePrice || prePrice < 1000) && !isBank && !isFin && !isSensex) {
+        const nseStatus = await fetchLiveNseMarketStatus().catch(() => null);
+        if (nseStatus?.niftyPrice && nseStatus.niftyPrice > 10000) {
+          prePrice = Number(nseStatus.niftyPrice.toFixed(2));
+          preChange = nseStatus.niftyChange !== undefined ? Number(nseStatus.niftyChange.toFixed(2)) : undefined;
+          sourceName = 'Official NSE India Market Status IEP Feed';
+        }
+      }
+
+      // 3. Fallback to GIFT Nifty Live Implied Cash Open (e.g. before 09:08 AM or when GIFT Nifty ticks)
+      if ((!prePrice || prePrice < 1000) && lastKnownLiveGiftNifty && lastKnownLiveGiftNifty.price > 10000) {
+        const fairBasis = isBank ? 45 : 18;
+        prePrice = Number((lastKnownLiveGiftNifty.price - fairBasis).toFixed(2));
+        sourceName = 'GIFT Nifty Live Implied Pre-Market Discovery Feed';
+      }
+
+      if (prePrice && prePrice > 100) {
+        let refPrevClose = nsePreOpen?.preMarketPrice && nsePreOpen?.preMarketChange !== undefined
+          ? Number((nsePreOpen.preMarketPrice - nsePreOpen.preMarketChange).toFixed(2))
+          : undefined;
+
+        if (!refPrevClose || refPrevClose < 100) {
+          const cached = liveQuoteCache.get(normSym);
+          refPrevClose = cached?.quote?.prevClose;
+        }
+        if (!refPrevClose || refPrevClose < 100) {
+          refPrevClose = lastKnownLiveGiftNifty.prevClose;
+        }
+        if (!refPrevClose || refPrevClose < 100) {
+          refPrevClose = Number((prePrice - (preChange ?? 0)).toFixed(2));
+        }
+
+        if (preChange === undefined || isNaN(preChange)) {
+          preChange = Number((prePrice - refPrevClose).toFixed(2));
+        }
+        if (preChangePct === undefined || isNaN(preChangePct)) {
+          preChangePct = refPrevClose > 0 ? Number(((preChange / refPrevClose) * 100).toFixed(2)) : 0;
+        }
+
+        const istString = new Date().toLocaleString('en-IN', {
+          timeZone: tz,
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' IST';
+
+        return {
+          symbol: rawSymbol,
+          price: prePrice,
+          spotPrice: prePrice,
+          regularPrice: refPrevClose,
+          change: preChange,
+          changePercent: preChangePct,
+          dayHigh: Math.max(prePrice, refPrevClose),
+          dayLow: Math.min(prePrice, refPrevClose),
+          dayOpen: prePrice,
+          prevClose: refPrevClose,
+          vwap: prePrice,
+          volume: 0,
+          marketState: 'PRE_MARKET',
+          lastUpdated: istString,
+          preMarketPrice: prePrice,
+          preMarketChange: preChange,
+          preMarketChangePercent: preChangePct,
+          extendedHours: {
+            session: 'PRE',
+            price: prePrice,
+            change: preChange,
+            changePercent: preChangePct,
+            time: istString,
+            source: sourceName,
+          },
+          source: sourceName,
+        };
+      }
+    } catch (_preErr) {
+      // Continue to parallel sources
+    }
+  }
+
   const parseYahooMeta = (meta: any) => {
     if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 100) {
       const spotPrice = Number(meta.regularMarketPrice.toFixed(2));
@@ -987,14 +1092,11 @@ async function fetchFastIndexQuote(rawSymbol: string): Promise<any> {
       const change = Number((spotPrice - prevClose).toFixed(2));
       const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
 
-      const holiday = checkMarketHoliday(new Date(), true);
-      const tz = 'Asia/Kolkata';
-      const ist = getExchangeClock(tz);
       let marketState = (holiday.isHoliday || ist.isWeekend) ? 'CLOSED' : 'REGULAR';
       if (!holiday.isHoliday && !ist.isWeekend) {
-        if (ist.totalMinutes >= 9 * 60 && ist.totalMinutes < 9 * 60 + 15) {
+        if (ist.totalMinutes >= 7 * 60 && ist.totalMinutes < 9 * 60 + 15) {
           marketState = 'PRE_MARKET';
-        } else if (ist.totalMinutes < 9 * 60 || ist.totalMinutes > 15 * 60 + 30) {
+        } else if (ist.totalMinutes < 7 * 60 || ist.totalMinutes > 15 * 60 + 30) {
           marketState = 'CLOSED';
         }
       }
@@ -1082,6 +1184,7 @@ async function fetchFastIndexQuote(rawSymbol: string): Promise<any> {
         const change = Number((spotPrice - prevClose).toFixed(2));
         const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
         const istString = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
+        const istState = (ist.totalMinutes >= 9 * 60 + 15 && ist.totalMinutes < 15 * 60 + 30) ? 'REGULAR' : (ist.totalMinutes >= 7 * 60 && ist.totalMinutes < 9 * 60 + 15 ? 'PRE_MARKET' : 'CLOSED');
         return {
           symbol: rawSymbol,
           price: spotPrice,
@@ -1094,8 +1197,11 @@ async function fetchFastIndexQuote(rawSymbol: string): Promise<any> {
           dayOpen: prevClose,
           prevClose,
           vwap: spotPrice,
-          marketState: 'REGULAR',
+          marketState: istState,
           lastUpdated: istString,
+          preMarketPrice: istState === 'PRE_MARKET' ? spotPrice : undefined,
+          preMarketChange: istState === 'PRE_MARKET' ? change : undefined,
+          preMarketChangePercent: istState === 'PRE_MARKET' ? changePercent : undefined,
           source: 'Groww Realtime Exchange Feed',
         };
       }
@@ -2459,7 +2565,11 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
                             growwJson.underlyingDto?.ltp || 
                             growwJson.optionChain?.underlyingDto?.ltp || 
                             growwJson.optionChain?.underlyingDetailsDto?.ltp;
-          const S = (growwSpot && growwSpot > 0) ? growwSpot : (quote.spotPrice || quote.price);
+          const isPreMarket = quote.marketState === 'PRE_MARKET' || quote.extendedHours?.session === 'PRE';
+          const activePrePrice = quote.preMarketPrice || (isPreMarket ? (quote.spotPrice || quote.price) : undefined);
+          const S = (isPreMarket && activePrePrice && activePrePrice > 0)
+            ? activePrePrice
+            : ((growwSpot && growwSpot > 0) ? growwSpot : (quote.spotPrice || quote.price));
 
           // Validate that rawOptionChains contains strikes near current spot S
           if (rawOptionChains.length > 0) {
@@ -2473,13 +2583,22 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
             }
           }
 
-          // Adjust quote price to match Groww's live spot index value
-          if (growwSpot && growwSpot > 0) {
+          // Adjust quote price: during regular session sync with live Groww spot, during pre-market preserve discovered pre-market price
+          if (!isPreMarket && growwSpot && growwSpot > 0) {
             quote.spotPrice = growwSpot;
             quote.regularPrice = growwSpot;
             if (quote.prevClose > 0) {
               quote.change = Number((growwSpot - quote.prevClose).toFixed(2));
               quote.changePercent = Number(((quote.change / quote.prevClose) * 100).toFixed(2));
+            }
+          } else if (isPreMarket && activePrePrice && activePrePrice > 0) {
+            quote.spotPrice = activePrePrice;
+            quote.preMarketPrice = activePrePrice;
+            if (quote.prevClose > 0) {
+              quote.change = Number((activePrePrice - quote.prevClose).toFixed(2));
+              quote.changePercent = Number(((quote.change / quote.prevClose) * 100).toFixed(2));
+              quote.preMarketChange = quote.change;
+              quote.preMarketChangePercent = quote.changePercent;
             }
           }
 
@@ -2688,26 +2807,33 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
             const vix = vixQuote ? vixQuote.spotPrice : 12.69;
             const vixChange = vixQuote ? vixQuote.change : 0.2;
 
+            const isPre = quote.marketState === 'PRE_MARKET' || quote.extendedHours?.session === 'PRE';
+            const effectiveSpot = (isPre && quote.preMarketPrice && quote.preMarketPrice > 0)
+              ? quote.preMarketPrice
+              : (quote.spotPrice || quote.price);
+
             const payload = {
               symbol: rawSymbol,
-              spotPrice: quote.spotPrice || quote.price,
-              regularPrice: quote.regularPrice || quote.spotPrice || quote.price,
+              spotPrice: effectiveSpot,
+              regularPrice: quote.regularPrice || quote.prevClose || effectiveSpot,
               prevClose: quote.prevClose,
               change: quote.change,
               changePercent: quote.changePercent,
               dayHigh: quote.dayHigh,
               dayLow: quote.dayLow,
-              vwap: quote.vwap || Number(((quote.dayHigh + quote.dayLow + (quote.spotPrice || quote.price)) / 3).toFixed(2)),
+              vwap: quote.vwap || Number(((quote.dayHigh + quote.dayLow + effectiveSpot) / 3).toFixed(2)),
               atmStrike: atm,
               currency: '₹',
               asOnTime: quote.formattedTime || quote.lastUpdated || (new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST'),
               marketState: quote.marketState,
               isHoliday: quote.isHoliday,
               holidayName: quote.holidayName,
-              marketStatusMessage: quote.isHoliday ? `Exchange Closed · ${quote.holidayName}` : (quote.marketState === 'CLOSED' ? 'Market Closed' : 'Market Open'),
-              preMarketPrice: quote.preMarketPrice,
-              preMarketChange: quote.preMarketChange,
-              preMarketChangePercent: quote.preMarketChangePercent,
+              marketStatusMessage: quote.isHoliday 
+                ? `Exchange Closed · ${quote.holidayName}` 
+                : (quote.marketState === 'PRE_MARKET' ? 'Pre-Market Discovery Active' : (quote.marketState === 'CLOSED' ? 'Market Closed' : 'Market Open')),
+              preMarketPrice: quote.preMarketPrice || effectiveSpot,
+              preMarketChange: quote.preMarketChange !== undefined ? quote.preMarketChange : quote.change,
+              preMarketChangePercent: quote.preMarketChangePercent !== undefined ? quote.preMarketChangePercent : quote.changePercent,
               postMarketPrice: quote.postMarketPrice,
               postMarketChange: quote.postMarketChange,
               postMarketChangePercent: quote.postMarketChangePercent,

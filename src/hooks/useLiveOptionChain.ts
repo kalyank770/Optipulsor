@@ -743,28 +743,28 @@ export function useLiveOptionChain() {
           };
         });
         
-        // Pre-market discovery is AUTOMATIC when session is PRE_MARKET or exchange is outside regular hours
-        const activePreMarket = currentSession === 'PRE_MARKET' || (!isMarketOpen && !isHoliday);
+        // Pre-market discovery is AUTOMATIC when session is PRE_MARKET, or when usePreMarket is enabled, or off-market
+        const activePreMarket = currentSession === 'PRE_MARKET' || activeUsePre || (!isMarketOpen && !isHoliday && (activeUsePre || Boolean(prePrice && prePrice > 0)));
 
         if (!prePrice && activePreMarket) {
-          prePrice = regularPrice || data.prevClose || activeTicker.prevClose;
+          prePrice = data.spotPrice || regularPrice || data.prevClose || activeTicker.prevClose;
         }
 
         // Active spot price dynamically uses pre-market price during pre-market/off-market hours
-        let activeSpot = (activePreMarket && prePrice && prePrice > 0 ? prePrice : regularPrice);
+        let activeSpot = (activePreMarket && prePrice && prePrice > 0 ? prePrice : (isMarketOpen ? regularPrice : (prePrice || regularPrice)));
 
         const step = activeTicker.strikeStep;
         const newAtm = Math.round(activeSpot / step) * step;
 
-        const activeChange = activePreMarket && prePrice
-          ? Number((prePrice - (data.prevClose || activeTicker.prevClose || regularPrice)).toFixed(2))
-          : (data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - (activeTicker.prevClose || activeSpot)).toFixed(2)));
-          
-        const activeChangePct = data.prevClose || activeTicker.prevClose
-          ? Number(((activeChange / (data.prevClose || activeTicker.prevClose)) * 100).toFixed(2))
-          : 0;
+        const basePrevClose = data.prevClose || activeTicker.prevClose || Number((regularPrice || activeSpot).toFixed(2));
 
-        const basePrevClose = data.prevClose || activeTicker.prevClose || Number((activeSpot - activeChange).toFixed(2));
+        const activeChange = activePreMarket && prePrice
+          ? (data.preMarketChange !== undefined ? data.preMarketChange : Number((prePrice - basePrevClose).toFixed(2)))
+          : (data.change !== undefined ? Number(data.change.toFixed(2)) : Number((activeSpot - basePrevClose).toFixed(2)));
+          
+        const activeChangePct = data.preMarketChangePercent !== undefined && activePreMarket
+          ? data.preMarketChangePercent
+          : (basePrevClose > 0 ? Number(((activeChange / basePrevClose) * 100).toFixed(2)) : 0);
 
         const updatedTicker: TickerConfig = {
           ...activeTicker,
@@ -780,12 +780,14 @@ export function useLiveOptionChain() {
           vix: data.vix !== undefined ? data.vix : activeTicker.vix,
           vixChange: data.vixChange !== undefined ? data.vixChange : activeTicker.vixChange,
           asOnTime: activePreMarket 
-            ? `Pre-Market Auto Discovery (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})` 
+            ? (data.asOnTime?.includes('Pre-Market') 
+                ? data.asOnTime 
+                : `Pre-Market Auto Discovery (${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })})`)
             : data.asOnTime,
           marketState: currentSession,
           isHoliday,
           holidayName: hoursStatus.holidayName || data.holidayName,
-          preMarketPrice: prePrice,
+          preMarketPrice: prePrice || activeSpot,
           preMarketChange: activeChange,
           preMarketChangePercent: activeChangePct,
           postMarketPrice: data.postMarketPrice,
@@ -793,7 +795,7 @@ export function useLiveOptionChain() {
           postMarketChangePercent: data.postMarketChangePercent,
           extendedHours: data.extendedHours || {
             session: 'PRE',
-            price: prePrice,
+            price: prePrice || activeSpot,
             change: activeChange,
             changePercent: activeChangePct,
             time: new Date().toISOString(),

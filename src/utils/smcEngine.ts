@@ -14,7 +14,7 @@ import {
  * 2. Market Structure Shifts (MSS / CHoCH through 1m/5m swing pivots)
  * 3. Fair Value Gaps (FVG 3-candle imbalances)
  * 4. 0.50 - 0.618 Fibonacci Golden Pocket Retracements (Optimal Trade Entry - OTE)
- * 5. Asymmetric Risk-to-Reward Execution (e.g., 5.64 : 1 R:R setups)
+ * 5. Asymmetric Risk-to-Reward Execution (e.g., 2.5 : 1 to 5.0 : 1 R:R setups)
  */
 export function computeSmcFvgFibSetup(
   ticker: TickerConfig,
@@ -28,13 +28,25 @@ export function computeSmcFvgFibSetup(
   const dayHigh = ticker.dayHigh || spotPrice;
   const dayLow = ticker.dayLow || spotPrice;
   const prevClose = ticker.prevClose || spotPrice;
+  const isUSD = ticker.currency === '$';
+  const isBank = ticker.symbol.includes('BANK');
 
   // Multi-timeframe candle data
-  const m1 = candlePatterns.m1;
-  const m5 = candlePatterns.m5;
-  const m15 = candlePatterns.m15;
+  const m1 = candlePatterns?.m1;
+  const m5 = candlePatterns?.m5;
+  const m15 = candlePatterns?.m15;
 
-  const m5Candle = m5.latestCandle;
+  const defaultCandle = {
+    timestamp: Date.now(),
+    open: spotPrice,
+    high: Math.max(dayHigh, spotPrice),
+    low: Math.min(dayLow, spotPrice),
+    close: spotPrice,
+    volume: 10000,
+    timeframe: '5m'
+  };
+
+  const m5Candle = m5?.latestCandle || defaultCandle;
   const m1Candle = m1?.latestCandle || m5Candle;
 
   const candleRange = Math.max(0.1, m5Candle.high - m5Candle.low);
@@ -43,26 +55,75 @@ export function computeSmcFvgFibSetup(
   const upperWickRatio = Math.min(100, Math.round((upperWick / candleRange) * 100));
   const lowerWickRatio = Math.min(100, Math.round((lowerWick / candleRange) * 100));
 
-  // 1. Detect Buy-Side Liquidity Sweep (BSL Sweep above Previous Day High / Session High)
-  const isHighSweep = (
-    (m5Candle.high >= metrics.majorResistanceStrike - step * 0.10 || m5Candle.high >= dayHigh - step * 0.10 || m5Candle.high >= prevClose + step * 0.3) &&
-    (upperWick >= candleRange * 0.28 || upperWickRatio >= 28)
-  ) || (candlePatterns.confluenceBias === 'BEARISH' && spotPrice < dayHigh && dayHigh - spotPrice >= step * 0.35);
+  // 1. Detect Buy-Side Liquidity Sweep (BSL Sweep above Previous Day High / Session High / Major Resistance)
+  // Requires price to have genuinely tested or pierced the high liquidity pool AND demonstrated absorption / upper wick rejection
+  const sweepHighThreshold = dayHigh - step * 0.10;
+  const resistanceThreshold = metrics.majorResistanceStrike - step * 0.10;
+  const probedHighPool = (
+    m5Candle.high >= sweepHighThreshold || 
+    m5Candle.high >= resistanceThreshold ||
+    (m1Candle && m1Candle.high >= sweepHighThreshold)
+  );
+  const hasHighAbsorptionWick = (
+    upperWickRatio >= 22 || 
+    (upperWick >= candleRange * 0.22 && m5Candle.close <= m5Candle.open) ||
+    candlePatterns.confluenceBias === 'BEARISH'
+  );
+  // Reversal condition: Spot has rejected off the high and is pulling back
+  const isHighSweepCandidate = probedHighPool && hasHighAbsorptionWick && spotPrice < Math.max(dayHigh, m5Candle.high);
 
-  // Detect Sell-Side Liquidity Sweep (SSL Sweep below Previous Day Low / Session Low)
-  const isLowSweep = (
-    (m5Candle.low <= metrics.majorSupportStrike + step * 0.10 || m5Candle.low <= dayLow + step * 0.10 || m5Candle.low <= prevClose - step * 0.3) &&
-    (lowerWick >= candleRange * 0.28 || lowerWickRatio >= 28)
-  ) || (candlePatterns.confluenceBias === 'BULLISH' && spotPrice > dayLow && spotPrice - dayLow >= step * 0.35);
+  // Detect Sell-Side Liquidity Sweep (SSL Sweep below Previous Day Low / Session Low / Major Support)
+  // Requires price to have genuinely tested or pierced the low liquidity pool AND demonstrated absorption / lower wick rejection
+  const sweepLowThreshold = dayLow + step * 0.10;
+  const supportThreshold = metrics.majorSupportStrike + step * 0.10;
+  const probedLowPool = (
+    m5Candle.low <= sweepLowThreshold || 
+    m5Candle.low <= supportThreshold ||
+    (m1Candle && m1Candle.low <= sweepLowThreshold)
+  );
+  const hasLowAbsorptionWick = (
+    lowerWickRatio >= 22 || 
+    (lowerWick >= candleRange * 0.22 && m5Candle.close >= m5Candle.open) ||
+    candlePatterns.confluenceBias === 'BULLISH'
+  );
+  // Reversal condition: Spot has absorbed selling at the low and is bouncing back
+  const isLowSweepCandidate = probedLowPool && hasLowAbsorptionWick && spotPrice > Math.min(dayLow, m5Candle.low);
 
-  // 2. Identify Displacement Leg & Swing Levels
+  // Resolve dominant sweep by proximity and momentum to eliminate false positive cross-shadowing
+  let isHighSweep = false;
+  let isLowSweep = false;
+
+  if (isHighSweepCandidate && isLowSweepCandidate) {
+    const distToHigh = Math.abs(dayHigh - spotPrice);
+    const distToLow = Math.abs(spotPrice - dayLow);
+    if (distToHigh <= distToLow) {
+      isHighSweep = true;
+    } else {
+      isLowSweep = true;
+    }
+  } else if (isHighSweepCandidate) {
+    isHighSweep = true;
+  } else if (isLowSweepCandidate) {
+    isLowSweep = true;
+  }
+
+  // Max / Min allowable targets per asset class
+  const maxDrop = isUSD ? 6.5 : (isBank ? 150 : 70);
+  const minDrop = isUSD ? 1.5 : (isBank ? 35 : 20);
+  const maxGain = isUSD ? 6.5 : (isBank ? 150 : 70);
+  const minGain = isUSD ? 1.5 : (isBank ? 35 : 20);
+
+  // 2. BEARISH REVERSAL SETUP (Buy-Side Liquidity Swept, Displacement Down, Retest FVG + Fib)
   if (isHighSweep) {
-    // BEARISH REVERSAL SETUP (Like the 19 Oct Nifty Short logic in the user screenshot)
-    const sweepHigh = Number((Math.max(dayHigh, m5Candle.high, spotPrice + 12)).toFixed(2));
+    const sweepHigh = Number(Math.max(dayHigh, m5Candle.high, m1Candle.high).toFixed(2));
     
-    // Internal swing low / 1m DAY LOW that got broken (MSS)
-    const mssLow = Number((Math.min(dayLow, spotPrice - step * 0.45, m1?.support || spotPrice - 15)).toFixed(2));
-    const displacementPoints = Number((sweepHigh - mssLow).toFixed(2));
+    // Internal swing low / 1m MSS low broken by displacement
+    const fallbackMssLow = sweepHigh - Math.max(step * 0.40, (isUSD ? 2.0 : (isBank ? 55 : 28)));
+    const rawMssLow = (m1?.support && m1.support < sweepHigh && m1.support > sweepHigh - step * 1.2)
+      ? m1.support 
+      : fallbackMssLow;
+    const mssLow = Number(Math.min(sweepHigh - step * 0.20, rawMssLow).toFixed(2));
+    const displacementPoints = Number(Math.max(step * 0.30, sweepHigh - mssLow).toFixed(2));
 
     // Fibonacci Calculations (from Sweep High 1.0 down to Displacement Low 0.0)
     const fib0 = mssLow;
@@ -72,27 +133,39 @@ export function computeSmcFvgFibSetup(
     const fib0618 = Number((fib0 + displacementPoints * 0.618).toFixed(2));
     const fib0786 = Number((fib0 + displacementPoints * 0.786).toFixed(2));
 
-    // Fair Value Gap (FVG) formed between 0.50 and 0.618/0.65
-    const fvgBottom = fib05;
-    const fvgTop = fib0618;
+    // Fair Value Gap (FVG) formed between 0.50 and 0.618 Golden Pocket
+    const fvgBottom = Math.min(fib05, fib0618);
+    const fvgTop = Math.max(fib05, fib0618);
     const fvgMid = Number(((fvgBottom + fvgTop) / 2).toFixed(2));
 
     // Optimal Trade Entry (OTE)
-    const entrySpot = Number(((fib05 + fib0618) / 2).toFixed(2));
-    const stopLossSpot = Number((sweepHigh + step * 0.08).toFixed(2));
-    const stopLossPoints = Number((stopLossSpot - entrySpot).toFixed(2));
+    const entrySpot = fvgMid;
+    const stopLossSpot = Number((sweepHigh + Math.max(step * 0.05, isUSD ? 0.3 : 2.5)).toFixed(2));
+    const stopLossPoints = Number(Math.max(step * 0.18, stopLossSpot - entrySpot).toFixed(2));
     
-    // Target: Major lower support or key downside liquidity pool (aiming for 100-130 pts)
-    const targetSpot = Number(Math.min(mssLow - step * 0.8, metrics.majorSupportStrike - step * 0.2).toFixed(2));
+    // Target: Sell-Side Liquidity pool below internal swing low
+    const rawTargetPoints = Math.max(minDrop, Math.min(maxDrop, Math.max((entrySpot - mssLow) + step * 0.25, stopLossPoints * 2.1)));
+    const targetSpot = Number((entrySpot - rawTargetPoints).toFixed(2));
     const targetPoints = Number((entrySpot - targetSpot).toFixed(2));
+    
+    // True Asymmetric Risk-Reward Ratio (clamped within realistic bounds 1.8 to 4.2)
+    const actualRR = targetPoints / Math.max(1.0, stopLossPoints);
+    const riskRewardRatio = Number(Math.max(1.8, Math.min(4.2, actualRR)).toFixed(1));
 
-    const riskRewardRatio = Number(Math.max(1.5, targetPoints / Math.max(stopLossPoints, 1)).toFixed(2));
+    // FVG Retest Status
+    const isRetestingFvg = spotPrice >= fvgBottom - 2 && spotPrice <= fvgTop + 2;
+    const isMitigated = spotPrice < fvgBottom - 2;
+    const fvgStatus: SmcFvgFibSetup['fvgZone']['status'] = isRetestingFvg ? 'ACTIVE_RETEST' : isMitigated ? 'MITIGATED' : 'TESTING';
 
-    // Recommended Put contract (ATM/ITM)
-    const recommendedStrike = Math.round(spotPrice / step) * step;
+    // Real-Time Captured Points from Entry
+    let capturedPoints = 0;
+    if (spotPrice <= targetSpot) {
+      capturedPoints = Math.round(targetPoints);
+    } else if (spotPrice < entrySpot) {
+      capturedPoints = Math.max(0, Math.round(entrySpot - spotPrice));
+    }
 
-    // Is currently retesting the FVG zone?
-    const isRetestingFvg = spotPrice >= fvgBottom - 4 && spotPrice <= fvgTop + 4;
+    const isMssConfirmed = spotPrice <= mssLow + 2 || m1?.trend === 'BEARISH' || m5?.trend === 'BEARISH' || candlePatterns.confluenceBias === 'BEARISH';
 
     return {
       isDetected: true,
@@ -101,7 +174,7 @@ export function computeSmcFvgFibSetup(
       liquiditySweepLabel: 'Previous Day Liquidity Sweep (BSL Hunted)',
       marketStructureShiftLevel: mssLow,
       mssLabel: '1m DAY LOW (MSS Breakdown)',
-      isMssConfirmed: spotPrice <= mssLow + 8 || m1?.trend === 'BEARISH' || m5?.trend === 'BEARISH',
+      isMssConfirmed,
       displacementLeg: {
         swingHigh: sweepHigh,
         swingLow: mssLow,
@@ -120,7 +193,7 @@ export function computeSmcFvgFibSetup(
         bottom: fvgBottom,
         midpoint: fvgMid,
         label: 'FVG + FIB (0.5 - 0.618 Golden Pocket)',
-        status: isRetestingFvg ? 'ACTIVE_RETEST' : spotPrice < fvgBottom ? 'MITIGATED' : 'TESTING',
+        status: fvgStatus,
       },
       optimalTradeEntryRange: [fvgBottom, fvgTop],
       entryPriceSpot: entrySpot,
@@ -129,19 +202,23 @@ export function computeSmcFvgFibSetup(
       targetSpot,
       targetPoints: Math.abs(targetPoints),
       riskRewardRatio,
-      capturedPoints: Math.round(targetPoints),
-      statusHeadline: `🎯 SMC Bearish Reversal: Previous Day High Swept → 1m Day Low Broken → Retest into FVG + 0.618 FIB`,
-      rationale: `Buy-side liquidity swept above ${ticker.currency}${sweepHigh.toLocaleString()} with upper wick rejection. Aggressive displacement broke structure below ${ticker.currency}${mssLow.toLocaleString()} ('1m DAY LOW'). Optimal Trade Entry (OTE) active on pullback into FVG + FIB zone (${ticker.currency}${fvgBottom.toFixed(1)} - ${ticker.currency}${fvgTop.toFixed(1)}). Risk/Reward: 1 : ${riskRewardRatio}.`,
+      capturedPoints,
+      statusHeadline: `🎯 SMC Bearish Reversal: Buy-Side Liquidity Swept → MSS Breakdown → FVG Retest`,
+      rationale: `Buy-side liquidity swept above ${ticker.currency}${sweepHigh.toLocaleString()} with upper wick rejection. Institutional displacement broke structure below ${ticker.currency}${mssLow.toLocaleString()} ('MSS Breakdown'). Optimal Trade Entry (OTE) active on pullback into FVG + 0.618 FIB zone (${ticker.currency}${fvgBottom.toFixed(1)} - ${ticker.currency}${fvgTop.toFixed(1)}). Risk/Reward: ${riskRewardRatio} : 1.`,
     };
   }
 
+  // 3. BULLISH REVERSAL SETUP (Sell-Side Liquidity Swept, Displacement Up, Retest FVG + Fib)
   if (isLowSweep) {
-    // BULLISH REVERSAL SETUP (Sell-Side Liquidity Swept, Displacement Up, Retest FVG + Fib)
-    const sweepLow = Number((Math.min(dayLow, m5Candle.low, spotPrice - 12)).toFixed(2));
+    const sweepLow = Number(Math.min(dayLow, m5Candle.low, m1Candle.low).toFixed(2));
     
-    // Internal swing high / 1m DAY HIGH that got broken (MSS)
-    const mssHigh = Number((Math.max(dayHigh, spotPrice + step * 0.45, m1?.resistance || spotPrice + 15)).toFixed(2));
-    const displacementPoints = Number((mssHigh - sweepLow).toFixed(2));
+    // Internal swing high / 1m MSS high broken by displacement
+    const fallbackMssHigh = sweepLow + Math.max(step * 0.40, (isUSD ? 2.0 : (isBank ? 55 : 28)));
+    const rawMssHigh = (m1?.resistance && m1.resistance > sweepLow && m1.resistance < sweepLow + step * 1.2)
+      ? m1.resistance 
+      : fallbackMssHigh;
+    const mssHigh = Number(Math.max(sweepLow + step * 0.20, rawMssHigh).toFixed(2));
+    const displacementPoints = Number(Math.max(step * 0.30, mssHigh - sweepLow).toFixed(2));
 
     // Fibonacci Calculations (from Sweep Low 1.0 up to Displacement High 0.0)
     const fib0 = mssHigh;
@@ -151,26 +228,39 @@ export function computeSmcFvgFibSetup(
     const fib0618 = Number((mssHigh - displacementPoints * 0.618).toFixed(2));
     const fib0786 = Number((mssHigh - displacementPoints * 0.786).toFixed(2));
 
-    // Fair Value Gap (FVG) formed between 0.50 and 0.618
-    const fvgTop = fib05;
-    const fvgBottom = fib0618;
+    // Fair Value Gap (FVG) formed between 0.50 and 0.618 Golden Pocket
+    const fvgBottom = Math.min(fib05, fib0618);
+    const fvgTop = Math.max(fib05, fib0618);
     const fvgMid = Number(((fvgBottom + fvgTop) / 2).toFixed(2));
 
     // Optimal Trade Entry (OTE)
-    const entrySpot = Number(((fvgBottom + fvgTop) / 2).toFixed(2));
-    const stopLossSpot = Number((sweepLow - step * 0.08).toFixed(2));
-    const stopLossPoints = Number((entrySpot - stopLossSpot).toFixed(2));
+    const entrySpot = fvgMid;
+    const stopLossSpot = Number((sweepLow - Math.max(step * 0.05, isUSD ? 0.3 : 2.5)).toFixed(2));
+    const stopLossPoints = Number(Math.max(step * 0.18, entrySpot - stopLossSpot).toFixed(2));
     
-    // Target: Major upper resistance or key upside liquidity pool
-    const targetSpot = Number(Math.max(mssHigh + step * 0.8, metrics.majorResistanceStrike + step * 0.2).toFixed(2));
+    // Target: Buy-Side Liquidity pool above internal swing high
+    const rawTargetPoints = Math.max(minGain, Math.min(maxGain, Math.max((mssHigh - entrySpot) + step * 0.25, stopLossPoints * 2.1)));
+    const targetSpot = Number((entrySpot + rawTargetPoints).toFixed(2));
     const targetPoints = Number((targetSpot - entrySpot).toFixed(2));
+    
+    // True Asymmetric Risk-Reward Ratio (clamped within realistic bounds 1.8 to 4.2)
+    const actualRR = targetPoints / Math.max(1.0, stopLossPoints);
+    const riskRewardRatio = Number(Math.max(1.8, Math.min(4.2, actualRR)).toFixed(1));
 
-    const riskRewardRatio = Number(Math.max(1.5, targetPoints / Math.max(stopLossPoints, 1)).toFixed(2));
+    // FVG Retest Status
+    const isRetestingFvg = spotPrice >= fvgBottom - 2 && spotPrice <= fvgTop + 2;
+    const isMitigated = spotPrice > fvgTop + 2;
+    const fvgStatus: SmcFvgFibSetup['fvgZone']['status'] = isRetestingFvg ? 'ACTIVE_RETEST' : isMitigated ? 'MITIGATED' : 'TESTING';
 
-    // Recommended Call contract (ATM/ITM)
-    const recommendedStrike = Math.round(spotPrice / step) * step;
+    // Real-Time Captured Points from Entry
+    let capturedPoints = 0;
+    if (spotPrice >= targetSpot) {
+      capturedPoints = Math.round(targetPoints);
+    } else if (spotPrice > entrySpot) {
+      capturedPoints = Math.max(0, Math.round(spotPrice - entrySpot));
+    }
 
-    const isRetestingFvg = spotPrice >= fvgBottom - 4 && spotPrice <= fvgTop + 4;
+    const isMssConfirmed = spotPrice >= mssHigh - 2 || m1?.trend === 'BULLISH' || m5?.trend === 'BULLISH' || candlePatterns.confluenceBias === 'BULLISH';
 
     return {
       isDetected: true,
@@ -179,7 +269,7 @@ export function computeSmcFvgFibSetup(
       liquiditySweepLabel: 'Previous Day Liquidity Sweep (SSL Absorbed)',
       marketStructureShiftLevel: mssHigh,
       mssLabel: '1m DAY HIGH (MSS Breakout)',
-      isMssConfirmed: spotPrice >= mssHigh - 8 || m1?.trend === 'BULLISH' || m5?.trend === 'BULLISH',
+      isMssConfirmed,
       displacementLeg: {
         swingHigh: mssHigh,
         swingLow: sweepLow,
@@ -198,7 +288,7 @@ export function computeSmcFvgFibSetup(
         bottom: fvgBottom,
         midpoint: fvgMid,
         label: 'FVG + FIB (0.5 - 0.618 Golden Pocket)',
-        status: isRetestingFvg ? 'ACTIVE_RETEST' : spotPrice > fvgTop ? 'MITIGATED' : 'TESTING',
+        status: fvgStatus,
       },
       optimalTradeEntryRange: [fvgBottom, fvgTop],
       entryPriceSpot: entrySpot,
@@ -207,53 +297,55 @@ export function computeSmcFvgFibSetup(
       targetSpot,
       targetPoints: Math.abs(targetPoints),
       riskRewardRatio,
-      capturedPoints: Math.round(targetPoints),
-      statusHeadline: `🎯 SMC Bullish Reversal: Sell-Side Liquidity Swept → 1m Day High Broken → Retest into FVG + 0.618 FIB`,
-      rationale: `Sell-side liquidity swept below ${ticker.currency}${sweepLow.toLocaleString()} with buyer wick absorption. Aggressive displacement broke structure above ${ticker.currency}${mssHigh.toLocaleString()} ('1m DAY HIGH'). Optimal Trade Entry (OTE) active on pullback into FVG + FIB zone (${ticker.currency}${fvgBottom.toFixed(1)} - ${ticker.currency}${fvgTop.toFixed(1)}). Risk/Reward: 1 : ${riskRewardRatio}.`,
+      capturedPoints,
+      statusHeadline: `🎯 SMC Bullish Reversal: Sell-Side Liquidity Swept → MSS Breakout → FVG Retest`,
+      rationale: `Sell-side liquidity swept below ${ticker.currency}${sweepLow.toLocaleString()} with buyer wick absorption. Institutional displacement broke structure above ${ticker.currency}${mssHigh.toLocaleString()} ('MSS Breakout'). Optimal Trade Entry (OTE) active on pullback into FVG + 0.618 FIB zone (${ticker.currency}${fvgBottom.toFixed(1)} - ${ticker.currency}${fvgTop.toFixed(1)}). Risk/Reward: ${riskRewardRatio} : 1.`,
     };
   }
 
-  // Fallback neutral / monitoring structure
+  // 4. Fallback neutral / monitoring structure (When neither sweep is currently active)
+  const rangeSpan = Math.max(step * 0.4, dayHigh - dayLow);
+  const midPoint = Number(((dayHigh + dayLow) / 2).toFixed(1));
+  const oteMin = Number((dayLow + rangeSpan * 0.50).toFixed(1));
+  const oteMax = Number((dayLow + rangeSpan * 0.618).toFixed(1));
+
   return {
     isDetected: false,
     setupDirection: 'NEUTRAL',
     liquiditySweepLevel: dayHigh,
-    liquiditySweepLabel: 'Monitoring Session Range',
+    liquiditySweepLabel: 'Session High / Buy-Side Liquidity Pool',
     marketStructureShiftLevel: dayLow,
-    mssLabel: '1m DAY LOW',
+    mssLabel: 'Session Low / Sell-Side Liquidity Pool',
     isMssConfirmed: false,
     displacementLeg: {
       swingHigh: dayHigh,
       swingLow: dayLow,
-      displacementPoints: Number((dayHigh - dayLow).toFixed(1)),
+      displacementPoints: Number(rangeSpan.toFixed(1)),
     },
     fibonacciLevels: {
       fib0: dayLow,
-      fib0382: Number((dayLow + (dayHigh - dayLow) * 0.382).toFixed(1)),
-      fib05: Number((dayLow + (dayHigh - dayLow) * 0.50).toFixed(1)),
-      fib0618: Number((dayLow + (dayHigh - dayLow) * 0.618).toFixed(1)),
-      fib0786: Number((dayLow + (dayHigh - dayLow) * 0.786).toFixed(1)),
+      fib0382: Number((dayLow + rangeSpan * 0.382).toFixed(1)),
+      fib05: midPoint,
+      fib0618: oteMax,
+      fib0786: Number((dayLow + rangeSpan * 0.786).toFixed(1)),
       fib1: dayHigh,
     },
     fvgZone: {
-      top: Number((dayLow + (dayHigh - dayLow) * 0.618).toFixed(1)),
-      bottom: Number((dayLow + (dayHigh - dayLow) * 0.50).toFixed(1)),
-      midpoint: Number(((dayHigh + dayLow) / 2).toFixed(1)),
+      top: oteMax,
+      bottom: oteMin,
+      midpoint: midPoint,
       label: 'FVG + FIB Equilibrium Monitoring',
       status: 'UNFILLED',
     },
-    optimalTradeEntryRange: [
-      Number((dayLow + (dayHigh - dayLow) * 0.50).toFixed(1)),
-      Number((dayLow + (dayHigh - dayLow) * 0.618).toFixed(1)),
-    ],
+    optimalTradeEntryRange: [oteMin, oteMax],
     entryPriceSpot: spotPrice,
-    stopLossSpot: Number((dayHigh + step * 0.2).toFixed(1)),
-    stopLossPoints: Number((step * 0.2).toFixed(1)),
-    targetSpot: Number((dayLow - step * 0.5).toFixed(1)),
-    targetPoints: Number((step * 0.5).toFixed(1)),
-    riskRewardRatio: 2.5,
-    capturedPoints: 50,
+    stopLossSpot: Number((dayHigh + step * 0.15).toFixed(1)),
+    stopLossPoints: Number((step * 0.15).toFixed(1)),
+    targetSpot: Number((dayLow - step * 0.40).toFixed(1)),
+    targetPoints: Number((step * 0.40).toFixed(1)),
+    riskRewardRatio: 2.6,
+    capturedPoints: 0,
     statusHeadline: `SMC Structure Monitoring: Awaiting Liquidity Sweep of Highs or Lows`,
-    rationale: `Monitoring for retail stop hunts above ${ticker.currency}${dayHigh.toLocaleString()} (PDH/Session High) or below ${ticker.currency}${dayLow.toLocaleString()} (PDL/Session Low).`,
+    rationale: `Monitoring for retail stop hunts above ${ticker.currency}${dayHigh.toLocaleString()} (PDH/Session High) or below ${ticker.currency}${dayLow.toLocaleString()} (PDL/Session Low). No fake breakouts detected yet.`,
   };
 }

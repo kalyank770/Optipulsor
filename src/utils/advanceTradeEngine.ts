@@ -1515,7 +1515,8 @@ export function computeAdvanceTradeSetup(
     }
   }
 
-  const roundToTick = (val: number) => Math.max(0.05, Math.round(val * 20) / 20);
+  const tick = isUSD ? 0.01 : 0.05;
+  const roundToTick = (val: number) => Number(Math.max(tick, Math.round(val / tick) * tick).toFixed(2));
 
   // Advance Entry Option Range (Realistic tight spread)
   const spreadBuffer = isUSD ? 0.05 : (isBankNifty ? 1.50 : 0.75);
@@ -1530,15 +1531,28 @@ export function computeAdvanceTradeSetup(
   const isNegativeGamma = gexRegimeData.regime === 'NEGATIVE_GAMMA';
 
   const smcTargetMove = smcFvgFib.isDetected ? smcFvgFib.targetPoints : spotAtrTarget1Buffer;
-  const advanceOptionStopLoss = roundToTick(Math.max(0.05, currentLTP - (spotAtrStopBuffer * optionDelta * 0.92)));
-  const advanceOptionTarget1 = roundToTick(currentLTP + (Math.max(spotAtrTarget1Buffer, smcTargetMove * 0.6) * optionDelta * 1.05));
-  const advanceOptionTarget2 = roundToTick(currentLTP + (Math.max(spotAtrTarget2Buffer, smcTargetMove) * (optionDelta + optionGamma * spotAtrTarget1Buffer * 0.5) * (isNegativeGamma ? 1.15 : 1.0)));
+  const smcStopMove = smcFvgFib.isDetected ? smcFvgFib.stopLossPoints : spotAtrStopBuffer;
+
+  // Realistic option stop loss derived from underlying spot stop move
+  const optionStopMove = Math.max(tick * 3, smcStopMove * optionDelta * 0.90);
+  const safeSlRisk = Math.min(currentLTP * 0.28, Math.max(currentLTP * 0.12, optionStopMove));
+  const advanceOptionStopLoss = roundToTick(Math.max(0.05, currentLTP - safeSlRisk));
+
+  // Realistic Option Target 1: Tactical move to primary hurdle / MSS level (+18% to +50% gain)
+  const optionTarget1Move = Math.max(tick * 4, smcTargetMove * 0.60 * optionDelta * 1.05);
+  const safeT1Gain = roundToTick(Math.min(currentLTP * 0.55, Math.max(currentLTP * 0.18, optionTarget1Move)));
+  const advanceOptionTarget1 = roundToTick(currentLTP + safeT1Gain);
+
+  // Realistic Option Target 2: Structural runner extension (+35% to +95% gain)
+  const optionTarget2Move = Math.max(safeT1Gain + tick * 8, smcTargetMove * 1.10 * (optionDelta + optionGamma * spotAtrTarget1Buffer * 0.4) * (isNegativeGamma ? 1.15 : 1.0));
+  const minT2Gain = Math.max(safeT1Gain + tick * 8, roundToTick(safeT1Gain * 1.40), roundToTick(currentLTP * 0.35));
+  const safeT2Gain = roundToTick(Math.min(currentLTP * 0.95, Math.max(minT2Gain, optionTarget2Move)));
+  const advanceOptionTarget2 = roundToTick(currentLTP + safeT2Gain);
 
   const advanceRisk = Math.max(0.5, currentLTP - advanceOptionStopLoss);
   const advanceReward = Math.max(0.5, advanceOptionTarget1 - currentLTP);
-  const advanceRiskRewardRatio = setupType.startsWith('SMC_ICT') && smcFvgFib.isDetected
-    ? `1 : ${smcFvgFib.riskRewardRatio.toFixed(1)}`
-    : `1 : ${(advanceReward / advanceRisk).toFixed(1)}`;
+  const calculatedRR = Number((advanceReward / advanceRisk).toFixed(1));
+  const advanceRiskRewardRatio = `1 : ${Math.max(1.4, Math.min(4.5, calculatedRR))}`;
 
   // Comparative metrics: Advance Entry vs Lagging Entry
   const laggingEstimatedOptionPrice = roundToTick(currentLTP * 1.20);
