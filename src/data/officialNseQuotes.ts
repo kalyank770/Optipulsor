@@ -34,12 +34,12 @@ export function getDynamicExpiryDateString(expiryIndex: number = 0, baseDate: Da
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   let cursor = new Date(baseDate.getTime());
   
-  // Weekly settlements for Indian indices (Thursday = 4, or Tuesday = 2)
+  // Weekly settlements for Nifty options are every Tuesday (day === 2)
   let found = 0;
   while (found <= expiryIndex) {
     cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
     const day = cursor.getDay();
-    if (day === 4 || day === 2) {
+    if (day === 2) {
       if (found === expiryIndex) {
         const d = String(cursor.getDate()).padStart(2, '0');
         const m = months[cursor.getMonth()];
@@ -64,7 +64,7 @@ export function resolveNextExpiryContractQuote(
   targetStrike: number,
   recommendedType: 'CE' | 'PE',
   expiryIndex: number = 0,
-  currentSpot: number = 23119.00
+  currentSpot: number = 22687.65
 ): { ltp: number; change: number; changePercent: number; bid: number; ask: number; iv: number; moneyness: 'ITM' | 'ATM' | 'OTM'; expiryDate: string } {
   const dteDays = expiryIndex <= 0 ? 3 : (expiryIndex === 1 ? 7 : (expiryIndex * 7));
   const T = Math.max(0.002, dteDays / 365);

@@ -49,7 +49,7 @@ export function computeAdvanceTradeSetup(
   const isBankNifty = ticker.symbol.includes('BANK');
 
   // --- INSTITUTIONAL SMART MONEY CONCEPTS (SMC) & ICT PRICE ACTION ENGINE ---
-  const smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain);
+  let smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain, currentSignalAction);
 
   // --- INSTITUTIONAL INTELLIGENCE SUITE (FII/Retail Flow, Straddle Decay, Volume Profile, Heavyweights Tug-of-War, Vol Skew, Gamma Burst) ---
   const institutionalSuite = computeInstitutionalSuite(ticker, chain, metrics, rt, candlePatterns, constituentAnalysis);
@@ -1400,6 +1400,34 @@ export function computeAdvanceTradeSetup(
   // Strict ATM Anchor Clamp: Never allow advance trade setup strike to drift more than 1 strike away from atmStrike
   if (Math.abs(recStrike - atmStrike) > step) {
     recStrike = recStrike > atmStrike ? atmStrike + step : atmStrike - step;
+  }
+
+  // Institutional SMC Direction Harmonization:
+  // Ensure the embedded SMC Price Action card exactly mirrors the recommended contract type (PE -> BEARISH_REVERSAL_PE, CE -> BULLISH_REVERSAL_CE)
+  if (recType === 'PE' && smcFvgFib.setupDirection !== 'BEARISH_REVERSAL_PE') {
+    smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain, 'BUY_PE');
+    smcFactor = {
+      name: 'Institutional SMC Short (Sweep → MSS → FVG 0.618 Fib)',
+      category: 'SMC_FVG_MSS',
+      state: 'STRONG_BEARISH',
+      leadTimeMinutes: 4.5,
+      valueDescription: `BSL swept at ${ticker.currency}${smcFvgFib.liquiditySweepLevel} with MSS broken at ${ticker.currency}${smcFvgFib.marketStructureShiftLevel}. FVG OTE Retest zone active (${ticker.currency}${smcFvgFib.fvgZone.bottom} - ${ticker.currency}${smcFvgFib.fvgZone.top}). R:R ${smcFvgFib.riskRewardRatio}:1`,
+      confidenceScore: 92,
+    };
+    const smcIdx = leadingFactors.findIndex(f => f.category === 'SMC_FVG_MSS');
+    if (smcIdx >= 0) leadingFactors[smcIdx] = smcFactor;
+  } else if (recType === 'CE' && smcFvgFib.setupDirection !== 'BULLISH_REVERSAL_CE') {
+    smcFvgFib = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain, 'BUY_CE');
+    smcFactor = {
+      name: 'Institutional SMC Long (Sweep → MSS → FVG 0.618 Fib)',
+      category: 'SMC_FVG_MSS',
+      state: 'STRONG_BULLISH',
+      leadTimeMinutes: 4.5,
+      valueDescription: `SSL swept at ${ticker.currency}${smcFvgFib.liquiditySweepLevel} with MSS broken at ${ticker.currency}${smcFvgFib.marketStructureShiftLevel}. FVG OTE Retest zone active (${ticker.currency}${smcFvgFib.fvgZone.bottom} - ${ticker.currency}${smcFvgFib.fvgZone.top}). R:R ${smcFvgFib.riskRewardRatio}:1`,
+      confidenceScore: 92,
+    };
+    const smcIdx = leadingFactors.findIndex(f => f.category === 'SMC_FVG_MSS');
+    if (smcIdx >= 0) leadingFactors[smcIdx] = smcFactor;
   }
 
   let advanceEntryZoneSpot: [number, number];

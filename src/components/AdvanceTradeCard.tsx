@@ -673,7 +673,12 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
       {/* INSTITUTIONAL SMC PRICE ACTION EXECUTION CARD (Liquidity Sweep -> MSS -> FVG + FIB) */}
       {setup.smcFvgFib && (
         <div className="mt-3 relative z-10">
-          <SmcPriceActionCard smc={setup.smcFvgFib} ticker={ticker} theme={theme} />
+          <SmcPriceActionCard 
+            smc={setup.smcFvgFib} 
+            ticker={ticker} 
+            theme={theme} 
+            tradeDirection={isBear ? 'BUY_PE' : isBull ? 'BUY_CE' : 'WAIT_NEUTRAL'}
+          />
         </div>
       )}
 

@@ -4,7 +4,8 @@ import {
   MultiTimeframeChartPatterns, 
   RealtimePredictionIndicators,
   SmcFvgFibSetup,
-  OptionChainRow
+  OptionChainRow,
+  OptionType
 } from '../types/options';
 
 /**
@@ -21,7 +22,8 @@ export function computeSmcFvgFibSetup(
   candlePatterns: MultiTimeframeChartPatterns,
   metrics: MarketMetrics,
   rt: RealtimePredictionIndicators,
-  chain: OptionChainRow[]
+  chain: OptionChainRow[],
+  authoritativeDirection?: 'BUY_CE' | 'BUY_PE' | 'WAIT_NEUTRAL' | OptionType
 ): SmcFvgFibSetup {
   const spotPrice = ticker.spotPrice;
   const step = ticker.strikeStep;
@@ -95,10 +97,23 @@ export function computeSmcFvgFibSetup(
   let isHighSweep = false;
   let isLowSweep = false;
 
-  if (candlePatterns?.confluenceBias === 'BULLISH' || m5?.trend === 'BULLISH') {
+  // Authoritative Direction Alignment (Ensures Institutional SMC logic synchronizes with Trade Recommendation)
+  if (authoritativeDirection === 'BUY_PE' || authoritativeDirection === 'PE') {
+    isHighSweep = true;
+    isLowSweep = false;
+  } else if (authoritativeDirection === 'BUY_CE' || authoritativeDirection === 'CE') {
+    isLowSweep = true;
+    isHighSweep = false;
+  } else if (candlePatterns?.confluenceBias === 'BULLISH' || m5?.trend === 'BULLISH') {
     isLowSweep = true;
   } else if (candlePatterns?.confluenceBias === 'BEARISH' || m5?.trend === 'BEARISH') {
     isHighSweep = true;
+  } else if (rt?.vwap?.value && spotPrice < rt.vwap.value) {
+    // Intraday spot is below VWAP: Institutional sellers in control; Buy-Side Liquidity swept at highs
+    isHighSweep = true;
+  } else if (rt?.vwap?.value && spotPrice > rt.vwap.value) {
+    // Intraday spot is above VWAP: Institutional buyers in control; Sell-Side Liquidity swept at lows
+    isLowSweep = true;
   } else if (isHighSweepCandidate && isLowSweepCandidate) {
     const distToHigh = Math.abs(resistanceHigh - spotPrice);
     const distToLow = Math.abs(spotPrice - supportLow);
@@ -112,11 +127,13 @@ export function computeSmcFvgFibSetup(
   } else if (isLowSweepCandidate) {
     isLowSweep = true;
   } else {
-    // Default to active price change bias
-    if (ticker.changePercent >= 0) {
-      isLowSweep = true;
-    } else {
+    // Dynamic Intraday Net Swing (Distance from Day High vs Day Low, never stale previous close)
+    const distFromDayHigh = Math.max(0, dayHigh - spotPrice);
+    const distFromDayLow = Math.max(0, spotPrice - dayLow);
+    if (distFromDayHigh > distFromDayLow) {
       isHighSweep = true;
+    } else {
+      isLowSweep = true;
     }
   }
 
@@ -322,7 +339,13 @@ export function computeSmcFvgFibSetup(
   const oteMin = Number((dayLow + rangeSpan * 0.50).toFixed(1));
   const oteMax = Number((dayLow + rangeSpan * 0.618).toFixed(1));
 
-  const isBullishPreference = candlePatterns?.confluenceBias === 'BULLISH' || ticker.changePercent >= 0;
+  const isBullishPreference = (
+    authoritativeDirection === 'BUY_CE' || authoritativeDirection === 'CE'
+      ? true
+      : authoritativeDirection === 'BUY_PE' || authoritativeDirection === 'PE'
+      ? false
+      : candlePatterns?.confluenceBias === 'BULLISH' || (rt?.vwap?.value ? spotPrice > rt.vwap.value : (dayHigh - spotPrice) <= (spotPrice - dayLow))
+  );
   const setupDirection: SmcFvgFibSetup['setupDirection'] = isBullishPreference ? 'BULLISH_REVERSAL_CE' : 'BEARISH_REVERSAL_PE';
 
   return {

@@ -41,7 +41,8 @@ export function calculateDynamicConfidence(
   rt?: import('../types/options').RealtimePredictionIndicators,
   ticker?: TickerConfig,
   constituentAnalysis?: import('../types/options').NiftyConstituentAnalysis,
-  telemetry?: import('../types/options').InterMarketTelemetry
+  telemetry?: import('../types/options').InterMarketTelemetry,
+  candlePatterns?: import('../types/options').MultiTimeframeChartPatterns
 ): number {
   if (action === 'WAIT_NEUTRAL') {
     // WAIT_NEUTRAL confidence measures capital protection clarity
@@ -84,6 +85,14 @@ export function calculateDynamicConfidence(
         (action === 'BUY_PE' && constituentAnalysis.declines > constituentAnalysis.advances)) {
       conf += 2.0;
     }
+  }
+
+  // Higher Timeframe (15M) Trend Alignment Boost & Penalty
+  if (candlePatterns) {
+    if (action === 'BUY_CE' && candlePatterns.m15?.trend === 'BULLISH') conf += 2.5;
+    if (action === 'BUY_PE' && candlePatterns.m15?.trend === 'BEARISH') conf += 2.5;
+    if (action === 'BUY_CE' && candlePatterns.m15?.trend === 'BEARISH') conf -= 3.0;
+    if (action === 'BUY_PE' && candlePatterns.m15?.trend === 'BULLISH') conf -= 3.0;
   }
 
   // Global Inter-Market Telemetry Boost (+1.5%)
@@ -369,10 +378,10 @@ export function generateTradeSignal(
   score += Number(maxPainScore.toFixed(2));
 
   // 4. Put-Call Ratio (PCR) & OI Buildup Velocity
-  // When spot is holding above VWAP, high PCR confirms put writing support floor.
-  // BUT when spot is falling below VWAP or rejecting from highs (rejection >= 0.35), high PCR signals trapped put writers vulnerable to long unwinding!
-  const isVwapBearishOrRejecting = spotPrice < rt.vwap.value || highRejectionRatio >= 0.35;
-  const isVwapBullishOrRecovering = spotPrice > rt.vwap.value || lowRecoveryRatio >= 0.35;
+  // When spot is holding firmly above VWAP, high PCR confirms put writing support floor.
+  // Only invert high PCR if spot has genuinely broken down below VWAP with high rejection from peak.
+  const isVwapBearishOrRejecting = spotPrice < rt.vwap.value || (highRejectionRatio >= 0.50 && spotPrice <= rt.vwap.value + ticker.strikeStep * 0.20);
+  const isVwapBullishOrRecovering = spotPrice > rt.vwap.value || (lowRecoveryRatio >= 0.50 && spotPrice >= rt.vwap.value - ticker.strikeStep * 0.20);
   if (pcrTotalOI >= 1.25) {
     score += isVwapBearishOrRejecting ? -1.0 : 2.0;
   } else if (pcrTotalOI >= 1.05) {
@@ -433,13 +442,19 @@ export function generateTradeSignal(
     (isAboveVWAP && highRejectionRatio < 0.35 && (isAboveDayOpen || lowRecoveryRatio >= 0.60) && (rt.ema.alignment === 'BULLISH_STACK' || rt.vwap.bias === 'BULLISH') && candlePatterns.confluenceBias !== 'BEARISH')
   );
 
-  // Genuine Bearish Regime: Spot trading below VWAP, or experiencing a confirmed afternoon rejection from day high, or persistent 40m fall
-  const isCandleSellingFlow = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.m5?.trend === 'BEARISH' || (candlePatterns.m5?.momentumScore || 0) <= -2.5 || Boolean(candlePatterns.isPersistent40mFall);
+  // Genuine Bearish Regime: Spot trading below VWAP with confirmed selling pressure, or persistent 40m institutional fall
+  const isCandleSellingFlow = candlePatterns.confluenceBias === 'BEARISH' || 
+    (candlePatterns.m5?.trend === 'BEARISH' && candlePatterns.m15?.trend === 'BEARISH') || 
+    (candlePatterns.m5?.momentumScore || 0) <= -2.5 || 
+    Boolean(candlePatterns.isPersistent40mFall);
+
   const isContinuousFall = Boolean(
     candlePatterns.isPersistent40mFall ||
-    ((isBelowVWAP || highRejectionRatio >= 0.25 || dropFromPeak >= ticker.strikeStep * 0.45) && 
-     (isBelowDayOpen || highRejectionRatio >= 0.20 || dropFromPeak >= ticker.strikeStep * 0.60 || spotChangePct <= -0.05 || isCandleSellingFlow) && 
-     (rt.ema.alignment === 'BEARISH_STACK' || rt.vwap.bias === 'BEARISH' || isCandleSellingFlow || highRejectionRatio >= 0.30 || dropFromPeak >= ticker.strikeStep * 0.70))
+    (!isAboveVWAP && (
+      (highRejectionRatio >= 0.40 || dropFromPeak >= ticker.strikeStep * 0.65 || isBelowDayOpen) &&
+      (rt.ema.alignment === 'BEARISH_STACK' || rt.vwap.bias === 'BEARISH' || isCandleSellingFlow)
+    )) ||
+    (isBelowVWAP && isBelowDayOpen && isCandleSellingFlow)
   );
 
   // Intraday Recovery Bounce check
@@ -580,7 +595,7 @@ export function generateTradeSignal(
   }
 
   // 18. Institutional Smart Money Concepts (SMC) & ICT Execution Flow (Pillar 18)
-  const smcSetup = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain);
+  const smcSetup = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, rt, chain, previousSignal?.action);
   if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE') {
     if (smcSetup.fvgZone.status === 'ACTIVE_RETEST') {
       score -= 2.6; // Institutional Optimal Trade Entry (OTE) active
@@ -831,23 +846,40 @@ export function generateTradeSignal(
   const netBullEdge = bullMatches - bearMatches;
 
   // Candlestick multi-timeframe directional bias & score:
-  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore <= -0.8;
-  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore >= 0.8;
+  const isCandleBearish = candlePatterns.confluenceBias === 'BEARISH' && (candlePatterns.confluenceScore <= -1.0 || candlePatterns.m5?.trend === 'BEARISH');
+  const isCandleBullish = candlePatterns.confluenceBias === 'BULLISH' && (candlePatterns.confluenceScore >= 1.0 || candlePatterns.m5?.trend === 'BULLISH');
 
-  // Real Candlestick Directional Lock (prioritizing 5m/15m intraday price action):
-  // If real candlesticks are moving DOWNWARD (5m trend bearish or 40m drop), NEVER recommend BUY_CE.
-  // If real candlesticks are moving UPWARD (5m trend bullish or 40m rally), NEVER recommend BUY_PE.
-  const isTacticalDownward = candlePatterns.m5?.trend === 'BEARISH' || candlePatterns.confluenceBias === 'BEARISH' || candlePatterns.confluenceScore < -0.3 || (highRejectionRatio >= 0.35 && dropFromPeak >= ticker.strikeStep * 0.45) || isContinuousFall;
-  const isTacticalUpward = (candlePatterns.m5?.trend === 'BULLISH' || candlePatterns.confluenceBias === 'BULLISH' || candlePatterns.confluenceScore > 0.3 || (lowRecoveryRatio >= 0.35 && bounceFromFloor >= ticker.strikeStep * 0.45) || isMarketRaising) && !isTacticalDownward;
+  // Higher Timeframe (15m + 1h) Institutional Trend Anchor:
+  const isHtfBullish = candlePatterns.m15?.trend === 'BULLISH' || candlePatterns.h1?.trend === 'BULLISH';
+  const isHtfBearish = candlePatterns.m15?.trend === 'BEARISH' || candlePatterns.h1?.trend === 'BEARISH';
+  const isHtfDirectOppositionToCe = candlePatterns.m15?.trend === 'BEARISH' && candlePatterns.h1?.trend === 'BEARISH';
+  const isHtfDirectOppositionToPe = candlePatterns.m15?.trend === 'BULLISH' && candlePatterns.h1?.trend === 'BULLISH';
+
+  // Real Candlestick Directional Lock (prioritizing confirmed 5m/15m intraday price action):
+  // Eliminates false vetoes from minor noise (-0.3) by requiring confirmed institutional conviction:
+  const isTacticalDownward = (
+    (candlePatterns.confluenceBias === 'BEARISH' && candlePatterns.confluenceScore <= -1.0) ||
+    (candlePatterns.m5?.trend === 'BEARISH' && candlePatterns.m15?.trend === 'BEARISH' && isBelowVWAP) ||
+    (highRejectionRatio >= 0.45 && dropFromPeak >= ticker.strikeStep * 0.70 && isBelowVWAP) ||
+    isContinuousFall
+  );
+  const isTacticalUpward = (
+    (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.0) ||
+    (candlePatterns.m5?.trend === 'BULLISH' && candlePatterns.m15?.trend === 'BULLISH' && isAboveVWAP) ||
+    (lowRecoveryRatio >= 0.45 && bounceFromFloor >= ticker.strikeStep * 0.70 && isAboveVWAP) ||
+    isMarketRaising
+  ) && !isTacticalDownward;
 
   const isCandleUpward = isTacticalUpward;
   const isCandleDownward = isTacticalDownward;
 
   // Add candlestick & SMC confluence to match tallies:
-  if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.5) bullMatches++;
-  if (candlePatterns.confluenceBias === 'BEARISH' && candlePatterns.confluenceScore <= -1.5) bearMatches++;
+  if (candlePatterns.confluenceBias === 'BULLISH' && candlePatterns.confluenceScore >= 1.2) bullMatches++;
+  if (candlePatterns.confluenceBias === 'BEARISH' && candlePatterns.confluenceScore <= -1.2) bearMatches++;
   if (isContinuousFall || isTacticalDownward) bearMatches++;
   if (isMarketRaising || isTacticalUpward) bullMatches++;
+  if (isHtfBullish && !isHtfBearish) bullMatches++;
+  if (isHtfBearish && !isHtfBullish) bearMatches++;
   if (smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bullMatches += 2;
   if (smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST')) bearMatches += 2;
   if (fiiPos.institutionalSentiment === 'STRONG_INSTITUTIONAL_BULLISH') bullMatches += 2;
@@ -874,9 +906,17 @@ export function generateTradeSignal(
   );
 
   // Intraday Rejection & Breakdown Vetoes:
-  // If spot has broken down from morning highs (highRejectionRatio >= 0.35) or is below VWAP, VETO all BUY_CE recommendations!
-  const isIntradayRejectionVeto = (highRejectionRatio >= 0.35 && dropFromPeak >= ticker.strikeStep * 0.45) || (isBelowVWAP && rt.vwap.bias === 'BEARISH') || isContinuousFall;
-  const isIntradayBounceVeto = (lowRecoveryRatio >= 0.35 && bounceFromFloor >= ticker.strikeStep * 0.45) || (isAboveVWAP && rt.vwap.bias === 'BULLISH') || isMarketRaising;
+  // Only veto CE if spot price has genuinely broken down below VWAP with confirmed rejection or continuous fall
+  const isIntradayRejectionVeto = (
+    (highRejectionRatio >= 0.45 && dropFromPeak >= ticker.strikeStep * 0.70 && isBelowVWAP) || 
+    (isBelowVWAP && rt.vwap.bias === 'BEARISH' && (rt.ema.alignment === 'BEARISH_STACK' || candlePatterns.m5?.trend === 'BEARISH')) || 
+    isContinuousFall
+  );
+  const isIntradayBounceVeto = (
+    (lowRecoveryRatio >= 0.45 && bounceFromFloor >= ticker.strikeStep * 0.70 && isAboveVWAP) || 
+    (isAboveVWAP && rt.vwap.bias === 'BULLISH' && (rt.ema.alignment === 'BULLISH_STACK' || candlePatterns.m5?.trend === 'BULLISH')) || 
+    isMarketRaising
+  );
 
   // Hard Veto Filters:
   const isHardBearishVeto = isCandleDownward || bearContradictionCount >= 2 || (isContinuousFall && score < 0) || isIntradayRejectionVeto || isSmcBearishTrapActive;
@@ -1011,13 +1051,24 @@ export function generateTradeSignal(
     const isSmcBullishBreakout = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
     const isSmcBearishBreakdown = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
 
+    // Multi-Timeframe Alignment Filter:
+    // If higher timeframe (15m + 1h) directly opposes the trade direction, require higher conviction threshold (score >= 1.25 & bullMatches >= 4) or SMC reversal to prevent bull/bear traps!
+    const ceScoreReq = isHtfDirectOppositionToCe ? 1.25 : 0.85;
+    const peScoreReq = isHtfDirectOppositionToPe ? -1.25 : -0.85;
+    const ceMatchesReq = isHtfDirectOppositionToCe ? 4 : 3;
+    const peMatchesReq = isHtfDirectOppositionToPe ? 4 : 3;
+
+    // Heavyweight Drag Filter: If top heavyweights strongly drag against the setup, prevent low-probability entries
+    const isHeavyweightDragCe = Boolean(constituentAnalysis && constituentAnalysis.netNiftyPointImpact < -15);
+    const isHeavyweightDragPe = Boolean(constituentAnalysis && constituentAnalysis.netNiftyPointImpact > 15);
+
     // High-conviction directional entry evaluation calibrated for optimal accuracy
-    const isFreshBuyCe = !isUnderCooldown && (
-      (score >= 0.85 && netBullEdge >= 1 && bullMatches >= 3 && !isHardBearishVeto && (prevAction !== 'BUY_PE' || isSmcBullishBreakout)) || 
+    const isFreshBuyCe = !isUnderCooldown && !isHeavyweightDragCe && (
+      (score >= ceScoreReq && netBullEdge >= 1 && bullMatches >= ceMatchesReq && !isHardBearishVeto && (prevAction !== 'BUY_PE' || isSmcBullishBreakout)) || 
       (isSmcBullishBreakout && score >= 0.40 && !isHardBearishVeto)
     );
-    const isFreshBuyPe = !isUnderCooldown && (
-      (score <= -0.85 && netBullEdge <= -1 && bearMatches >= 3 && !isHardBullishVeto && (prevAction !== 'BUY_CE' || isSmcBearishBreakdown)) || 
+    const isFreshBuyPe = !isUnderCooldown && !isHeavyweightDragPe && (
+      (score <= peScoreReq && netBullEdge <= -1 && bearMatches >= peMatchesReq && !isHardBullishVeto && (prevAction !== 'BUY_CE' || isSmcBearishBreakdown)) || 
       (isSmcBearishBreakdown && score <= -0.40 && !isHardBullishVeto)
     );
 
@@ -1062,7 +1113,8 @@ export function generateTradeSignal(
     rt,
     ticker,
     constituentAnalysis,
-    interMarketTelemetry
+    interMarketTelemetry,
+    candlePatterns
   );
 
   // Determine recommended contract type:
@@ -1337,7 +1389,7 @@ export function generateTradeSignal(
     const rawSpotMove1 = ((patternMove * 0.45 + hurdleDist * 0.35 + vwapTargetDist * 0.20) * tacticalMomentumMult * netNewsImpactMultiplier) + (newsPointsAdjustment * 0.4);
     const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
     spotTarget1 = Number((spotPrice + spotMove1).toFixed(2));
-    target1Basis = `2m/5m Swing (${m5Score > 0 ? '+' : ''}${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    target1Basis = `Fib 1.0 Measured Swing (${m5Score > 0 ? '+' : ''}${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary hurdle, and gamma expansion
     const chartTarget2 = candlePatterns.bullishExitLevel2 || (spotPrice + (candlePatterns.structuralSwingPoints || step * 0.75));
@@ -1347,7 +1399,13 @@ export function generateTradeSignal(
     const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, ((patternMove2 * 0.65 + hurdleDist2 * 0.35) * structuralMomentumMult * netNewsImpactMultiplier * gammaRunnerMultiplier));
     const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.18 : 1.05), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice + spotMove2).toFixed(2));
-    target2Basis = `15m Structure (${m15Score > 0 ? '+' : ''}${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+    target2Basis = `Fib 1.618 Golden Extension (${m15Score > 0 ? '+' : ''}${m15Score}/10) · 15m Runner (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+
+    // Ground Target 2 to Major Call Wall barrier if spot is within reach and momentum isn't hyper-velocity
+    if (!isStrongBullMomentum && majorCallWall > spotPrice && spotTarget2 > majorCallWall) {
+      spotTarget2 = Number((majorCallWall - step * 0.05).toFixed(2));
+      target2Basis = `Major Call Wall Barrier (${ticker.currency}${majorCallWall}) · Institutional Resistance Ceiling`;
+    }
 
     // Spot Stop Loss: below 2m/5m swing low, candlestick invalidation cushion and 9 EMA / VWAP floor
     const vwapSupportDist = spotPrice > rt.vwap.value ? (spotPrice - rt.vwap.value) : minSL;
@@ -1363,8 +1421,11 @@ export function generateTradeSignal(
       // Scale spotTarget2 as a genuine structural runner beyond SMC Target 1
       const smcT2Move = Math.max(step * 0.40, smcSetup.targetPoints * 0.55);
       spotTarget2 = Number((spotTarget1 + smcT2Move).toFixed(2));
-      target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
-      target2Basis = `SMC Runner Extension (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+      if (!isStrongBullMomentum && majorCallWall > spotPrice && spotTarget2 > majorCallWall) {
+        spotTarget2 = Number((majorCallWall - step * 0.05).toFixed(2));
+      }
+      target1Basis = `SMC Fib 0.618 Golden Pocket OTE (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+      target2Basis = `SMC Fib 1.618 Extension Runner (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
     }
 
   } else {
@@ -1379,7 +1440,7 @@ export function generateTradeSignal(
     const rawSpotMove1 = ((patternMove * 0.45 + hurdleDist * 0.35 + vwapFloorDist * 0.20) * tacticalMomentumMult * netNewsImpactMultiplier) + (newsPointsAdjustment * 0.4);
     const spotMove1 = Number(Math.max(minMove1, Math.min(gammaTunedMax1, rawSpotMove1)).toFixed(2));
     spotTarget1 = Number((spotPrice - spotMove1).toFixed(2));
-    target1Basis = `2m/5m Swing (${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+    target1Basis = `Fib 1.0 Measured Swing (${m5Score}/10) · ${netNewsImpactMultiplier}x News (Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
 
     // Target 2: Extended runner move based on 15m structure, secondary floor, and gamma acceleration
     const chartTarget2 = candlePatterns.bearishExitLevel2 || (spotPrice - (candlePatterns.structuralSwingPoints || step * 0.75));
@@ -1389,7 +1450,13 @@ export function generateTradeSignal(
     const rawSpotMove2 = Math.max(spotMove1 + step * 0.35, ((patternMove2 * 0.65 + hurdleDist2 * 0.35) * structuralMomentumMult * netNewsImpactMultiplier * gammaRunnerMultiplier));
     const spotMove2 = Number(Math.max(minMove2, Math.min(maxMove2 * (rt.gammaExposure.regime === 'NEGATIVE_GAMMA' ? 1.18 : 1.05), rawSpotMove2)).toFixed(2));
     spotTarget2 = Number((spotPrice - spotMove2).toFixed(2));
-    target2Basis = `15m Structure (${m15Score}/10) · Runner Extension (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+    target2Basis = `Fib 1.618 Golden Extension (${m15Score}/10) · 15m Runner (Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+
+    // Ground Target 2 to Major Put Wall barrier if spot is within reach and momentum isn't hyper-velocity
+    if (!isStrongBearMomentum && majorPutWall < spotPrice && spotTarget2 < majorPutWall) {
+      spotTarget2 = Number((majorPutWall + step * 0.05).toFixed(2));
+      target2Basis = `Major Put Wall Support (${ticker.currency}${majorPutWall}) · Institutional Floor Target`;
+    }
 
     // Spot Stop Loss: above 2m/5m swing high, candlestick invalidation cushion and 9 EMA / VWAP ceiling
     const vwapCeilDist = spotPrice < rt.vwap.value ? (rt.vwap.value - spotPrice) : minSL;
@@ -1405,8 +1472,11 @@ export function generateTradeSignal(
       // Scale spotTarget2 as a genuine structural runner beyond SMC Target 1
       const smcT2Move = Math.max(step * 0.40, smcSetup.targetPoints * 0.55);
       spotTarget2 = Number((spotTarget1 - smcT2Move).toFixed(2));
-      target1Basis = `Institutional SMC OTE Target (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
-      target2Basis = `SMC Runner Breakdown (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
+      if (!isStrongBearMomentum && majorPutWall < spotPrice && spotTarget2 < majorPutWall) {
+        spotTarget2 = Number((majorPutWall + step * 0.05).toFixed(2));
+      }
+      target1Basis = `SMC Fib 0.618 Golden Pocket OTE (R:R ${smcSetup.riskRewardRatio}:1, Spot ${ticker.currency}${spotTarget1.toLocaleString()})`;
+      target2Basis = `SMC Fib 1.618 Extension Breakdown (Session Liquidity Pool, Spot ${ticker.currency}${spotTarget2.toLocaleString()})`;
     }
   }
 
@@ -1833,16 +1903,17 @@ export function generateTradeSignal(
     return false;
   })();
 
-  // Evaluates contract high/low at session extremes (Day Low for PE peak, Day High for CE peak)
-  // Only evaluate sessionHighLTP using previous session extremes if the data is actually from today.
-  // Otherwise, default sessionHighLTP to premium so we don't carry previous days' target reaches.
-  const peakSpotExtreme = isCE ? ticker.dayHigh : ticker.dayLow;
-  const bsPeakExtreme = calculateBlackScholes(peakSpotExtreme, targetStrike, T, r, ivDecimal, recommendedType);
-  const sessionHighLTP = isTickerDataToday ? Math.max(premium, roundToTick(bsPeakExtreme.price)) : premium;
-  
-  const lowSpotExtreme = isCE ? ticker.dayLow : ticker.dayHigh;
-  const bsLowExtreme = calculateBlackScholes(lowSpotExtreme, targetStrike, T, r, ivDecimal, recommendedType);
-  const sessionLowLTP = isTickerDataToday ? Math.min(premium, roundToTick(bsLowExtreme.price)) : premium;
+  // Active trade lifecycle high/low:
+  // For an ongoing active trade, sessionHighLTP tracks the maximum LTP reached SINCE the trade was entered.
+  // For a fresh trade setup, sessionHighLTP begins at the current market premium (it must not falsely adopt
+  // morning price peaks that occurred hours before the trade was initiated!).
+  const sessionHighLTP = isExistingOngoingTrade && previousSignal?.sessionHighLTP
+    ? Math.max(previousSignal.sessionHighLTP, premium)
+    : premium;
+
+  const sessionLowLTP = isExistingOngoingTrade && previousSignal?.sessionLowLTP
+    ? Math.min(previousSignal.sessionLowLTP, premium)
+    : premium;
 
   // --- DYNAMIC TRAILING STOP LOSS & CAPITAL PRESERVATION ENGINE ---
   // Guarantees traders do NOT lose money on trades that have already expanded in profit:
@@ -2227,11 +2298,12 @@ export function generateTradeSignal(
   }
 
   // Attach Institutional SMC Price Action Blueprint Point
-  if (smcSetup.isDetected) {
+  const effectiveSmc = advanceTradeSetup.smcFvgFib || smcSetup;
+  if (effectiveSmc && effectiveSmc.isDetected) {
     rationalePoints.push({
-      title: `Institutional SMC ICT Blueprint (${smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'Bearish OTE Short' : 'Bullish OTE Long'})`,
-      verdict: smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' ? 'BEARISH' : 'BULLISH',
-      description: `${smcSetup.statusHeadline}. ${smcSetup.rationale} Sweep Wick: ${ticker.currency}${smcSetup.liquiditySweepLevel}, MSS Level: ${ticker.currency}${smcSetup.marketStructureShiftLevel}, FVG OTE: ${ticker.currency}${smcSetup.fvgZone.bottom}-${ticker.currency}${smcSetup.fvgZone.top}, Stop: ${ticker.currency}${smcSetup.stopLossSpot}, Target: ${ticker.currency}${smcSetup.targetSpot} (R:R ${smcSetup.riskRewardRatio}:1).`,
+      title: `Institutional SMC ICT Blueprint (${effectiveSmc.setupDirection === 'BEARISH_REVERSAL_PE' ? 'Bearish OTE Short' : 'Bullish OTE Long'})`,
+      verdict: effectiveSmc.setupDirection === 'BEARISH_REVERSAL_PE' ? 'BEARISH' : 'BULLISH',
+      description: `${effectiveSmc.statusHeadline}. ${effectiveSmc.rationale} Sweep Wick: ${ticker.currency}${effectiveSmc.liquiditySweepLevel}, MSS Level: ${ticker.currency}${effectiveSmc.marketStructureShiftLevel}, FVG OTE: ${ticker.currency}${effectiveSmc.fvgZone.bottom}-${ticker.currency}${effectiveSmc.fvgZone.top}, Stop: ${ticker.currency}${effectiveSmc.stopLossSpot}, Target: ${ticker.currency}${effectiveSmc.targetSpot} (R:R ${effectiveSmc.riskRewardRatio}:1).`,
     });
   }
 

@@ -629,12 +629,20 @@ export function useLiveOptionChain() {
     // 5. Action Flip Proposed: If stability lock is active, hold current action
     if (isLockActive) {
       const effectiveStrike = isLockedStrikeValid ? stabilityLockRef.current.strike : proposedSignal.recommendedStrike;
+      const lockedAdvanceSetup = proposedSignal.advanceTradeSetup ? {
+        ...proposedSignal.advanceTradeSetup,
+        anticipatedAction: (currentAction === 'BUY_CE' || currentAction === 'BUY_PE' || currentAction === 'WAIT_NEUTRAL') ? currentAction : proposedSignal.advanceTradeSetup.anticipatedAction,
+        recommendedStrike: effectiveStrike,
+        recommendedType: stabilityLockRef.current.type,
+      } : proposedSignal.advanceTradeSetup;
+
       return {
         ...proposedSignal,
         action: currentAction,
         tradeStage: currentStage,
         recommendedStrike: effectiveStrike,
         recommendedType: stabilityLockRef.current.type,
+        advanceTradeSetup: lockedAdvanceSetup,
         stabilityLock: {
           isActive: true,
           lockDurationSeconds: stabilityLockRef.current.durationSeconds,

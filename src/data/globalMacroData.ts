@@ -12,7 +12,7 @@ export function getInterMarketTelemetry(
   const isBankNifty = tickerSymbol.toUpperCase().includes('BANK');
 
   // GIFT Nifty tracks NIFTY 50 Index Futures (NSE IX)
-  const baseSpot = spotPrice || 22363.35;
+  const baseSpot = spotPrice || 22687.65;
   const giftPrice = baseSpot;
   const giftNetChange = 0;
   const giftNetChangePct = 0;
