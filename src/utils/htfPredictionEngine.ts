@@ -21,7 +21,8 @@ import {
 } from '../types/htfPredictions';
 import { calculateBlackScholes, getTickerExpiryDTE } from './blackScholes';
 import { getMoneyness } from '../components/MoneynessBadge';
-import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { computeRealtimeIndicators } from './technicalIndicators';
 import { buildInitialChain } from '../hooks/useLiveOptionChain';
 import { MarketHoursStatus } from './marketHours';
 import { getGlobalRealCandles } from './candlestickEngine';
@@ -1232,16 +1233,8 @@ export function computeMultiTimeframePredictions(
   // Real Parameter 5: Institutional Smart Money Concepts (SMC) & ICT Execution Flow
   let smc: SmcFvgFibSetup | undefined;
   if (candlePatterns && metrics && chain) {
-    const dummyRt = {
-      vwap: { value: ticker.vwap || ticker.spotPrice, distancePercent: 0, bias: 'NEUTRAL' as const },
-      ema: { alignment: 'NEUTRAL' as const },
-      rsi: { value: 50, condition: 'NEUTRAL' as const },
-      macd: { trend: 'NEUTRAL' as const },
-      orderFlow: { sentiment: 'NEUTRAL' as const },
-      vixVelocity: { velocityState: 'NORMAL' as const },
-      gammaExposure: { regime: 'POSITIVE_GAMMA' as const }
-    };
-    smc = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, dummyRt as any, chain);
+    const realRt = metrics.realtimeIndicators || computeRealtimeIndicators(ticker, chain);
+    smc = computeSmcFvgFibSetup(ticker, candlePatterns, metrics, realRt, chain);
     if (smc.isDetected && smc.setupDirection === 'BEARISH_REVERSAL_PE') {
       baseConfluence -= 12; // BSL hunt & MSS breakdown drags macro HTF target
     } else if (smc.isDetected && smc.setupDirection === 'BULLISH_REVERSAL_CE') {

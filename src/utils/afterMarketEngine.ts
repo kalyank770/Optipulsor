@@ -149,14 +149,26 @@ export function computeAfterMarketOpeningAnalytics(
     const momentumDrift = Number((openMomentumScore * (isBankNifty ? 8.0 : (isNifty50 ? 3.5 : spotClose * 0.001))).toFixed(2));
     const fairBasis = isBankNifty ? 45 : (isNifty50 ? 18 : 0);
 
-    if (isNifty50 && rawGiftNiftyPrice > 10000 && Math.abs(rawGiftNiftyPrice - spotClose) > 5) {
+    // Sanity check: Ensure GIFT Nifty price level is in sync with current spotClose.
+    // If rawGiftNiftyPrice is from an unnormalized source or disconnected by > 1.5%, derive from percentage change instead.
+    const isGiftPriceInSync = rawGiftNiftyPrice > 10000 && Math.abs(rawGiftNiftyPrice - spotClose) <= (spotClose * 0.015);
+
+    if (isNifty50 && isGiftPriceInSync && Math.abs(rawGiftNiftyPrice - spotClose) > 5) {
       predictedOpeningSpot = Number((rawGiftNiftyPrice - fairBasis + macroAdjustment + momentumDrift).toFixed(2));
-    } else if (isBankNifty && rawGiftNiftyPrice > 10000 && Math.abs(rawGiftNiftyPrice - spotClose) > 10) {
+    } else if (isBankNifty && isGiftPriceInSync && Math.abs(rawGiftNiftyPrice - spotClose) > 10) {
       const bankGapPct = Number((rawGiftNiftyPct * 1.25).toFixed(3));
       predictedOpeningSpot = Number((spotClose * (1 + bankGapPct / 100) + macroAdjustment + momentumDrift).toFixed(2));
     } else {
       const gapDriftForTicker = Number(((spotClose * (rawGiftNiftyPct * beta)) / 100).toFixed(2));
       predictedOpeningSpot = Number((spotClose + gapDriftForTicker + macroAdjustment + momentumDrift).toFixed(2));
+    }
+
+    // Clamp opening gap within realistic exchange bounds (+/- 1.5% max gap)
+    const maxGapPoints = spotClose * 0.015;
+    if (predictedOpeningSpot > spotClose + maxGapPoints) {
+      predictedOpeningSpot = Number((spotClose + maxGapPoints).toFixed(2));
+    } else if (predictedOpeningSpot < spotClose - maxGapPoints) {
+      predictedOpeningSpot = Number((spotClose - maxGapPoints).toFixed(2));
     }
 
     predictedOpeningGapPoints = Number((predictedOpeningSpot - spotClose).toFixed(2));
@@ -283,6 +295,15 @@ export function computeAfterMarketOpeningAnalytics(
       : `Daily closed ${closeVsVwapPoints >= 0 ? '+' : ''}${closeVsVwapPoints} pts vs VWAP (${dayStructureVerdict?.replace(/_/g, ' ') || 'BALANCED'}).`;
 
     hitReason = `Mild/Flat opening projected (${predictedOpeningGapPoints >= 0 ? '+' : ''}${predictedOpeningGapPoints} pts · ${predictedOpeningGapPercent}%). ${candleContext} Directive: ${tomorrowAction === 'WAIT_FIRST_15M' ? `Stand aside for 15-minute Opening Range Breakout (ORB) post-09:30 AM before committing capital to reference contract ${tomorrowStrike} ${tomorrowType}` : `Active trade recommendation: ${tomorrowAction} at ${tomorrowStrike} ${tomorrowType}`}.`;
+  }
+
+  // Strict ATM Strike Anchor: An overnight reference strike must NEVER be deep ITM or deep OTM.
+  // Clamp strictly within +/- 1 strike step of the actual spot ATM
+  const spotAtmStrike = Math.round(spotClose / step) * step;
+  if (tomorrowStrike > spotAtmStrike + step) {
+    tomorrowStrike = spotAtmStrike + step;
+  } else if (tomorrowStrike < spotAtmStrike - step) {
+    tomorrowStrike = spotAtmStrike - step;
   }
 
   // Derive estimated opening contract targets for tomorrow's hit strike

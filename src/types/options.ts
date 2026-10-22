@@ -729,6 +729,8 @@ export interface TradeSignal {
   timeframeCoherence?: OptionCTimeframeCoherence;
   dynamicVolatilityMatrix?: OptionCDynamicVolatilityMatrix;
   institutionalSuite?: import('./institutional').InstitutionalSuiteAnalysis;
+  stopLossCooldownUntil?: number;
+  lastStoppedOutAction?: SignalAction;
 }
 
 export * from './htfPredictions';

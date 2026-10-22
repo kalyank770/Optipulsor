@@ -21,7 +21,7 @@ import { computeAfterMarketOpeningAnalytics } from './afterMarketEngine';
 import { getMarketHoursStatus } from './marketHours';
 import { computeMultiTimeframePredictions } from './htfPredictionEngine';
 import { loadStrikeHistory, deriveStrikeTrendAnalytics } from './strikeHistoryEngine';
-import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { computeAdvanceTradeSetup } from './advanceTradeEngine';
 import { loadSelfHealingCalibration } from './selfHealingEngine';
 import { computeSmcFvgFibSetup } from './smcEngine';
@@ -906,7 +906,12 @@ export function generateTradeSignal(
     activePreviousSignal.tradeStage !== 'TARGET_2_HIT'
   );
 
-  // Check if active trade invalidation (Stop Loss or SMC Directional Reversal) has been triggered:
+  const nowMs = Date.now();
+  let stopLossCooldownUntil = activePreviousSignal?.stopLossCooldownUntil;
+  let lastStoppedOutAction = activePreviousSignal?.lastStoppedOutAction;
+  const isUnderCooldown = Boolean(stopLossCooldownUntil && nowMs < stopLossCooldownUntil);
+
+  // Check if active trade invalidation (Stop Loss breach) has been triggered:
   let isOngoingCeInvalidated = false;
   if (hasOngoingCeTrade && activePreviousSignal) {
     const ceStrike = activePreviousSignal.recommendedStrike;
@@ -914,10 +919,15 @@ export function generateTradeSignal(
     const ceLtp = ceRow?.ce?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
     const ceSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
     const ceSpotSl = activePreviousSignal.spotStopLoss;
-    const isSmcBearishBreakdown = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
-    // Stop loss breached if spot breaks below spot SL floor, option premium drops below trailing SL, OR institutional SMC Bearish Reversal triggers
-    if ((ceSpotSl && spotPrice <= ceSpotSl) || (ceSl > 0 && ceLtp > 0 && ceLtp <= ceSl) || isSmcBearishBreakdown) {
+    
+    // Stop loss breached ONLY if spot breaks below spot SL floor OR option premium drops below trailing SL
+    const isSpotSlHit = Boolean(ceSpotSl && ceSpotSl < ticker.spotPrice && spotPrice <= ceSpotSl);
+    const isPremiumSlHit = Boolean(ceSl > 0 && ceLtp > 0 && ceLtp <= ceSl);
+
+    if (isSpotSlHit || isPremiumSlHit) {
       isOngoingCeInvalidated = true;
+      stopLossCooldownUntil = nowMs + 30000;
+      lastStoppedOutAction = 'BUY_CE';
     }
   }
 
@@ -928,10 +938,15 @@ export function generateTradeSignal(
     const peLtp = peRow?.pe?.ltp ?? activePreviousSignal.recommendedContractLTP ?? 0;
     const peSl = activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss;
     const peSpotSl = activePreviousSignal.spotStopLoss;
-    const isSmcBullishBreakout = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
-    // Stop loss breached if spot breaks above spot SL ceiling, option premium drops below trailing SL, OR institutional SMC Bullish Reversal triggers
-    if ((peSpotSl && spotPrice >= peSpotSl) || (peSl > 0 && peLtp > 0 && peLtp <= peSl) || isSmcBullishBreakout) {
+
+    // Stop loss breached ONLY if spot breaks above spot SL ceiling OR option premium drops below trailing SL
+    const isSpotSlHit = Boolean(peSpotSl && peSpotSl > ticker.spotPrice && spotPrice >= peSpotSl);
+    const isPremiumSlHit = Boolean(peSl > 0 && peLtp > 0 && peLtp <= peSl);
+
+    if (isSpotSlHit || isPremiumSlHit) {
       isOngoingPeInvalidated = true;
+      stopLossCooldownUntil = nowMs + 30000;
+      lastStoppedOutAction = 'BUY_PE';
     }
   }
 
@@ -970,26 +985,41 @@ export function generateTradeSignal(
       capitalProtectionReason = `Holding Active Position: Spot is in a tactical relief bounce/retest. Trade is active within valid risk bounds (SL: ₹${(activePreviousSignal.trailingStopLoss || activePreviousSignal.stopLoss).toFixed(2)}). Hold position with stop loss discipline.`;
     }
   }
-  // Condition 3: Active Trade Just Stopped Out or SMC Reversing -> Enforce Mandatory Cooldown or Reversal Transition
+  // Condition 3: Active Trade Just Stopped Out or SMC Reversing -> Enforce Mandatory Cooldown
   else if (isOngoingCeInvalidated && activePreviousSignal && !smcSetup.isDetected) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
     confidence = 50;
-    capitalProtectionReason = `🛑 Active CE Stop Loss Triggered: Technical invalidation floor breached. Close ${activePreviousSignal.recommendedStrike} CE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
+    capitalProtectionReason = `🛑 Active CE Stop Loss Triggered: Technical invalidation floor breached. Close ${activePreviousSignal.recommendedStrike} CE immediately to protect capital. Standing aside in WAIT_NEUTRAL (45s cooldown) to prevent revenge-trade whipsaw.`;
   }
   else if (isOngoingPeInvalidated && activePreviousSignal && !smcSetup.isDetected) {
     action = 'WAIT_NEUTRAL';
     strength = 'CAUTION';
     confidence = 50;
-    capitalProtectionReason = `🛑 Active PE Stop Loss Triggered: Technical invalidation ceiling breached. Close ${activePreviousSignal.recommendedStrike} PE immediately to protect capital. Standing aside in WAIT_NEUTRAL cooldown to prevent revenge-trade whipsaw.`;
+    capitalProtectionReason = `🛑 Active PE Stop Loss Triggered: Technical invalidation ceiling breached. Close ${activePreviousSignal.recommendedStrike} PE immediately to protect capital. Standing aside in WAIT_NEUTRAL (45s cooldown) to prevent revenge-trade whipsaw.`;
+  }
+  // Condition 3B: Cooldown in progress after stop loss
+  else if (isUnderCooldown) {
+    action = 'WAIT_NEUTRAL';
+    strength = 'CAUTION';
+    confidence = 50;
+    const secRemaining = Math.max(1, Math.ceil(((stopLossCooldownUntil || nowMs) - nowMs) / 1000));
+    capitalProtectionReason = `🛑 Capital Protection Cooldown (${secRemaining}s remaining): Previous ${lastStoppedOutAction === 'BUY_PE' ? 'PUT (PE)' : 'CALL (CE)'} trade stopped out. Standing aside in WAIT_NEUTRAL to eliminate revenge-trading and signal flapping.`;
   }
   // Condition 4: Standard High-Conviction Fresh Entry Evaluation or SMC Reversal
   else {
     const isSmcBullishBreakout = smcSetup.isDetected && smcSetup.setupDirection === 'BULLISH_REVERSAL_CE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
     const isSmcBearishBreakdown = smcSetup.isDetected && smcSetup.setupDirection === 'BEARISH_REVERSAL_PE' && (smcSetup.isMssConfirmed || smcSetup.fvgZone.status === 'ACTIVE_RETEST');
 
-    const isFreshBuyCe = (score >= 0.75 && netBullEdge >= 1 && !isHardBearishVeto && !isCandleBearishVeto && (prevAction !== 'BUY_PE' || isSmcBullishBreakout)) || isSmcBullishBreakout;
-    const isFreshBuyPe = (score <= -0.75 && netBullEdge <= -1 && !isHardBullishVeto && !isCandleBullishVeto && (prevAction !== 'BUY_CE' || isSmcBearishBreakdown)) || isSmcBearishBreakdown;
+    // High-conviction directional entry evaluation calibrated for optimal accuracy
+    const isFreshBuyCe = !isUnderCooldown && (
+      (score >= 0.85 && netBullEdge >= 1 && bullMatches >= 3 && !isHardBearishVeto && (prevAction !== 'BUY_PE' || isSmcBullishBreakout)) || 
+      (isSmcBullishBreakout && score >= 0.40 && !isHardBearishVeto)
+    );
+    const isFreshBuyPe = !isUnderCooldown && (
+      (score <= -0.85 && netBullEdge <= -1 && bearMatches >= 3 && !isHardBullishVeto && (prevAction !== 'BUY_CE' || isSmcBearishBreakdown)) || 
+      (isSmcBearishBreakdown && score <= -0.40 && !isHardBullishVeto)
+    );
 
     if (isFreshBuyCe) {
       action = 'BUY_CE';
@@ -1070,16 +1100,22 @@ export function generateTradeSignal(
   let currentAtmStrike = rawAtmStrike;
 
   // If previous signal recommended a valid strike, enforce a hysteresis deadband so spot oscillating 
-  // near the 50% boundary (e.g. 23,124 - 23,126) does NOT jump strikes every 2 seconds!
+  // near the 50% boundary does NOT jump strikes rapidly.
+  // CRITICAL: The deadband only applies if spot is within adjacent strike distance (<= 1.25 * strikeStep).
+  // If spot has moved further or previous signal was from another session/ticker, immediately reset to rawAtmStrike!
   if (activePreviousSignal && activePreviousSignal.recommendedStrike) {
     const prevS = activePreviousSignal.recommendedStrike;
     const distToPrev = spotPrice - prevS;
-    if (distToPrev > ticker.strikeStep * 0.65) {
-      currentAtmStrike = prevS + ticker.strikeStep;
-    } else if (distToPrev < -ticker.strikeStep * 0.65) {
-      currentAtmStrike = prevS - ticker.strikeStep;
+    if (Math.abs(distToPrev) <= ticker.strikeStep * 1.25) {
+      if (distToPrev > ticker.strikeStep * 0.65) {
+        currentAtmStrike = prevS + ticker.strikeStep;
+      } else if (distToPrev < -ticker.strikeStep * 0.65) {
+        currentAtmStrike = prevS - ticker.strikeStep;
+      } else {
+        currentAtmStrike = prevS;
+      }
     } else {
-      currentAtmStrike = prevS;
+      currentAtmStrike = rawAtmStrike;
     }
   }
 
@@ -1093,6 +1129,11 @@ export function generateTradeSignal(
   } else if (recommendedType === 'PE' && (isContinuousFall || candlePatterns.isPersistent40mFall) && spotPrice <= currentAtmStrike - ticker.strikeStep * 0.35) {
     // If market has been continuously falling and spot has slipped below midpoint towards next lower strike, align target strike to the active Put strike
     targetStrike = currentAtmStrike - ticker.strikeStep;
+  }
+
+  // Strict ATM Anchor Clamp: Target strike must ALWAYS remain within +/- 1 strike step of rawAtmStrike
+  if (Math.abs(targetStrike - rawAtmStrike) > ticker.strikeStep) {
+    targetStrike = targetStrike > rawAtmStrike ? rawAtmStrike + ticker.strikeStep : rawAtmStrike - ticker.strikeStep;
   }
 
   // Persistent Strike Anchoring for Active Trade
@@ -1828,9 +1869,10 @@ export function generateTradeSignal(
     capitalProtectionStatus = 'PROFIT_LOCKED';
     trailingStopNote = `🔒 Profit Protected: Trailed to ${ticker.currency}${trailingStopLoss.toFixed(2)} (+50% T1 gains locked)`;
   } else if (premium >= entryHigh + (target1 - entryHigh) * 0.30 || (premium - entryHigh) / Math.max(entryHigh, 1) >= 0.05) {
-    trailingStopLoss = Math.max(trailingStopLoss, roundToTick(entryHigh));
+    const safeBreakeven = Math.max(stopLoss, roundToTick(Math.min(initialEntryLtp, entryLow)));
+    trailingStopLoss = Math.max(trailingStopLoss, safeBreakeven);
     capitalProtectionStatus = 'BREAK_EVEN_LOCKED';
-    trailingStopNote = `🛡️ Break-Even Locked: Trailed to Cost (${ticker.currency}${entryHigh.toFixed(2)}) · Zero risk of capital loss`;
+    trailingStopNote = `🛡️ Break-Even Locked: Trailed to Entry Floor (${ticker.currency}${safeBreakeven.toFixed(2)}) · Zero risk of capital loss`;
   }
 
   // Determine Trade Lifecycle Stage against anchored levels and trailing stop loss
@@ -1850,16 +1892,22 @@ export function generateTradeSignal(
   if (isCeContradictedByDownturn) {
     tradeStage = 'STOP_LOSS_HIT';
     capitalProtectionStatus = 'ACTIVE_RISK';
+    stopLossCooldownUntil = nowMs + 45000;
+    lastStoppedOutAction = 'BUY_CE';
     targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend shifted downward from morning highs (Spot ${ticker.currency}${spotPrice.toLocaleString()} fell below VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} CE trade invalidated. Reversal setup in progress.`;
   } else if (isPeContradictedByUpturn) {
     tradeStage = 'STOP_LOSS_HIT';
     capitalProtectionStatus = 'ACTIVE_RISK';
+    stopLossCooldownUntil = nowMs + 45000;
+    lastStoppedOutAction = 'BUY_PE';
     targetAchievedNote = `⚠️ Trend Reversal Invalidation: Intraday trend bounced upward from lows (Spot ${ticker.currency}${spotPrice.toLocaleString()} reclaimed VWAP ${ticker.currency}${rt.vwap.value.toLocaleString()}). Previous ${previousSignal.recommendedStrike} PE trade invalidated. Reversal setup in progress.`;
   } else if (action === 'WAIT_NEUTRAL') {
-    tradeStage = 'NEUTRAL_WAIT';
-  } else if (premium <= trailingStopLoss) {
+    tradeStage = (isOngoingCeInvalidated || isOngoingPeInvalidated) ? 'STOP_LOSS_HIT' : 'NEUTRAL_WAIT';
+  } else if (isExistingOngoingTrade && premium <= trailingStopLoss) {
     tradeStage = 'STOP_LOSS_HIT';
     capitalProtectionStatus = 'ACTIVE_RISK';
+    stopLossCooldownUntil = nowMs + 45000;
+    lastStoppedOutAction = action;
     targetAchievedNote = `Technical invalidation floor (${ticker.currency}${trailingStopLoss.toFixed(2)}) was hit. Exit trade immediately to prevent further loss.`;
   } else if (premium >= target2 || sessionHighLTP >= target2) {
     if (premium >= target2 * 0.96) {
@@ -1955,6 +2003,12 @@ export function generateTradeSignal(
       hit.type = 'PE';
       hit.strike = Math.floor((ticker.spotPrice - ticker.strikeStep * 0.4) / ticker.strikeStep) * ticker.strikeStep;
       if (hit.action === 'BUY_CE') hit.action = 'WAIT_FIRST_15M';
+    }
+
+    // Strict ATM Anchor for After-Market: Reference contract must NEVER be deep ITM/OTM
+    // Guarantee hit.strike is anchored within +/- 1 strike step of current spot rawAtmStrike
+    if (Math.abs(hit.strike - rawAtmStrike) > ticker.strikeStep) {
+      hit.strike = hit.strike > rawAtmStrike ? rawAtmStrike + ticker.strikeStep : rawAtmStrike - ticker.strikeStep;
     }
 
     targetStrike = hit.strike;
@@ -2244,8 +2298,10 @@ export function generateTradeSignal(
     // ENFORCE MANDATORY COOLDOWN: When a position stops out, stand aside in WAIT_NEUTRAL.
     // Do NOT allow instant opposite-side revenge trade triggers!
     action = 'WAIT_NEUTRAL';
+    tradeStage = 'STOP_LOSS_HIT';
   } else if (action === 'BUY_CE' && bearPillars > bullPillars) {
     action = 'WAIT_NEUTRAL';
+    tradeStage = 'NEUTRAL_WAIT';
     strength = 'CAUTION';
     const conflict = Math.min(bullPillars, bearPillars);
     confidence = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillars - bearPillars) * 1.1)));
@@ -2259,6 +2315,7 @@ export function generateTradeSignal(
     summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
   } else if (action === 'BUY_PE' && bullPillars > bearPillars) {
     action = 'WAIT_NEUTRAL';
+    tradeStage = 'NEUTRAL_WAIT';
     strength = 'CAUTION';
     const conflict = Math.min(bullPillars, bearPillars);
     confidence = Math.min(76, Math.max(48, Math.round(52 + conflict * 2.8 - Math.abs(bullPillars - bearPillars) * 1.1)));
@@ -2270,9 +2327,10 @@ export function generateTradeSignal(
     contract = selectedRow?.ce;
     premium = contract?.ltp ?? premium;
     summaryNote = `${pricePrefix}: Suggesting WAIT / NEUTRAL. [${capitalProtectionReason}]. Reference contract ${targetStrike} ${recommendedType} is trading at ${ticker.currency}${premium.toFixed(2)}.`;
-  } else if (action === 'WAIT_NEUTRAL' && advanceTradeSetup.isAvailable && !isOngoingCeInvalidated && !isOngoingPeInvalidated && prevAction !== 'BUY_CE' && prevAction !== 'BUY_PE') {
+  } else if (action === 'WAIT_NEUTRAL' && advanceTradeSetup.isAvailable && !isOngoingCeInvalidated && !isOngoingPeInvalidated && !isUnderCooldown && prevAction !== 'BUY_CE' && prevAction !== 'BUY_PE') {
     if (advanceTradeSetup.anticipatedAction === 'BUY_PE' && (bearPillars >= 6 || (bearPillars >= 5 && isContinuousFall)) && bearPillars > bullPillars && candlePatterns.confluenceBias !== 'BULLISH') {
       action = 'BUY_PE';
+      tradeStage = 'FRESH_ENTRY';
       recommendedType = 'PE';
       targetStrike = advanceTradeSetup.recommendedStrike;
       strength = bearPillars >= 8 ? 'STRONG' : 'MODERATE';
@@ -2296,6 +2354,7 @@ export function generateTradeSignal(
       summaryNote = `${pricePrefix}: Suggesting BUY PE. [Pillar Consensus Confirmed: ${bearPillars} Bearish Pillars aligned with Candlestick Momentum]. Recommended ${targetStrike} PE @ ${ticker.currency}${premium.toFixed(2)}.`;
     } else if (advanceTradeSetup.anticipatedAction === 'BUY_CE' && (bullPillars >= 6 || (bullPillars >= 5 && isMarketRaising)) && bullPillars > bearPillars && candlePatterns.confluenceBias !== 'BEARISH') {
       action = 'BUY_CE';
+      tradeStage = 'FRESH_ENTRY';
       recommendedType = 'CE';
       targetStrike = advanceTradeSetup.recommendedStrike;
       strength = bullPillars >= 8 ? 'STRONG' : 'MODERATE';
@@ -2528,6 +2587,8 @@ export function generateTradeSignal(
     target1,
     target2,
     tradeStage,
+    stopLossCooldownUntil,
+    lastStoppedOutAction,
     isTargetAlreadyAchieved,
     targetAchievedNote,
     trailingStopNote,

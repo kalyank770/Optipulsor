@@ -76,8 +76,33 @@ export function isExpiryDateExpired(
 }
 
 /**
+ * Dynamically generates valid future weekly and monthly settlement dates.
+ */
+export function generateDynamicActiveExpiries(asOfDate: Date = new Date()): string[] {
+  const expiries: string[] = [];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  
+  let cursor = new Date(asOfDate.getTime());
+  while (expiries.length < 5) {
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+    const dayOfWeek = cursor.getDay();
+    if (dayOfWeek === 2 || dayOfWeek === 4) { // Tuesday or Thursday settlements
+      const d = String(cursor.getDate()).padStart(2, '0');
+      const m = months[cursor.getMonth()];
+      const y = cursor.getFullYear();
+      const dn = dayNames[dayOfWeek];
+      const isLastWeekOfMonth = cursor.getDate() >= 23;
+      const tag = isLastWeekOfMonth ? 'Monthly Expiry' : 'Weekly';
+      expiries.push(`${d} ${m} ${y} (${tag} - ${dn})`);
+    }
+  }
+  return expiries;
+}
+
+/**
  * Filters a list of expiry dates to retain only strictly active, tradeable expiries.
- * If all expiries in the list were filtered out, generates valid future Tuesday/Wednesday weekly expiries.
+ * If all expiries in the list were filtered out, generates valid future weekly expiries dynamically.
  */
 export function filterActiveExpiries(
   expiryDates: string[],
@@ -85,14 +110,7 @@ export function filterActiveExpiries(
   marketStatus?: MarketHoursStatus
 ): string[] {
   if (!expiryDates || expiryDates.length === 0) {
-    return [
-      '13 Oct 2026 (Weekly - Tue)',
-      '19 Oct 2026 (Weekly - Mon)',
-      '27 Oct 2026 (Monthly Expiry - Tue)',
-      '03 Nov 2026 (Weekly - Tue)',
-      '23 Nov 2026 (Monthly Expiry - Mon)',
-      '29 Dec 2026 (Monthly Expiry - Tue)'
-    ];
+    return generateDynamicActiveExpiries(asOfDate);
   }
 
   const active = expiryDates.filter(dStr => !isExpiryDateExpired(dStr, asOfDate, marketStatus));
@@ -101,13 +119,6 @@ export function filterActiveExpiries(
     return active;
   }
 
-  // Fallback if all were expired: Return future weekly expiries
-  return [
-    '13 Oct 2026 (Weekly - Tue)',
-    '19 Oct 2026 (Weekly - Mon)',
-    '27 Oct 2026 (Monthly Expiry - Tue)',
-    '03 Nov 2026 (Weekly - Tue)',
-    '23 Nov 2026 (Monthly Expiry - Mon)',
-    '29 Dec 2026 (Monthly Expiry - Tue)'
-  ];
+  // Fallback if all were expired: dynamically return future valid weekly expiries
+  return generateDynamicActiveExpiries(asOfDate);
 }

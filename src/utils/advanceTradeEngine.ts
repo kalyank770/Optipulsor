@@ -1393,9 +1393,14 @@ export function computeAdvanceTradeSetup(
     isCandleBear ? 'PE' :
     (isBearishSkew ? 'PE' : 'CE')
   );
-  const recStrike = forcedStrike || (recType === 'PE'
+  let recStrike = forcedStrike || (recType === 'PE'
     ? (spotPrice <= atmStrike - step * 0.3 ? atmStrike - step : atmStrike)
     : (spotPrice >= atmStrike + step * 0.3 ? atmStrike + step : atmStrike));
+
+  // Strict ATM Anchor Clamp: Never allow advance trade setup strike to drift more than 1 strike away from atmStrike
+  if (Math.abs(recStrike - atmStrike) > step) {
+    recStrike = recStrike > atmStrike ? atmStrike + step : atmStrike - step;
+  }
 
   let advanceEntryZoneSpot: [number, number];
   let breakoutConfirmationSpot: number;

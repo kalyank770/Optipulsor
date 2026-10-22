@@ -75,12 +75,14 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
   const isWait = !isBull && !isBear;
   const isSideways = isWait || Boolean(signal?.sidewaysMarketAnalysis?.isSideways && isWait);
 
-  // Trade lifecycle stages
+  // Trade lifecycle stages & Stop Loss Cooldown Guard
+  const isCooldown = Boolean(signal?.stopLossCooldownUntil && Date.now() < signal.stopLossCooldownUntil);
+  const cooldownSeconds = isCooldown ? Math.max(1, Math.ceil(((signal?.stopLossCooldownUntil || 0) - Date.now()) / 1000)) : 0;
   const stage = signal?.tradeStage || 'FRESH_ENTRY';
   const isRetracing = stage === 'POST_TARGET_RETRACEMENT';
   const isTarget1Captured = stage === 'TARGET_1_HIT';
   const isTarget2Captured = stage === 'TARGET_2_HIT';
-  const isStopLossBreached = stage === 'STOP_LOSS_HIT';
+  const isStopLossBreached = stage === 'STOP_LOSS_HIT' || isCooldown;
 
   // Spot buffer for invalidation
   const spotBuffer = ticker.currency === '$' ? 1.5 : (ticker.symbol.includes('BANK') ? 60 : 25);
@@ -206,7 +208,9 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
           </div>
 
           <span className="text-xs text-slate-300 font-mono">
-            Confidence: <strong className="text-emerald-400 font-bold">{setup.probabilityScore}%</strong>
+            Confidence: <strong className={`${isStopLossBreached ? 'text-rose-400' : isWait ? 'text-amber-400' : 'text-emerald-400'} font-bold`}>
+              {isStopLossBreached ? 'STAND ASIDE' : isWait ? `${signal?.confidence || 50}%` : `${signal?.confidence || setup.probabilityScore}%`}
+            </strong>
           </span>
         </div>
 
@@ -240,47 +244,52 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
 
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
-                  {isStopLossBreached && (
-                    <span className="text-rose-400 flex items-center gap-2 flex-wrap">
-                      <span>🛑 STOP LOSS HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
-                      <span className="text-xs font-mono font-bold bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-800">CAPITAL PROTECTED</span>
-                    </span>
-                  )}
-                  {isTarget2Captured && (
-                    <span className="text-sky-400 flex items-center gap-2 flex-wrap">
-                      <span>🚀 TARGET 2 HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
-                      <span className="text-xs font-mono font-bold bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-800">FULL EXIT</span>
-                    </span>
-                  )}
-                  {isTarget1Captured && (
-                    <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
-                      <span>🎯 TARGET 1 HIT — {setup.recommendedStrike} {setup.recommendedType}</span>
-                      <span className="text-xs font-mono font-bold bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">SCALE 50%</span>
-                    </span>
-                  )}
-                  {isRetracing && (
-                    <span className="text-amber-300 flex items-center gap-2 flex-wrap">
-                      <span>⚠️ TARGET 1 HIT · RETRACEMENT WATCH — {setup.recommendedStrike} {setup.recommendedType}</span>
-                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
-                    </span>
-                  )}
-                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBull && (
-                    <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
-                      <span>BUY CALL — {setup.recommendedStrike} CE</span>
-                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
-                    </span>
-                  )}
-                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBear && (
-                    <span className="text-rose-400 flex items-center gap-2 flex-wrap">
-                      <span>BUY PUT — {setup.recommendedStrike} PE</span>
-                      <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
-                    </span>
-                  )}
-                  {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isWait && (
-                    <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>
-                  )}
-                </h2>
+                {(() => {
+                  const activeStrike = signal?.recommendedStrike || setup.recommendedStrike;
+                  const activeType = signal?.recommendedType || setup.recommendedType;
+                  return (
+                    <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
+                      {isStopLossBreached && (
+                        <span className="text-rose-400 flex items-center gap-2 flex-wrap">
+                          <span>🛑 STOP LOSS HIT — {activeStrike} {activeType}</span>
+                        </span>
+                      )}
+                      {!isStopLossBreached && isTarget2Captured && (
+                        <span className="text-sky-400 flex items-center gap-2 flex-wrap">
+                          <span>🚀 TARGET 2 HIT — {activeStrike} {activeType}</span>
+                          <span className="text-xs font-mono font-bold bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-800">FULL EXIT</span>
+                        </span>
+                      )}
+                      {!isStopLossBreached && isTarget1Captured && !isTarget2Captured && (
+                        <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
+                          <span>🎯 TARGET 1 HIT — {activeStrike} {activeType}</span>
+                          <span className="text-xs font-mono font-bold bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">SCALE 50%</span>
+                        </span>
+                      )}
+                      {!isStopLossBreached && isRetracing && !isTarget1Captured && !isTarget2Captured && (
+                        <span className="text-amber-300 flex items-center gap-2 flex-wrap">
+                          <span>⚠️ TARGET 1 HIT · RETRACEMENT WATCH — {activeStrike} {activeType}</span>
+                          <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                        </span>
+                      )}
+                      {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBull && (
+                        <span className="text-emerald-400 flex items-center gap-2 flex-wrap">
+                          <span>BUY CALL — {activeStrike} CE</span>
+                          <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                        </span>
+                      )}
+                      {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isBear && (
+                        <span className="text-rose-400 flex items-center gap-2 flex-wrap">
+                          <span>BUY PUT — {activeStrike} PE</span>
+                          <MoneynessBadge moneyness={effectiveMoneyness} size="sm" />
+                        </span>
+                      )}
+                      {!isStopLossBreached && !isTarget2Captured && !isTarget1Captured && !isRetracing && isWait && (
+                        <span className="text-amber-400">STAY NEUTRAL / WAIT {signal?.afterMarketAnalytics?.predictedOpeningType === 'FLAT_OPENING' ? '(FLAT OPEN)' : ''}</span>
+                      )}
+                    </h2>
+                  );
+                })()}
 
                 {/* Dynamic Regime & Momentum Badge */}
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded border flex items-center gap-1.5 font-mono shadow-xs ${
@@ -302,7 +311,9 @@ export const AdvanceTradeCard: React.FC<AdvanceTradeCardProps> = ({
                     isStopLossBreached ? 'bg-rose-400' : isRetracing ? 'bg-amber-400' : isTarget2Captured ? 'bg-sky-400' : isBull ? 'bg-emerald-400' : isBear ? 'bg-rose-400' : 'bg-amber-400'
                   }`} />
                   <span>
-                    {isStopLossBreached
+                    {isCooldown
+                      ? `COOLDOWN (${cooldownSeconds}s · STAND ASIDE)`
+                      : isStopLossBreached
                       ? 'SL HIT (CAPITAL PRESERVED)'
                       : isRetracing
                       ? 'PULLBACK RETEST (Do Not Chase)'

@@ -2521,6 +2521,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
 
     // For Indian indices: fetch real live option chain directly from live NSE exchange feed
     const growwSym = GROWW_SYMBOL_MAP[rawSymbol.toUpperCase()];
+    let quote: any = null;
+    let vixQuote: any = null;
+
     if (growwSym) {
       try {
         const isBankNifty = rawSymbol.toUpperCase().includes('BANK');
@@ -2530,7 +2533,7 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
           growwUrl += `?expiry=${req.query.expiryDate}`;
         }
 
-        const [quote, vixQuote, growwRes] = await Promise.all([
+        const [fetchedQuote, fetchedVix, growwRes] = await Promise.all([
           fetchLiveQuote(rawSymbol, forceRefresh),
           fetchLiveQuote('INDIAVIX', false).catch(() => null),
           fetch(growwUrl, {
@@ -2538,9 +2541,12 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
               'Accept': 'application/json, text/plain, */*',
             },
-            signal: AbortSignal.timeout(3500)
+            signal: AbortSignal.timeout(1500)
           }).catch(() => null)
         ]);
+
+        quote = fetchedQuote;
+        vixQuote = fetchedVix;
 
         if (growwRes && growwRes.ok) {
           const growwJson = await growwRes.json().catch(() => null);
@@ -2847,7 +2853,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
               source: 'NSE Live Option Chain (Real Exchange NFO Market Depth)',
               rows: rows,
             };
-            optionChainCache.set(cacheKey, { data: payload, expiry: Date.now() + 200 });
+            const isReg = quote?.marketState === 'REGULAR';
+            const cacheTtlMs = isReg ? 2000 : 15000;
+            optionChainCache.set(cacheKey, { data: payload, expiry: Date.now() + cacheTtlMs });
             return res.json(payload);
           }
         }
@@ -2858,10 +2866,14 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
     }
 
     // Fallback: fetch live spot quote and attach official SEBI Tuesday expiry dates
-    const [quote, vixQuote] = await Promise.all([
-      fetchLiveQuote(rawSymbol),
-      fetchLiveQuote(isIndian ? 'INDIAVIX' : 'VIX').catch(() => null)
-    ]);
+    if (!quote) {
+      const [fetchedQuote, fetchedVix] = await Promise.all([
+        fetchLiveQuote(rawSymbol),
+        fetchLiveQuote(isIndian ? 'INDIAVIX' : 'VIX').catch(() => null)
+      ]);
+      quote = fetchedQuote;
+      vixQuote = fetchedVix;
+    }
     const officialExpiries = INDIAN_EXPIRIES[rawSymbol.toUpperCase()] || INDIAN_EXPIRIES['NIFTY 50'];
 
     const S = quote.spotPrice || quote.price;
@@ -3026,7 +3038,9 @@ app.get('/api/option-chain/:symbol', async (req: Request, res: Response) => {
       source: 'Black-Scholes Estimated Option Chain (Live NFO Market Depth Offline)',
       rows,
     };
-    optionChainCache.set(cacheKey, { data: fallbackPayload, expiry: Date.now() + 250 });
+    const isReg = quote?.marketState === 'REGULAR';
+    const fallbackTtlMs = isReg ? 2500 : 15000;
+    optionChainCache.set(cacheKey, { data: fallbackPayload, expiry: Date.now() + fallbackTtlMs });
     return res.json(fallbackPayload);
 
   } catch (err: unknown) {

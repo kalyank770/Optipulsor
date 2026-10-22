@@ -223,13 +223,13 @@ export function analyzeTimeframeCandles(
   }
 
   if (cleanCandles.length < 3) {
-    const dummy = cleanCandles[cleanCandles.length - 1] || {
+    const fallbackCandle = cleanCandles[cleanCandles.length - 1] || {
       time: '12:00', open: ticker.spotPrice, high: ticker.spotPrice, low: ticker.spotPrice, close: ticker.spotPrice, volume: 1000, timestamp: Date.now()
     };
     return {
       timeframe,
       candles: cleanCandles,
-      latestCandle: dummy,
+      latestCandle: fallbackCandle,
       trend: 'SIDEWAYS',
       pattern: 'Consolidation',
       patternBias: 'NEUTRAL',

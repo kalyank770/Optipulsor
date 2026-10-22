@@ -8,7 +8,7 @@ import {
 import { AfterMarketOpeningCard } from './AfterMarketOpeningCard';
 import { PredictionValidationCard } from './PredictionValidationCard';
 import { MarketHoursStatus } from '../utils/marketHours';
-import { NSE_CROSS_EXPIRY_22900_QUOTES, resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
+import { resolveNextExpiryContractQuote } from '../data/officialNseQuotes';
 import { AdvanceTradeCard } from './AdvanceTradeCard';
 import { 
   TrendingUp, 

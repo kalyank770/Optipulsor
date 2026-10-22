@@ -14,13 +14,13 @@ import {
   ExpirySignalSummary,
   SignalAction,
   NiftyConstituentAnalysis,
-  InterMarketTelemetry
+  InterMarketTelemetry,
+  TradeLifecycleStage
 } from '../types/options';
 import { POPULAR_TICKERS } from '../data/marketTickers';
 import { INITIAL_NEWS_FEED } from '../data/newsFeed';
 import { analyzeNiftyConstituents } from '../data/niftyConstituents';
 import { getInterMarketTelemetry } from '../data/globalMacroData';
-import { NSE_OFFICIAL_NIFTY_CHAIN, NSE_CROSS_EXPIRY_22850_QUOTES, NSE_CROSS_EXPIRY_22900_QUOTES } from '../data/officialNseQuotes';
 import { filterActiveExpiries } from '../utils/expiryEngine';
 import { calculateBlackScholes, getTickerExpiryDTE } from '../utils/blackScholes';
 import { computeMarketMetrics, generateTradeSignal } from '../utils/signalEngine';
@@ -119,25 +119,11 @@ export function buildInitialChain(ticker: TickerConfig, expiryIndex: number): Op
     let ceChange = Number((ceLtp - cePrevClose).toFixed(2));
     let peChange = Number((peLtp - pePrevClose).toFixed(2));
 
-    const crossExpiryQuote = isIndian && ticker.symbol.includes('NIFTY')
-      ? (K === 22850 ? (NSE_CROSS_EXPIRY_22850_QUOTES[expiryIndex] || NSE_CROSS_EXPIRY_22850_QUOTES[1])
-        : (K === 22900 ? (NSE_CROSS_EXPIRY_22900_QUOTES[expiryIndex] || NSE_CROSS_EXPIRY_22900_QUOTES[1]) : undefined))
-      : undefined;
-
-    if (crossExpiryQuote) {
-      ceLtp = crossExpiryQuote.ceLtp;
-      peLtp = crossExpiryQuote.peLtp;
-      ceChange = crossExpiryQuote.ceChg;
-      peChange = crossExpiryQuote.peChg;
-      cePrevClose = Math.max(0.05, Number((ceLtp - ceChange).toFixed(2)));
-      pePrevClose = Math.max(0.05, Number((peLtp - peChange).toFixed(2)));
-    } else {
-      if (ceLtp <= 0.05 && cePrevClose <= 0.05) {
-        ceChange = 0;
-      }
-      if (peLtp <= 0.05 && pePrevClose <= 0.05) {
-        peChange = 0;
-      }
+    if (ceLtp <= 0.05 && cePrevClose <= 0.05) {
+      ceChange = 0;
+    }
+    if (peLtp <= 0.05 && pePrevClose <= 0.05) {
+      peChange = 0;
     }
 
     // Tight market spread
@@ -464,9 +450,33 @@ export function useLiveOptionChain() {
   const chainRef = useRef<OptionChainRow[]>(chain);
   chainRef.current = chain;
 
+  // Stability Lock Ref: Holds recommendations solid across ticks, eliminating rapid micro-flickering
+  const stabilityLockRef = useRef<{
+    action: SignalAction;
+    strike: number;
+    type: OptionType;
+    tradeStage: TradeLifecycleStage;
+    lockedAt: number;
+    durationSeconds: number;
+  }>({
+    action: signal.action,
+    strike: signal.recommendedStrike,
+    type: signal.recommendedType,
+    tradeStage: signal.tradeStage || 'FRESH_ENTRY',
+    lockedAt: Date.now(),
+    durationSeconds: 30,
+  });
+
   // Anti-Whipsaw Confirmation Tracker: Requires consecutive tick confirmation before flipping directional actions
   const pendingActionRef = useRef<{ action: SignalAction; count: number; firstProposedTime: number }>({
     action: signal.action,
+    count: 0,
+    firstProposedTime: 0,
+  });
+
+  // Stage Confirmation Tracker: Prevents single-tick flutter between STOP_LOSS_HIT and FRESH_ENTRY
+  const pendingStageRef = useRef<{ stage: TradeLifecycleStage; count: number; firstProposedTime: number }>({
+    stage: signal.tradeStage || 'FRESH_ENTRY',
     count: 0,
     firstProposedTime: 0,
   });
@@ -480,54 +490,217 @@ export function useLiveOptionChain() {
 
   // Signal execution engine: Trade recommendations update dynamically with anti-whipsaw confirmation
   const applySignalWithDebounce = useCallback((proposedSignal: TradeSignal, bypassDebounce = false): TradeSignal => {
-    const currentAction = signalRef.current?.action || 'WAIT_NEUTRAL';
+    const now = Date.now();
+    const currentAction = stabilityLockRef.current.action || signalRef.current?.action || 'WAIT_NEUTRAL';
+    const currentStage = stabilityLockRef.current.tradeStage || signalRef.current?.tradeStage || 'FRESH_ENTRY';
 
-    // 1. Immediate execution: Bypass debounce for manual user actions, ticker/expiry switches, or stop-loss/target triggers
-    const isUrgentExecution = bypassDebounce || 
-      proposedSignal.tradeStage === 'STOP_LOSS_HIT' || 
-      proposedSignal.tradeStage === 'TARGET_1_HIT' || 
-      proposedSignal.tradeStage === 'TARGET_2_HIT';
+    const lockElapsed = (now - stabilityLockRef.current.lockedAt) / 1000;
+    const secondsRemaining = Math.max(0, Math.ceil(stabilityLockRef.current.durationSeconds - lockElapsed));
+    const isLockActive = secondsRemaining > 0 && !bypassDebounce;
 
-    if (isUrgentExecution || proposedSignal.action === currentAction) {
+    // 1. Target Hit Execution: Target hits immediately update the trade stage without resetting action
+    if (proposedSignal.tradeStage === 'TARGET_1_HIT' || proposedSignal.tradeStage === 'TARGET_2_HIT') {
+      stabilityLockRef.current.tradeStage = proposedSignal.tradeStage;
+      return proposedSignal;
+    }
+
+    // 2. Stop-Loss Debounce & Stabilization: Require 2-tick confirmation before locking in STOP_LOSS_HIT
+    if (proposedSignal.tradeStage === 'STOP_LOSS_HIT') {
+      if (bypassDebounce || currentStage === 'STOP_LOSS_HIT') {
+        stabilityLockRef.current = {
+          action: 'WAIT_NEUTRAL',
+          strike: proposedSignal.recommendedStrike,
+          type: proposedSignal.recommendedType,
+          tradeStage: 'STOP_LOSS_HIT',
+          lockedAt: now,
+          durationSeconds: 45,
+        };
+        return {
+          ...proposedSignal,
+          action: 'WAIT_NEUTRAL',
+          tradeStage: 'STOP_LOSS_HIT',
+          stabilityLock: {
+            isActive: true,
+            lockDurationSeconds: 45,
+            secondsRemaining: 45,
+            lockedAtTimestamp: now,
+            expiresAtTimestamp: now + 45000,
+            lockType: 'EQUILIBRIUM_PERSISTENCE',
+            lockHeadline: 'Stop-Loss Cooldown Lock (45s)',
+          },
+        };
+      }
+
+      if (pendingStageRef.current.stage === 'STOP_LOSS_HIT') {
+        pendingStageRef.current.count += 1;
+        const elapsed = now - pendingStageRef.current.firstProposedTime;
+        if (pendingStageRef.current.count >= 2 || elapsed >= 1500) {
+          pendingStageRef.current = { stage: 'STOP_LOSS_HIT', count: 0, firstProposedTime: 0 };
+          stabilityLockRef.current = {
+            action: 'WAIT_NEUTRAL',
+            strike: proposedSignal.recommendedStrike,
+            type: proposedSignal.recommendedType,
+            tradeStage: 'STOP_LOSS_HIT',
+            lockedAt: now,
+            durationSeconds: 45,
+          };
+          return {
+            ...proposedSignal,
+            action: 'WAIT_NEUTRAL',
+            tradeStage: 'STOP_LOSS_HIT',
+            stabilityLock: {
+              isActive: true,
+              lockDurationSeconds: 45,
+              secondsRemaining: 45,
+              lockedAtTimestamp: now,
+              expiresAtTimestamp: now + 45000,
+              lockType: 'EQUILIBRIUM_PERSISTENCE',
+              lockHeadline: 'Stop-Loss Cooldown Lock (45s)',
+            },
+          };
+        }
+      } else {
+        pendingStageRef.current = { stage: 'STOP_LOSS_HIT', count: 1, firstProposedTime: now };
+      }
+
+      // Buffer the 1st tick of stop-loss to ensure it isn't a micro-tick spread glitch
+      return {
+        ...proposedSignal,
+        action: currentAction,
+        tradeStage: currentStage,
+        recommendedStrike: stabilityLockRef.current.strike,
+        recommendedType: stabilityLockRef.current.type,
+      };
+    }
+
+    // Reset pending stage if stop-loss is no longer proposed
+    if (pendingStageRef.current.stage === 'STOP_LOSS_HIT') {
+      pendingStageRef.current = { stage: proposedSignal.tradeStage || 'FRESH_ENTRY', count: 0, firstProposedTime: 0 };
+    }
+
+    // 3. User manual bypass (ticker change, expiry switch, manual refresh)
+    if (bypassDebounce) {
+      const lockDur = getTargetLockDurationSeconds();
+      stabilityLockRef.current = {
+        action: proposedSignal.action,
+        strike: proposedSignal.recommendedStrike,
+        type: proposedSignal.recommendedType,
+        tradeStage: proposedSignal.tradeStage || 'FRESH_ENTRY',
+        lockedAt: now,
+        durationSeconds: lockDur,
+      };
       pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
       return proposedSignal;
     }
 
-    // 2. Action Flip Proposed: Verify with consecutive tick confirmation to buffer out single-tick exchange feed spikes
-    if (pendingActionRef.current.action === proposedSignal.action) {
-      pendingActionRef.current.count += 1;
-      const elapsedMs = Date.now() - pendingActionRef.current.firstProposedTime;
+    // 4. Proposed action matches current action: Allow live numerical updates, preserve lock
+    const activeSpot = selectedTickerRef.current?.spotPrice || 22600;
+    const activeStep = selectedTickerRef.current?.strikeStep || 50;
+    const currentSpotAtm = Math.round(activeSpot / activeStep) * activeStep;
+    const isLockedStrikeValid = isLockActive && Math.abs(stabilityLockRef.current.strike - currentSpotAtm) <= activeStep * 1.25;
 
-      // Confirmed across consecutive ticks or sustained over > 3 seconds: Apply the confirmed action
-      if (pendingActionRef.current.count >= 2 || elapsedMs >= 3000) {
-        pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
-        return proposedSignal;
-      }
+    // If locked strike drifted more than 1.25 steps away from spot ATM, re-anchor it to proposed ATM strike
+    if (!isLockedStrikeValid && isLockActive) {
+      stabilityLockRef.current.strike = proposedSignal.recommendedStrike;
+      stabilityLockRef.current.type = proposedSignal.recommendedType;
+    }
 
-      // Buffer the single anomalous tick, preserving the previous stable action
+    if (proposedSignal.action === currentAction) {
+      pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
+      const effectiveStrike = isLockedStrikeValid ? stabilityLockRef.current.strike : proposedSignal.recommendedStrike;
+      const effectiveType = isLockActive ? stabilityLockRef.current.type : proposedSignal.recommendedType;
+
+      return {
+        ...proposedSignal,
+        recommendedStrike: effectiveStrike,
+        recommendedType: effectiveType,
+        stabilityLock: isLockActive ? {
+          isActive: true,
+          lockDurationSeconds: stabilityLockRef.current.durationSeconds,
+          secondsRemaining,
+          lockedAtTimestamp: stabilityLockRef.current.lockedAt,
+          expiresAtTimestamp: stabilityLockRef.current.lockedAt + stabilityLockRef.current.durationSeconds * 1000,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: `Signal Stability Lock (${secondsRemaining}s)`,
+        } : undefined,
+      };
+    }
+
+    // 5. Action Flip Proposed: If stability lock is active, hold current action
+    if (isLockActive) {
+      const effectiveStrike = isLockedStrikeValid ? stabilityLockRef.current.strike : proposedSignal.recommendedStrike;
       return {
         ...proposedSignal,
         action: currentAction,
-        recommendedStrike: signalRef.current?.recommendedStrike || proposedSignal.recommendedStrike,
-        recommendedType: signalRef.current?.recommendedType || proposedSignal.recommendedType,
+        tradeStage: currentStage,
+        recommendedStrike: effectiveStrike,
+        recommendedType: stabilityLockRef.current.type,
+        stabilityLock: {
+          isActive: true,
+          lockDurationSeconds: stabilityLockRef.current.durationSeconds,
+          secondsRemaining,
+          lockedAtTimestamp: stabilityLockRef.current.lockedAt,
+          expiresAtTimestamp: stabilityLockRef.current.lockedAt + stabilityLockRef.current.durationSeconds * 1000,
+          lockType: 'INSTITUTIONAL_PERSISTENCE',
+          lockHeadline: `Signal Stability Lock (${secondsRemaining}s)`,
+        },
+      };
+    }
+
+    // 6. Lock expired: Require 3 consecutive tick confirmations before flipping action
+    if (pendingActionRef.current.action === proposedSignal.action) {
+      pendingActionRef.current.count += 1;
+      const elapsedMs = now - pendingActionRef.current.firstProposedTime;
+
+      // Confirmed across 3 consecutive ticks or sustained over > 4 seconds
+      if (pendingActionRef.current.count >= 3 || elapsedMs >= 4000) {
+        const lockDur = getTargetLockDurationSeconds();
+        stabilityLockRef.current = {
+          action: proposedSignal.action,
+          strike: proposedSignal.recommendedStrike,
+          type: proposedSignal.recommendedType,
+          tradeStage: proposedSignal.tradeStage || 'FRESH_ENTRY',
+          lockedAt: now,
+          durationSeconds: lockDur,
+        };
+        pendingActionRef.current = { action: proposedSignal.action, count: 0, firstProposedTime: 0 };
+        return {
+          ...proposedSignal,
+          stabilityLock: {
+            isActive: true,
+            lockDurationSeconds: lockDur,
+            secondsRemaining: lockDur,
+            lockedAtTimestamp: now,
+            expiresAtTimestamp: now + lockDur * 1000,
+            lockType: 'INSTITUTIONAL_PERSISTENCE',
+            lockHeadline: `Signal Stability Lock (${lockDur}s)`,
+          },
+        };
+      }
+
+      // Buffer tick while confirming
+      return {
+        ...proposedSignal,
+        action: currentAction,
+        recommendedStrike: stabilityLockRef.current.strike,
+        recommendedType: stabilityLockRef.current.type,
       };
     } else {
-      // First tick proposing a directional flip: Start confirmation timer
+      // First tick proposing flip: Start confirmation timer
       pendingActionRef.current = {
         action: proposedSignal.action,
         count: 1,
-        firstProposedTime: Date.now(),
+        firstProposedTime: now,
       };
 
-      // Hold previous stable action for 1 tick while confirming persistence
       return {
         ...proposedSignal,
         action: currentAction,
-        recommendedStrike: signalRef.current?.recommendedStrike || proposedSignal.recommendedStrike,
-        recommendedType: signalRef.current?.recommendedType || proposedSignal.recommendedType,
+        recommendedStrike: stabilityLockRef.current.strike,
+        recommendedType: stabilityLockRef.current.type,
       };
     }
-  }, []);
+  }, [getTargetLockDurationSeconds]);
 
   // Strike History and Derived Profitability Trends State
   const [strikeHistory, setStrikeHistory] = useState<StrikeHistoryItem[]>(() =>
@@ -665,20 +838,16 @@ export function useLiveOptionChain() {
     tickerToFetch?: TickerConfig,
     targetExpiryIndex?: number,
     customDateTimestamp?: number,
-    isManual = false
+    isManual = false,
+    forceRefresh = false
   ) => {
     const activeTicker = tickerToFetch || selectedTickerRef.current;
     const activeExpIndex = targetExpiryIndex !== undefined ? targetExpiryIndex : expiryIndexRef.current;
     const activeTimestamps = expiryTimestampsRef.current;
-    const activeIsLive = isLiveActiveRef.current;
     const activeUsePre = usePreMarketRef.current;
 
     if (isPollingInFlightRef.current && !isManual) {
-      if (performance.now() - lastPollStartRef.current > 150) {
-        isPollingInFlightRef.current = false;
-      } else {
-        return;
-      }
+      return;
     }
     isPollingInFlightRef.current = true;
     lastPollStartRef.current = performance.now();
@@ -694,7 +863,7 @@ export function useLiveOptionChain() {
       } else if (activeTimestamps[activeExpIndex]) {
         params.set('date', String(activeTimestamps[activeExpIndex]));
       }
-      if (isManual || activeIsLive) {
+      if (isManual || forceRefresh) {
         params.set('refresh', 'true');
       }
       const qs = params.toString();
@@ -702,7 +871,7 @@ export function useLiveOptionChain() {
         url += `?${qs}`;
       }
 
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (res.ok) {
         setFeedLatencies(prev => ({ ...prev, chain: Math.max(1, Math.round(performance.now() - tStart)) }));
         const data = await res.json();
@@ -1025,6 +1194,19 @@ export function useLiveOptionChain() {
   const handleSelectTicker = (newTicker: TickerConfig) => {
     signalRef.current = undefined as any;
 
+    // Reset stability lock and debounce tracking for the new ticker
+    const freshAtm = Math.round(newTicker.spotPrice / newTicker.strikeStep) * newTicker.strikeStep;
+    stabilityLockRef.current = {
+      action: 'WAIT_NEUTRAL',
+      strike: freshAtm,
+      type: 'CE',
+      tradeStage: 'FRESH_ENTRY',
+      lockedAt: 0,
+      durationSeconds: 0,
+    };
+    pendingActionRef.current = { action: 'WAIT_NEUTRAL', count: 0, firstProposedTime: 0 };
+    pendingStageRef.current = { stage: 'FRESH_ENTRY', count: 0, firstProposedTime: 0 };
+
     // 2. Clear temporary option chain cache to prevent stale strike rows
     tempExpiryChainCache.clear();
 
@@ -1178,7 +1360,7 @@ export function useLiveOptionChain() {
 
       const now = Date.now();
       const timeSinceLastTick = now - lastSuccessfulTickTimeRef.current;
-      const isStale = timeSinceLastTick > 4000 || consecutiveFailuresRef.current >= 2;
+      const isStale = timeSinceLastTick > 20000 || consecutiveFailuresRef.current >= 3;
 
       if (isStale) {
         setIsFeedReconnecting(true);
@@ -1189,29 +1371,30 @@ export function useLiveOptionChain() {
           selectedTickerRef.current,
           expiryIndexRef.current,
           undefined,
-          isStale // Trigger refresh=true to force session cookie renewal & bypass cache if feed hangs
+          false,
+          isStale
         );
       } catch {
         // Handled internally in fetchOptionChainFromBackend
       } finally {
         if (!isMounted) return;
         const currentMkt = marketStatusRef.current;
-        const isMarketActive = currentMkt.isOpen || currentMkt.session === 'REGULAR' || currentMkt.session === 'PRE_MARKET';
-        const nextInterval = isMarketActive ? 150 : 250;
+        const isMarketActive = currentMkt.isOpen || currentMkt.session === 'REGULAR';
+        const nextInterval = isMarketActive ? Math.max(1000, updateIntervalMs) : 3000;
         timer = setTimeout(poll, nextInterval);
       }
     };
 
     const initialMkt = marketStatusRef.current;
-    const isMarketActive = initialMkt.isOpen || initialMkt.session === 'REGULAR' || initialMkt.session === 'PRE_MARKET';
-    const initialInterval = isMarketActive ? 150 : 250;
+    const isMarketActive = initialMkt.isOpen || initialMkt.session === 'REGULAR';
+    const initialInterval = isMarketActive ? Math.max(500, updateIntervalMs) : 1000;
     timer = setTimeout(poll, initialInterval);
 
     return () => {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [isLiveActive, fetchOptionChainFromBackend]);
+  }, [isLiveActive, updateIntervalMs, fetchOptionChainFromBackend]);
 
   // Live market metrics directly drive real-time trade signal generation on every market tick.
 
@@ -1293,14 +1476,20 @@ export function useLiveOptionChain() {
   };
 
   // Manual Force Refresh
-  const handleForceRefresh = () => {
+  const handleForceRefresh = async () => {
     setIsSyncing(true);
     tempExpiryChainCache.clear();
-    fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true);
-    fetchRealNews(selectedTickerRef.current.symbol, true);
-    fetchHeavyweights(selectedTickerRef.current.symbol);
-    fetchGlobalMacro(selectedTickerRef.current.symbol, true);
-    fetchMarketCandles(selectedTickerRef.current.symbol);
+    try {
+      await Promise.allSettled([
+        fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true, true),
+        fetchRealNews(selectedTickerRef.current.symbol, true),
+        fetchHeavyweights(selectedTickerRef.current.symbol),
+        fetchGlobalMacro(selectedTickerRef.current.symbol, true),
+        fetchMarketCandles(selectedTickerRef.current.symbol),
+      ]);
+    } finally {
+      setIsSyncing(false);
+    }
     playTone(750, 0.05);
   };
 
@@ -1349,14 +1538,17 @@ export function useLiveOptionChain() {
     newsLastSynced,
     syncAllFeeds: async () => {
       setIsSyncing(true);
-      await Promise.allSettled([
-        fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true),
-        fetchMarketCandles(selectedTickerRef.current.symbol),
-        fetchGlobalMacro(selectedTickerRef.current.symbol, true),
-        fetchHeavyweights(selectedTickerRef.current.symbol),
-        fetchRealNews(selectedTickerRef.current.symbol, true),
-      ]);
-      setIsSyncing(false);
+      try {
+        await Promise.allSettled([
+          fetchOptionChainFromBackend(selectedTickerRef.current, expiryIndexRef.current, undefined, true, true),
+          fetchMarketCandles(selectedTickerRef.current.symbol),
+          fetchGlobalMacro(selectedTickerRef.current.symbol, true),
+          fetchHeavyweights(selectedTickerRef.current.symbol),
+          fetchRealNews(selectedTickerRef.current.symbol, true),
+        ]);
+      } finally {
+        setIsSyncing(false);
+      }
     },
     syncLiveExchange: async () => {
       setIsSyncing(true);

@@ -33,13 +33,13 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'Official NSE India Endpoint (nseindia.com)',
     },
     expiryDates: [
-      '19 Oct 2026 (Weekly - Mon)',
       '27 Oct 2026 (Monthly Expiry - Tue)',
+      '29 Oct 2026 (Monthly Expiry - Thu)',
       '03 Nov 2026 (Weekly - Tue)',
-      '23 Nov 2026 (Monthly Expiry - Mon)',
+      '24 Nov 2026 (Monthly Expiry - Tue)',
       '29 Dec 2026 (Monthly Expiry - Tue)'
     ],
-    asOnTime: '16-Oct-2026 15:30:00 IST',
+    asOnTime: 'Live Exchange Feed',
     isLiveSynced: true,
   },
   {
@@ -63,9 +63,9 @@ export const POPULAR_TICKERS: TickerConfig[] = [
     vixChange: -0.45,
     marketState: 'REGULAR',
     expiryDates: [
-      '13 Oct 2026 (Weekly - Tue)',
       '27 Oct 2026 (Monthly Expiry - Tue)',
-      '24 Nov 2026 (Monthly Expiry - Tue)'
+      '24 Nov 2026 (Monthly Expiry - Tue)',
+      '29 Dec 2026 (Monthly Expiry - Tue)'
     ],
     asOnTime: 'Live Exchange Feed',
     isLiveSynced: true,
@@ -102,13 +102,12 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       source: 'NSE India Official Exchange Settled Feed',
     },
     expiryDates: [
-      '07 Oct 2026 (Weekly - Wed)',
-      '14 Oct 2026 (Weekly - Wed)',
-      '21 Oct 2026 (Weekly - Wed)',
       '29 Oct 2026 (Monthly Expiry - Thu)',
-      '04 Nov 2026 (Weekly - Wed)'
+      '04 Nov 2026 (Weekly - Wed)',
+      '11 Nov 2026 (Weekly - Wed)',
+      '26 Nov 2026 (Monthly Expiry - Thu)'
     ],
-    asOnTime: '08-Oct-2026 15:30:00 IST',
+    asOnTime: 'Live Exchange Feed',
     isLiveSynced: true,
   },
   {
@@ -138,16 +137,16 @@ export const POPULAR_TICKERS: TickerConfig[] = [
       price: 24521.00,
       change: -329.00,
       changePercent: -1.32,
-      time: '06-Oct-2026 15:30:00 IST',
+      time: '21-Oct-2026 15:30:00 IST',
       source: 'NSE Regular Session',
     },
     expiryDates: [
-      '13 Oct 2026 (Weekly - Tue)',
-      '20 Oct 2026 (Weekly - Tue)',
       '27 Oct 2026 (Monthly Expiry - Tue)',
-      '03 Nov 2026 (Weekly - Tue)'
+      '03 Nov 2026 (Weekly - Tue)',
+      '10 Nov 2026 (Weekly - Tue)',
+      '24 Nov 2026 (Monthly Expiry - Tue)'
     ],
-    asOnTime: '06-Oct-2026 15:30:00 IST',
+    asOnTime: 'Live Exchange Feed',
     isLiveSynced: true,
   },
   // --- NIFTY 50 HEAVYWEIGHT DERIVATIVE COMPANIES ---
